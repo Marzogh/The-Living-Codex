@@ -20,6 +20,7 @@ function clampInt(value, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_I
   return Math.min(max, Math.max(min, n));
 }
 
+
 function escapeHtml(text) {
   return (text ?? "")
     .toString()
@@ -30,6 +31,17 @@ function escapeHtml(text) {
     .replaceAll("'", "&#39;");
 }
 
+function prettyId(id) {
+  const s = (id ?? "").toString().trim();
+  if (!s) return "";
+  return s
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -37,6 +49,55 @@ function clamp(value, min, max) {
 function normaliseTrackers(c) {
   if (!c.trackers) c.trackers = [];
   if (!Array.isArray(c.trackers)) c.trackers = [];
+}
+
+function normaliseClasses(c) {
+  if (!c.core) c.core = {};
+
+  // Ensure array exists
+  if (!Array.isArray(c.core.classes)) {
+    if (c.core.classId) {
+      c.core.classes = [{ id: c.core.classId, level: 1, isPrimary: true }];
+    } else {
+      c.core.classes = [];
+    }
+  }
+
+  // If classId exists but isn't represented, add it.
+  if (c.core.classId && !c.core.classes.some(x => (x?.id || "") === c.core.classId)) {
+    c.core.classes.push({ id: c.core.classId, level: 1, isPrimary: c.core.classes.length === 0 });
+  }
+
+  // Normalise fields + ensure min level
+  c.core.classes = c.core.classes
+    .filter(x => x && (x.id ?? "").toString().trim())
+    .map(x => ({
+      id: (x.id ?? "").toString().trim(),
+      level: clampInt(x.level ?? 1, 1) ?? 1,
+      isPrimary: Boolean(x.isPrimary)
+    }));
+
+  // Ensure exactly one primary if any classes exist
+  if (c.core.classes.length > 0) {
+    if (!c.core.classes.some(x => x.isPrimary)) {
+      c.core.classes[0].isPrimary = true;
+    }
+
+    // If multiple primaries, keep the first
+    let seen = false;
+    for (const cl of c.core.classes) {
+      if (cl.isPrimary) {
+        if (!seen) seen = true;
+        else cl.isPrimary = false;
+      }
+    }
+
+    const primary = c.core.classes.find(x => x.isPrimary) || c.core.classes[0];
+    c.core.classId = primary.id;
+  } else {
+    // No classes selected
+    c.core.classId = c.core.classId || "";
+  }
 }
 
 function renderEmpty() {
@@ -82,6 +143,14 @@ export function mountEditor({ root, getCharacter, onChange }) {
     }
 
     normaliseTrackers(c);
+    normaliseClasses(c);
+
+    const rulesetId = c.core?.rulesetId ?? c.meta?.ruleset_id ?? "";
+    const classId = c.core?.classId ?? c.core?.class_id ?? "";
+    const speciesId = c.core?.speciesId ?? c.core?.species_id ?? c.core?.raceId ?? c.core?.race_id ?? "";
+
+    const classLabel = classId ? prettyId(classId) : "(not set)";
+    const speciesLabel = speciesId ? prettyId(speciesId) : "(not set)";
 
     root.innerHTML = `
       <section class="card">
@@ -90,14 +159,65 @@ export function mountEditor({ root, getCharacter, onChange }) {
         <div class="grid">
           <div class="field">
             <label for="char_name">Name</label>
-            <input id="char_name" type="text" value="${escapeHtml(c.meta?.name ?? "")}" />
+            <input id="char_name" type="text" value="${escapeHtml(c.meta?.name ?? c.core?.name ?? "")}" />
           </div>
 
           <div class="field">
             <label>Ruleset (locked)</label>
-            <div class="readonly" id="ruleset_id">${c.meta?.ruleset_id ?? ""}</div>
+            <div class="readonly" id="ruleset_id">${escapeHtml(rulesetId)}</div>
+          </div>
+
+          <div class="field">
+            <label>Class</label>
+            <div class="readonly" id="class_id" title="${escapeHtml(classId)}">${escapeHtml(classLabel)}</div>
+          </div>
+
+          <div class="field">
+            <label>Species</label>
+            <div class="readonly" id="species_id" title="${escapeHtml(speciesId)}">${escapeHtml(speciesLabel)}</div>
           </div>
         </div>
+      </section>
+
+      <section class="card">
+        <h2>Classes &amp; Levels</h2>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th style="width: 110px;">Level</th>
+              <th style="width: 90px;">Primary</th>
+              <th style="width: 110px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${c.core.classes.length === 0
+              ? `<tr><td colspan="4" class="hint">No classes set yet.</td></tr>`
+              : c.core.classes.map((cl, idx) => `
+                <tr data-class-row="1" data-class-idx="${idx}">
+                  <td title="${escapeHtml(cl.id)}">${escapeHtml(prettyId(cl.id))}</td>
+                  <td>
+                    <input type="number" min="1" inputmode="numeric"
+                      data-class-level="1" data-class-idx="${idx}"
+                      value="${cl.level ?? 1}" />
+                  </td>
+                  <td style="text-align:center;">
+                    <input type="radio" name="primary_class"
+                      data-class-primary="1" data-class-idx="${idx}"
+                      ${cl.isPrimary ? "checked" : ""} />
+                  </td>
+                  <td>
+                    <button type="button" data-class-del="1" data-class-idx="${idx}">Remove</button>
+                  </td>
+                </tr>
+              `).join("")
+            }
+          </tbody>
+        </table>
+
+        <button type="button" id="class_add">Add class (manual)</button>
+        <p class="hint">v0: class selection is manual here. Later we can make this a selector and enforce multiclassing rules.</p>
       </section>
 
       <section class="card">
@@ -272,6 +392,64 @@ export function mountEditor({ root, getCharacter, onChange }) {
         </p>
       </section>
     `;
+    // Multiclass handlers
+    root.querySelectorAll("input[data-class-level]").forEach((el) => {
+      el.addEventListener("input", () => {
+        const idx = Number(el.getAttribute("data-class-idx"));
+        const v = clampInt(el.value, 1);
+        if (Number.isNaN(idx) || v === null) return;
+        applyUpdate((next) => {
+          normaliseClasses(next);
+          if (!next.core.classes[idx]) return;
+          next.core.classes[idx].level = v;
+        });
+      });
+    });
+
+    root.querySelectorAll("input[data-class-primary]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const idx = Number(el.getAttribute("data-class-idx"));
+        if (Number.isNaN(idx)) return;
+        applyUpdate((next) => {
+          normaliseClasses(next);
+          next.core.classes.forEach((c2, i) => {
+            c2.isPrimary = (i === idx);
+          });
+          normaliseClasses(next); // re-sync core.classId
+        });
+        render();
+      });
+    });
+
+    root.querySelectorAll("button[data-class-del]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.getAttribute("data-class-idx"));
+        if (Number.isNaN(idx)) return;
+        applyUpdate((next) => {
+          normaliseClasses(next);
+          next.core.classes.splice(idx, 1);
+          normaliseClasses(next);
+        });
+        render();
+      });
+    });
+
+    const addClassBtn = root.querySelector("#class_add");
+    if (addClassBtn) {
+      addClassBtn.addEventListener("click", () => {
+        const id = prompt("Enter class id (e.g. fighter, wizard, artificer)");
+        if (!id) return;
+        const clean = id.toString().trim().toLowerCase();
+        if (!clean) return;
+        applyUpdate((next) => {
+          normaliseClasses(next);
+          if (next.core.classes.some(x => x.id === clean)) return;
+          next.core.classes.push({ id: clean, level: 1, isPrimary: next.core.classes.length === 0 });
+          normaliseClasses(next);
+        });
+        render();
+      });
+    }
 
     // Name
     const nameEl = root.querySelector("#char_name");
