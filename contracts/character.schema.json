@@ -1,0 +1,225 @@
+
+
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/dnd-character-pack/character.schema.json",
+  "title": "D&D Character Pack (v1)",
+  "type": "object",
+  "required": [
+    "meta",
+    "identity",
+    "abilities",
+    "combat",
+    "defenses",
+    "currency",
+    "proficiencies",
+    "trackers",
+    "spellcasting",
+    "assets"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": [
+        "schema",
+        "schema_version",
+        "id",
+        "name",
+        "ruleset_id",
+        "created_utc",
+        "modified_utc"
+      ],
+      "properties": {
+        "schema": { "const": "dnd-character-pack" },
+        "schema_version": { "type": "string" },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "ruleset_id": { "enum": ["dnd5e_2014", "dnd5e_2024"] },
+        "created_utc": { "type": "string" },
+        "modified_utc": { "type": "string" },
+        "app": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+
+    "identity": {
+      "type": "object",
+      "required": ["classes"],
+      "properties": {
+        "player_name": { "type": "string" },
+        "campaign": { "type": "string" },
+        "ancestry": { "type": "string" },
+        "background": { "type": "string" },
+        "alignment": { "type": "string" },
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "level"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "level": { "type": "integer", "minimum": 1 },
+              "subclass": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "abilities": {
+      "type": "object",
+      "required": ["str", "dex", "con", "int", "wis", "cha"],
+      "properties": {
+        "str": { "type": "integer" },
+        "dex": { "type": "integer" },
+        "con": { "type": "integer" },
+        "int": { "type": "integer" },
+        "wis": { "type": "integer" },
+        "cha": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+
+    "combat": {
+      "type": "object",
+      "required": [
+        "ac",
+        "initiative_bonus",
+        "speed",
+        "hp",
+        "death_saves",
+        "conditions",
+        "passives"
+      ],
+      "properties": {
+        "ac": { "type": "integer", "minimum": 0 },
+        "initiative_bonus": { "type": "integer" },
+        "speed": {
+          "type": "object",
+          "required": ["walk", "fly", "swim", "climb", "burrow", "other"],
+          "properties": {
+            "walk": { "type": "integer", "minimum": 0 },
+            "fly": { "type": "integer", "minimum": 0 },
+            "swim": { "type": "integer", "minimum": 0 },
+            "climb": { "type": "integer", "minimum": 0 },
+            "burrow": { "type": "integer", "minimum": 0 },
+            "other": { "type": "array" }
+          },
+          "additionalProperties": true
+        },
+        "hp": {
+          "type": "object",
+          "required": ["max", "current", "temp"],
+          "properties": {
+            "max": { "type": "integer", "minimum": 0 },
+            "current": { "type": "integer", "minimum": 0 },
+            "temp": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "death_saves": {
+          "type": "object",
+          "required": ["success", "fail"],
+          "properties": {
+            "success": { "type": "integer", "minimum": 0, "maximum": 3 },
+            "fail": { "type": "integer", "minimum": 0, "maximum": 3 }
+          },
+          "additionalProperties": true
+        },
+        "conditions": { "type": "array", "items": { "type": "string" } },
+        "passives": {
+          "type": "object",
+          "required": ["perception", "insight", "investigation"],
+          "properties": {
+            "perception": { "type": ["integer", "null"] },
+            "insight": { "type": ["integer", "null"] },
+            "investigation": { "type": ["integer", "null"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "defenses": {
+      "type": "object",
+      "required": ["immunities", "resistances", "vulnerabilities", "save_advantages"],
+      "properties": {
+        "immunities": { "type": "array", "items": { "type": "string" } },
+        "resistances": { "type": "array", "items": { "type": "string" } },
+        "vulnerabilities": { "type": "array", "items": { "type": "string" } },
+        "save_advantages": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+
+    "currency": {
+      "type": "object",
+      "required": ["cp", "sp", "gp", "pp"],
+      "properties": {
+        "cp": { "type": "integer", "minimum": 0 },
+        "sp": { "type": "integer", "minimum": 0 },
+        "gp": { "type": "integer", "minimum": 0 },
+        "pp": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+
+    "proficiencies": {
+      "type": "object",
+      "additionalProperties": true
+    },
+
+    "trackers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "type", "current", "max", "reset"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "type": { "const": "counter" },
+          "current": { "type": "integer", "minimum": 0 },
+          "max": { "type": "integer", "minimum": 0 },
+          "reset": {
+            "enum": ["none", "short_rest", "long_rest", "daily", "manual"]
+          },
+          "group": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+
+    "spellcasting": {
+      "type": "object",
+      "required": ["enabled", "ability", "dc", "attack_bonus", "slots"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ability": { "type": "string" },
+        "dc": { "type": ["integer", "null"] },
+        "attack_bonus": { "type": ["integer", "null"] },
+        "slots": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+
+    "assets": {
+      "type": "object",
+      "required": ["portrait"],
+      "properties": {
+        "portrait": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+
+    "ui": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
