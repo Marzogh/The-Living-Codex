@@ -10,7 +10,115 @@ import { mountLog } from "./ui/log.js";
 import { mountDerived } from "./ui/derived.js";
 
 
+
 const $ = (id) => document.getElementById(id);
+
+// New Character dialog elements
+const dlgNewChar = $("dlgNewChar");
+const formNewChar = $("formNewChar");
+const ncName = $("ncName");
+const ncRuleset = $("ncRuleset");
+const ncClass = $("ncClass");
+const ncSpecies = $("ncSpecies");
+const ncRulesStatus = $("ncRulesStatus");
+const ncCancel = $("ncCancel");
+
+// RulesDB instance used only for the dialog population (does not affect current character until created)
+let newCharRulesDb = null;
+let newCharRulesetLoaded = null;
+
+function setNewCharStatus(text) {
+  if (ncRulesStatus) ncRulesStatus.textContent = text;
+}
+
+function fillSelect(selectEl, items, { placeholder = "(Select)", valueKey = "id", labelKey = "name" } = {}) {
+  if (!selectEl) return;
+  const prev = selectEl.value;
+  selectEl.innerHTML = "";
+
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.textContent = placeholder;
+  selectEl.appendChild(opt0);
+
+  for (const it of items || []) {
+    const v = (it?.[valueKey] ?? "").toString();
+    const label = (it?.[labelKey] ?? v).toString();
+    if (!v) continue;
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = label;
+    selectEl.appendChild(opt);
+  }
+
+  // Try to preserve selection if still present
+  if (prev && [...selectEl.options].some(o => o.value === prev)) {
+    selectEl.value = prev;
+  }
+}
+
+async function ensureNewCharRulesDbLoaded(rulesetId) {
+  const rs = rulesetId || null;
+  if (!rs) {
+    newCharRulesDb = null;
+    newCharRulesetLoaded = null;
+    setNewCharStatus("Rules data not loaded yet.");
+    fillSelect(ncClass, [], { placeholder: "Select a class" });
+    fillSelect(ncSpecies, [], { placeholder: "Select a species" });
+    return;
+  }
+
+  if (newCharRulesDb && newCharRulesetLoaded === rs) return;
+
+  try {
+    setNewCharStatus("Loading rules data…");
+    ncClass.innerHTML = '<option value="">Loading…</option>';
+    ncSpecies.innerHTML = '<option value="">Loading…</option>';
+
+    const mod = await import(new URL("../rules/rulesdb.js", import.meta.url).href);
+    if (!mod?.RulesDB?.load) throw new Error("RulesDB.load() not found");
+
+    newCharRulesDb = await mod.RulesDB.load(rs);
+    newCharRulesetLoaded = rs;
+
+    const classList = Array.isArray(newCharRulesDb?.classes?.list?.()) ? newCharRulesDb.classes.list() : [];
+    const speciesList = Array.isArray(newCharRulesDb?.species?.list?.()) ? newCharRulesDb.species.list() : [];
+
+    fillSelect(ncClass, classList, { placeholder: "Select a class" });
+    fillSelect(ncSpecies, speciesList, { placeholder: "Select a species" });
+
+    const counts = newCharRulesDb?.counts;
+    const spellCount = counts?.spells ?? (Array.isArray(newCharRulesDb?.spells?.list?.()) ? newCharRulesDb.spells.list().length : "?");
+    setNewCharStatus(`Rules loaded: ${spellCount} spells`);
+  } catch (err) {
+    console.error("New Character RulesDB load failed:", err);
+    newCharRulesDb = null;
+    newCharRulesetLoaded = null;
+    const msg = err?.message ? err.message : String(err);
+    setNewCharStatus(`Rules data not available (manual entry mode): ${msg}`);
+    fillSelect(ncClass, [], { placeholder: "(Manual entry)" });
+    fillSelect(ncSpecies, [], { placeholder: "(Manual entry)" });
+  }
+}
+
+function openNewCharacterDialog() {
+  if (!dlgNewChar) {
+    alert("New Character dialog not found. Check index.html.");
+    return;
+  }
+
+  // Defaults
+  if (ncRuleset && !ncRuleset.value) ncRuleset.value = "dnd5e_2014";
+  if (ncName) ncName.value = "";
+
+  // Populate selectors based on current ruleset selection
+  ensureNewCharRulesDbLoaded(ncRuleset?.value || "dnd5e_2014");
+
+  dlgNewChar.showModal();
+  setTimeout(() => {
+    try { ncName?.focus(); } catch {}
+  }, 0);
+}
 
 function pickZipFile() {
   return new Promise((resolve) => {
@@ -70,8 +178,13 @@ function pickZipFile() {
 }
 
 let appState = {
-  character: null
+  character: null,
+  rulesDb: null,
+  rulesetLoaded: null
 };
+// Debug: expose module-scoped state for DevTools Console (safe to remove later)
+window.__codex = window.__codex || {};
+window.__codex.appState = appState;
 
 const editor = mountEditor({
   root: document.getElementById("appRoot"),
@@ -97,7 +210,8 @@ const spells = mountSpells({
   onChange: (nextCharacter) => {
     setCharacter(nextCharacter);
     // No auto-render here: prevents focus loss while typing.
-  }
+  },
+  getRulesDb: () => appState.rulesDb
 });
 
 const logUI = mountLog({
@@ -123,6 +237,63 @@ function setCharacter(character) {
 function setStatus(text) {
   $("saveStatus").textContent = text;
 }
+
+// Loads the rules database for the given character's rulesetId, if available.
+async function ensureRulesDbLoaded(character) {
+  const rulesetId =
+    character?.rulesetId ||
+    character?.core?.rulesetId ||
+    character?.meta?.ruleset_id ||
+    character?.meta?.rulesetId ||
+    character?.meta?.ruleset ||
+    null;
+  if (!rulesetId) {
+    appState.rulesDb = null;
+    appState.rulesetLoaded = null;
+    setStatus("Rules data not available (manual entry mode): character has no rulesetId");
+    return;
+  }
+
+  if (appState.rulesDb && appState.rulesetLoaded === rulesetId) {
+    return;
+  }
+
+  // Lazy-load the RulesDB module when it exists.
+  // This keeps the app working today, and lets us drop in selector datasets later.
+  try {
+    setStatus("Loading rules data…");
+    const mod = await import(new URL("../rules/rulesdb.js", import.meta.url).href);
+    if (!mod?.RulesDB?.load) {
+      throw new Error("RulesDB.load() not found");
+    }
+
+    appState.rulesDb = await mod.RulesDB.load(rulesetId);
+
+    // Sanity check: if this fails, the module loaded but did not return the expected API shape.
+    if (!appState.rulesDb?.spells?.search) {
+      throw new Error("RulesDB loaded but spells API is missing");
+    }
+
+    // Helpful diagnostic: show how many spells were loaded.
+    const spellCount = Array.isArray(appState.rulesDb?.spells?.list?.())
+      ? appState.rulesDb.spells.list().length
+      : null;
+    console.info("RulesDB loaded:", { rulesetId, spellCount });
+
+    appState.rulesetLoaded = rulesetId;
+    setStatus(`Rules data loaded (${rulesetId})`);
+  } catch (err) {
+    console.error("RulesDB not loaded (module missing or failed):", err);
+    appState.rulesDb = null;
+    appState.rulesetLoaded = null;
+
+    const msg = err?.message ? err.message : String(err);
+    // Keep the app usable even if rules data isn't available yet.
+    setStatus(`Rules data not available (manual entry mode): ${msg}`);
+  }
+}
+// Debug: expose key helpers for DevTools Console (safe to remove later)
+window.__codex.ensureRulesDbLoaded = ensureRulesDbLoaded;
 
 function runSafely(label, fn) {
   try {
@@ -449,27 +620,71 @@ function assertVendorsPresent() {
   return true;
 }
 
-$("btnNew").addEventListener("click", () => runSafely("New character", () => {
-  const rulesetId = prompt(
-    "Choose ruleset:\n- dnd5e_2014\n- dnd5e_2024",
-    "dnd5e_2024"
-  );
+$("btnNew").addEventListener("click", async () => {
+  await runSafelyAsync("New character", async () => {
+    openNewCharacterDialog();
+  });
+});
 
-  if (!rulesetId || !["dnd5e_2014", "dnd5e_2024"].includes(rulesetId)) {
-    alert("Invalid ruleset. Character not created.");
-    return;
-  }
+// New Character dialog wiring
+if (ncCancel && dlgNewChar) {
+  ncCancel.addEventListener("click", () => dlgNewChar.close("cancel"));
+}
 
-  const name = prompt("Character name?", "New Character") || "New Character";
-  const character = createDefaultCharacter({ name, rulesetId });
+if (ncRuleset) {
+  ncRuleset.addEventListener("change", async () => {
+    await ensureNewCharRulesDbLoaded(ncRuleset.value);
+  });
+}
 
-  setCharacter(character);
-  editor.render();
-  inventory.render();
-  spells.render();
-  logUI.render();
-  derived.render();
-}));
+if (formNewChar && dlgNewChar) {
+  formNewChar.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const rulesetId = (ncRuleset?.value || "").trim();
+    const name = (ncName?.value || "").trim() || "New Character";
+    const classId = (ncClass?.value || "").trim();
+    const speciesId = (ncSpecies?.value || "").trim();
+
+    if (!rulesetId) {
+      alert("Please select a ruleset.");
+      return;
+    }
+
+    // If rules data loaded, require a class/species selection for selector mode.
+    // If rules data isn't loaded (manual entry mode), allow blanks.
+    const selectorMode = Boolean(newCharRulesDb && newCharRulesetLoaded === rulesetId);
+    if (selectorMode) {
+      if (!classId) {
+        alert("Please select a class.");
+        return;
+      }
+      if (!speciesId) {
+        alert("Please select a species.");
+        return;
+      }
+    }
+
+    const character = createDefaultCharacter({ name, rulesetId });
+
+    // Persist selections into core (canonical location for v0)
+    character.core = character.core || {};
+    character.core.rulesetId = rulesetId;
+    character.core.classId = classId || character.core.classId || "";
+    character.core.speciesId = speciesId || character.core.speciesId || "";
+
+    setCharacter(character);
+    await ensureRulesDbLoaded(character);
+
+    editor.render();
+    inventory.render();
+    spells.render();
+    logUI.render();
+    derived.render();
+
+    dlgNewChar.close("create");
+  });
+}
 
 $("btnImportZip").addEventListener("click", async () => {
   await runSafelyAsync("Import ZIP", async () => {
@@ -484,6 +699,7 @@ $("btnImportZip").addEventListener("click", async () => {
       const { character } = await ZipIO.importZipFromFile(file);
       Validator.assertValidCharacter(character);
       setCharacter(character);
+      await ensureRulesDbLoaded(character);
       setStatus("Imported ZIP (autosaved)");
       editor.render();
       inventory.render();
@@ -563,7 +779,9 @@ $("btnExportPdf").addEventListener("click", async () => {
       const recovered = await Autosave.load();
       if (recovered) {
         appState.character = recovered;
-        setStatus("Recovered from autosave");
+        await ensureRulesDbLoaded(recovered);
+        // ensureRulesDbLoaded() already sets a meaningful status (rules loaded vs manual mode).
+        // Don't overwrite it here.
         editor.render();
         inventory.render();
         spells.render();

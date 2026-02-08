@@ -27,6 +27,41 @@
     <div id="derivedRoot"></div>
   </main>
 
+  <!-- New Character dialog (v0: ruleset chosen at creation; class/species chosen up-front) -->
+  <dialog id="dlgNewChar" class="modal">
+    <form method="dialog" id="formNewChar" class="modal-content">
+      <h2>New Character</h2>
+
+      <div class="form-grid">
+        <label for="ncName">Character name</label>
+        <input id="ncName" name="ncName" type="text" autocomplete="off" placeholder="e.g. Rahu" required />
+
+        <label for="ncRuleset">Ruleset</label>
+        <select id="ncRuleset" name="ncRuleset">
+          <option value="dnd5e_2014">D&amp;D 5e (2014)</option>
+          <option value="dnd5e_2024" disabled>D&amp;D 5e (2024) (not yet)</option>
+        </select>
+
+        <label for="ncClass">Class</label>
+        <select id="ncClass" name="ncClass">
+          <option value="">Loading…</option>
+        </select>
+
+        <label for="ncSpecies">Species</label>
+        <select id="ncSpecies" name="ncSpecies">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+
+      <p id="ncRulesStatus" class="hint">Rules data not loaded yet.</p>
+
+      <div class="modal-actions">
+        <button id="ncCancel" value="cancel" type="button">Cancel</button>
+        <button id="ncCreate" value="create" type="submit">Create</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Vendor libraries (must load before app modules) -->
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/papaparse.min.js"></script>

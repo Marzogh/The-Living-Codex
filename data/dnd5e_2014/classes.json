@@ -1,0 +1,17 @@
+
+
+[
+  {"id":"barbarian","name":"Barbarian","source":"PHB"},
+  {"id":"bard","name":"Bard","source":"PHB"},
+  {"id":"cleric","name":"Cleric","source":"PHB","spellcasting":true},
+  {"id":"druid","name":"Druid","source":"PHB","spellcasting":true},
+  {"id":"fighter","name":"Fighter","source":"PHB"},
+  {"id":"monk","name":"Monk","source":"PHB"},
+  {"id":"paladin","name":"Paladin","source":"PHB","spellcasting":true},
+  {"id":"ranger","name":"Ranger","source":"PHB","spellcasting":true},
+  {"id":"rogue","name":"Rogue","source":"PHB"},
+  {"id":"sorcerer","name":"Sorcerer","source":"PHB","spellcasting":true},
+  {"id":"warlock","name":"Warlock","source":"PHB","spellcasting":true},
+  {"id":"wizard","name":"Wizard","source":"PHB","spellcasting":true},
+  {"id":"artificer","name":"Artificer","source":"TCE","spellcasting":true}
+]

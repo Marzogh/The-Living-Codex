@@ -1,5 +1,3 @@
-
-
 /**
  * Derived Stats UI (v1)
  *
@@ -77,15 +75,15 @@ function getAbilityScore(character, key /* 'str'|'dex'|... */) {
 }
 
 function inferLevel(character) {
-  // Common: character.level
-  const n1 = asNumber(character?.level);
-  if (n1 != null) return clampLevel(n1);
+  // Preferred: multiclass-ready core.classes
+  if (Array.isArray(character?.core?.classes)) {
+    const sum = character.core.classes
+      .map((c) => asNumber(c?.level) ?? 0)
+      .reduce((a, b) => a + b, 0);
+    if (sum > 0) return clampLevel(sum);
+  }
 
-  // Some sheets store total level in character.core.level
-  const n2 = asNumber(character?.core?.level);
-  if (n2 != null) return clampLevel(n2);
-
-  // Or sum of classes: character.classes = [{ level: 3 }, ...]
+  // Legacy: character.classes
   if (Array.isArray(character?.classes)) {
     const sum = character.classes
       .map((c) => asNumber(c?.level) ?? 0)
@@ -93,7 +91,30 @@ function inferLevel(character) {
     if (sum > 0) return clampLevel(sum);
   }
 
+  // Single-level fallbacks
+  const n1 = asNumber(character?.level);
+  if (n1 != null) return clampLevel(n1);
+
+  const n2 = asNumber(character?.core?.level);
+  if (n2 != null) return clampLevel(n2);
+
   return null;
+}
+
+function getClassSummary(character) {
+  const rows = [];
+  const classes = character?.core?.classes;
+  if (!Array.isArray(classes) || classes.length === 0) return rows;
+
+  for (const cl of classes) {
+    if (!cl || !cl.id) continue;
+    rows.push({
+      id: cl.id,
+      level: asNumber(cl.level) ?? 1,
+      isPrimary: Boolean(cl.isPrimary)
+    });
+  }
+  return rows;
 }
 
 function inferSpellcastingAbility(character) {
@@ -119,6 +140,7 @@ export function mountDerived({ root, getCharacter }) {
 
     const level = inferLevel(c);
     const prof = profBonusFromLevel(level);
+    const classSummary = getClassSummary(c);
 
     const abilities = [
       { k: "str", label: "STR" },
@@ -150,8 +172,13 @@ export function mountDerived({ root, getCharacter }) {
 
         <div class="grid">
           <div class="field">
-            <label>Level</label>
+            <label>Total Level</label>
             <div>${level ?? "—"}</div>
+            ${classSummary.length > 1 ? `
+              <div class="hint">
+                ${classSummary.map(cl => `${escapeHtml(cl.id)} ${cl.level}`).join(", ")}
+              </div>
+            ` : ""}
           </div>
           <div class="field">
             <label>Proficiency Bonus</label>

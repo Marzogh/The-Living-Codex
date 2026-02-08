@@ -1,0 +1,18 @@
+
+
+[
+  {"id":"human","name":"Human","source":"PHB","page":29},
+  {"id":"elf_high","name":"High Elf","source":"PHB","page":23},
+  {"id":"elf_wood","name":"Wood Elf","source":"PHB","page":24},
+  {"id":"elf_drow","name":"Drow","source":"PHB","page":24},
+  {"id":"dwarf_hill","name":"Hill Dwarf","source":"PHB","page":20},
+  {"id":"dwarf_mountain","name":"Mountain Dwarf","source":"PHB","page":20},
+  {"id":"halfling_lightfoot","name":"Lightfoot Halfling","source":"PHB","page":28},
+  {"id":"halfling_stout","name":"Stout Halfling","source":"PHB","page":28},
+  {"id":"gnome_forest","name":"Forest Gnome","source":"PHB","page":37},
+  {"id":"gnome_rock","name":"Rock Gnome","source":"PHB","page":37},
+  {"id":"half_elf","name":"Half-Elf","source":"PHB","page":39},
+  {"id":"half_orc","name":"Half-Orc","source":"PHB","page":41},
+  {"id":"tiefling","name":"Tiefling","source":"PHB","page":43},
+  {"id":"dragonborn","name":"Dragonborn","source":"PHB","page":32}
+]

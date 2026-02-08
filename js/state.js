@@ -4,6 +4,12 @@ export function createDefaultCharacter({ name, rulesetId }) {
   const now = new Date().toISOString();
 
   return {
+    // Runtime convenience fields (used by the app). Keep these in sync with meta.ruleset_id.
+    rulesetId: rulesetId,
+    core: {
+      rulesetId: rulesetId
+    },
+
     meta: {
       schema: "dnd-character-pack",
       schema_version: "0.1.0",
