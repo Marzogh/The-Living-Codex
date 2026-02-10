@@ -45,6 +45,133 @@ function normaliseSpells(c) {
   }
 }
 
+function normaliseSpellSlots(c) {
+  if (!c.spell_slots || typeof c.spell_slots !== "object") {
+    c.spell_slots = { pact: { max: 0, used: 0, level: 1 }, levels: {} };
+  }
+  if (!c.spell_slots.pact || typeof c.spell_slots.pact !== "object") {
+    c.spell_slots.pact = { max: 0, used: 0, level: 1 };
+  }
+  if (!c.spell_slots.levels || typeof c.spell_slots.levels !== "object") {
+    c.spell_slots.levels = {};
+  }
+
+  // Ensure levels 1..9 exist
+  for (let i = 1; i <= 9; i++) {
+    const k = String(i);
+    if (!c.spell_slots.levels[k] || typeof c.spell_slots.levels[k] !== "object") {
+      c.spell_slots.levels[k] = { max: 0, used: 0 };
+    }
+    const row = c.spell_slots.levels[k];
+    row.max = Number.isFinite(Number(row.max)) ? Math.max(0, Number(row.max)) : 0;
+    row.used = Number.isFinite(Number(row.used)) ? Math.max(0, Number(row.used)) : 0;
+    if (row.used > row.max) row.used = row.max;
+  }
+
+  // Pact
+  c.spell_slots.pact.max = Number.isFinite(Number(c.spell_slots.pact.max)) ? Math.max(0, Number(c.spell_slots.pact.max)) : 0;
+  c.spell_slots.pact.used = Number.isFinite(Number(c.spell_slots.pact.used)) ? Math.max(0, Number(c.spell_slots.pact.used)) : 0;
+  c.spell_slots.pact.level = Number.isFinite(Number(c.spell_slots.pact.level)) ? Math.min(9, Math.max(1, Number(c.spell_slots.pact.level))) : 1;
+  if (c.spell_slots.pact.used > c.spell_slots.pact.max) c.spell_slots.pact.used = c.spell_slots.pact.max;
+}
+
+function clamp(n, lo, hi) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return lo;
+  return Math.max(lo, Math.min(hi, x));
+}
+
+function hasWarlockClass(c) {
+  try {
+    const ids = inferCharacterClassIds(c);
+    return ids.includes("warlock");
+  } catch {
+    return false;
+  }
+}
+
+function renderSpellSlotsCard(c) {
+  // v0: manual entry; class-aware display only (Pact shown if Warlock present or pact.max>0)
+  const showPact = hasWarlockClass(c) || (c.spell_slots?.pact?.max ?? 0) > 0;
+
+  const pact = c.spell_slots?.pact || { max: 0, used: 0, level: 1 };
+
+  const rows = [];
+  for (let lvl = 1; lvl <= 9; lvl++) {
+    const k = String(lvl);
+    const r = c.spell_slots?.levels?.[k] || { max: 0, used: 0 };
+    rows.push({ lvl, max: r.max ?? 0, used: r.used ?? 0 });
+  }
+
+  return `
+    <section class="card" style="margin-top: 10px;">
+      <h2>Spell Slots</h2>
+
+      <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom: 10px;">
+        <button type="button" data-slot-reset="short">Short rest: reset Pact</button>
+        <button type="button" data-slot-reset="long">Long rest: reset all</button>
+        <span class="hint">v0: you set max slots manually. Used slots can’t exceed max.</span>
+      </div>
+
+      ${showPact ? `
+        <div class="card" style="padding: 10px; margin-bottom: 10px;">
+          <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+            <div style="min-width:160px;"><strong>Pact Magic (Warlock)</strong></div>
+
+            <div>
+              <label class="hint" style="display:block;">Slot level</label>
+              <input type="number" min="1" max="9" inputmode="numeric" data-pact-level="1" value="${escapeHtml(pact.level)}" style="width: 90px;" />
+            </div>
+
+            <div>
+              <label class="hint" style="display:block;">Max</label>
+              <input type="number" min="0" inputmode="numeric" data-pact-max="1" value="${escapeHtml(pact.max)}" style="width: 90px;" />
+            </div>
+
+            <div>
+              <label class="hint" style="display:block;">Used</label>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <button type="button" data-pact-used-delta="-1">−</button>
+                <span data-pact-used="1" style="min-width: 2ch; text-align:center;">${escapeHtml(pact.used)}</span>
+                <button type="button" data-pact-used-delta="+1">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : ""}
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Level</th>
+              <th style="width: 120px;">Max</th>
+              <th style="width: 180px;">Used</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr data-slot-lvl="${r.lvl}">
+                <td><strong>${r.lvl}</strong></td>
+                <td>
+                  <input type="number" min="0" inputmode="numeric" data-slot-max="1" data-slot-lvl="${r.lvl}" value="${escapeHtml(r.max)}" style="width: 100px;" />
+                </td>
+                <td>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <button type="button" data-slot-used-delta="-1" data-slot-lvl="${r.lvl}">−</button>
+                    <span data-slot-used="1" data-slot-lvl="${r.lvl}" style="min-width: 2ch; text-align:center;">${escapeHtml(r.used)}</span>
+                    <button type="button" data-slot-used-delta="+1" data-slot-lvl="${r.lvl}">+</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
 function copySpellFields(src, dst) {
   // Keep id stable; copy the common editable fields
   dst.name = src.name;
@@ -83,6 +210,9 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
   if (typeof getCharacter !== "function") throw new Error("mountSpells: getCharacter must be a function");
   if (typeof onChange !== "function") throw new Error("mountSpells: onChange must be a function");
   const rulesDbGetter = typeof getRulesDb === "function" ? getRulesDb : () => null;
+
+  // Optimistic local cache for updates (prevents UI from lagging behind external state updates)
+  let lastCharacter = null;
 
   function inferCharacterClassIds(c) {
     // Prefer explicit fields if present
@@ -210,6 +340,7 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
     const next = structuredClone(current);
     mutator(next);
     if (next.meta) next.meta.modified_utc = nowIso();
+    lastCharacter = next;
     onChange(next);
   }
 
@@ -267,13 +398,14 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
   }
 
   function render() {
-    const c = getCharacter();
+    const c = lastCharacter || getCharacter();
     if (!c) {
       root.innerHTML = "";
       return;
     }
 
     normaliseSpells(c);
+    normaliseSpellSlots(c);
     const db = rulesDbGetter();
 
     const list = activeTab === "known" ? c.spells_known : c.spells_prepared;
@@ -294,6 +426,8 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
         </div>
 
         ${!isReadOnly ? renderSpellSelector(c) : ""}
+
+        ${!isReadOnly ? renderSpellSlotsCard(c) : ""}
 
         ${renderTable(c, list, listKey)}
       </section>
@@ -326,6 +460,9 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
 
       const classIds = inferCharacterClassIds(c);
 
+      // Cache the current rendered search results so Add can work even if RulesDB has no .get(id)
+      const resultsCache = new Map();
+
       function renderResults() {
         if (!resEl) return;
         if (!dbNow?.spells?.search) {
@@ -342,6 +479,12 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
         if (!showAll && classIds.length) filters.classes = classIds;
 
         const results = dbNow.spells.search(query, filters).slice(0, 20);
+
+        // Refresh cache
+        resultsCache.clear();
+        for (const sp of results) {
+          if (sp?.id) resultsCache.set(String(sp.id), sp);
+        }
 
         if (!query && levelVal === "" && !showAll) {
           resEl.innerHTML = `<p class="hint">Type a search term to find spells, or turn on “Show all spells”.</p>`;
@@ -368,7 +511,7 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
             </thead>
             <tbody>
               ${results.map(sp => `
-                <tr data-rule-spell-id="${escapeHtml(sp.id)}">
+                <tr data-rule-spell-id="${encodeURIComponent(sp.id)}">
                   <td>${escapeHtml(sp.name)}</td>
                   <td>${escapeHtml(sp.level)}</td>
                   <td>${escapeHtml(sp.school)}</td>
@@ -382,20 +525,29 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
           </table>
         `;
 
-        resEl.querySelectorAll("tr[data-rule-spell-id]").forEach(tr => {
-          const ruleId = tr.getAttribute("data-rule-spell-id");
-          const addBtn = tr.querySelector("button[data-add-rule-spell]");
-          if (!addBtn) return;
+        // Use event delegation so bindings survive re-renders of the results table
+        if (!resEl.__addRuleSpellBound) {
+          resEl.addEventListener("click", (e) => {
+            const btn = e.target?.closest?.("button[data-add-rule-spell]");
+            if (!btn) return;
 
-          addBtn.addEventListener("click", () => {
-            const rec = dbNow.spells.get(ruleId);
-            if (!rec) return;
+            const tr = btn.closest("tr[data-rule-spell-id]");
+            if (!tr) return;
+
+            const ruleId = decodeURIComponent(tr.getAttribute("data-rule-spell-id") || "");
+            if (!ruleId) return;
+
+            const rec = resultsCache.get(String(ruleId)) || null;
+            if (!rec) {
+              console.warn("Add spell failed: record not found in current results cache for id", ruleId);
+              return;
+            }
 
             applyUpdate((next) => {
               normaliseSpells(next);
 
-              // Prevent duplicates by spell_id if present
-              const already = next.spells_known.some(s => (s.spell_id && s.spell_id === rec.id) || (s.name || "").toLowerCase() === (rec.name || "").toLowerCase());
+              // Prevent duplicates by RulesDB id only (names are not stable and can be blank)
+              const already = next.spells_known.some((s) => s.spell_id && s.spell_id === rec.id);
               if (already) return;
 
               const row = emptySpell();
@@ -411,10 +563,10 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
               next.spells_known.push(row);
             });
 
-            // Re-render to show the new spell
             render();
           });
-        });
+          resEl.__addRuleSpellBound = true;
+        }
       }
 
       if (qEl) qEl.addEventListener("input", renderResults);
@@ -501,6 +653,99 @@ export function mountSpells({ root, getCharacter, onChange, getRulesDb }) {
         });
       }
     });
+
+    // Spell slot tracker wiring (Known tab only)
+    if (!isReadOnly) {
+      // Max fields for levels 1..9
+      root.querySelectorAll("input[data-slot-max]").forEach((inp) => {
+        inp.addEventListener("input", () => {
+          const lvl = inp.getAttribute("data-slot-lvl");
+          applyUpdate((next) => {
+            normaliseSpellSlots(next);
+            const k = String(lvl);
+            const row = next.spell_slots.levels[k];
+            row.max = Math.max(0, Number(inp.value) || 0);
+            if (row.used > row.max) row.used = row.max;
+          });
+          render();
+        });
+      });
+
+      // Used +/- for levels 1..9
+      root.querySelectorAll("button[data-slot-used-delta]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const lvl = btn.getAttribute("data-slot-lvl");
+          const delta = Number(btn.getAttribute("data-slot-used-delta")) || 0;
+          applyUpdate((next) => {
+            normaliseSpellSlots(next);
+            const k = String(lvl);
+            const row = next.spell_slots.levels[k];
+            row.used = clamp((row.used || 0) + delta, 0, row.max || 0);
+          });
+          render();
+        });
+      });
+
+      // Pact fields
+      const pactMax = root.querySelector("input[data-pact-max]");
+      const pactLevel = root.querySelector("input[data-pact-level]");
+
+      if (pactMax) {
+        pactMax.addEventListener("input", () => {
+          applyUpdate((next) => {
+            normaliseSpellSlots(next);
+            next.spell_slots.pact.max = Math.max(0, Number(pactMax.value) || 0);
+            if (next.spell_slots.pact.used > next.spell_slots.pact.max) next.spell_slots.pact.used = next.spell_slots.pact.max;
+          });
+          render();
+        });
+      }
+
+      if (pactLevel) {
+        pactLevel.addEventListener("input", () => {
+          applyUpdate((next) => {
+            normaliseSpellSlots(next);
+            next.spell_slots.pact.level = clamp(Number(pactLevel.value) || 1, 1, 9);
+          });
+          render();
+        });
+      }
+
+      root.querySelectorAll("button[data-pact-used-delta]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const delta = Number(btn.getAttribute("data-pact-used-delta")) || 0;
+          applyUpdate((next) => {
+            normaliseSpellSlots(next);
+            const p = next.spell_slots.pact;
+            p.used = clamp((p.used || 0) + delta, 0, p.max || 0);
+          });
+          render();
+        });
+      });
+
+    // Rest resets
+    root.querySelectorAll("button[data-slot-reset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const kind = btn.getAttribute("data-slot-reset");
+        applyUpdate((next) => {
+          normaliseSpellSlots(next);
+          if (kind === "short") {
+            // Pact resets on short rest
+            next.spell_slots.pact.used = 0;
+          } else {
+            // Long rest resets everything
+            for (let i = 1; i <= 9; i++) {
+              next.spell_slots.levels[String(i)].used = 0;
+            }
+            next.spell_slots.pact.used = 0;
+          }
+        });
+        render();
+      });
+    });
+
+    lastCharacter = null;
+  }
   }
 
   let activeTab = "known";

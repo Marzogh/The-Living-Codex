@@ -26,6 +26,16 @@ function normaliseInventory(c) {
   if (!Array.isArray(c.inventory)) c.inventory = [];
 }
 
+function normaliseCurrency(c) {
+  if (!c.currency || typeof c.currency !== "object") c.currency = {};
+  const cur = c.currency;
+  // Default to 0 so inputs are stable
+  for (const k of ["cp", "sp", "ep", "gp", "pp"]) {
+    if (cur[k] === undefined || cur[k] === null || cur[k] === "") cur[k] = 0;
+    if (typeof cur[k] !== "number") cur[k] = Number(cur[k]) || 0;
+  }
+}
+
 function emptyRow() {
   return {
     id: crypto.randomUUID(),
@@ -66,13 +76,27 @@ export function mountInventory({ root, getCharacter, onChange }) {
     }
 
     normaliseInventory(c);
+    normaliseCurrency(c);
 
     root.innerHTML = `
       <section class="card">
         <h2>Inventory</h2>
 
-        <div style="margin-bottom: 8px;">
-          <button id="inv_add" type="button">Add item</button>
+        <div class="inv-top">
+          <div class="inv-actions">
+            <button id="inv_add" type="button">Add item</button>
+          </div>
+
+          <div class="inv-currency" aria-label="Currency">
+            <div class="inv-currency-label">Currency</div>
+            <div class="inv-currency-row">
+              <label>CP <input id="cur_cp" type="number" inputmode="numeric" value="${c.currency.cp}" /></label>
+              <label>SP <input id="cur_sp" type="number" inputmode="numeric" value="${c.currency.sp}" /></label>
+              <label>EP <input id="cur_ep" type="number" inputmode="numeric" value="${c.currency.ep}" /></label>
+              <label>GP <input id="cur_gp" type="number" inputmode="numeric" value="${c.currency.gp}" /></label>
+              <label>PP <input id="cur_pp" type="number" inputmode="numeric" value="${c.currency.pp}" /></label>
+            </div>
+          </div>
         </div>
 
         ${
@@ -118,6 +142,26 @@ export function mountInventory({ root, getCharacter, onChange }) {
       });
       render();
     });
+
+    // Currency edits
+    const currencyFields = [
+      ["cp", "#cur_cp"],
+      ["sp", "#cur_sp"],
+      ["ep", "#cur_ep"],
+      ["gp", "#cur_gp"],
+      ["pp", "#cur_pp"]
+    ];
+
+    for (const [key, sel] of currencyFields) {
+      const el = root.querySelector(sel);
+      if (!el) continue;
+      el.addEventListener("input", () => {
+        applyUpdate((next) => {
+          normaliseCurrency(next);
+          next.currency[key] = Number(el.value) || 0;
+        });
+      });
+    }
 
     root.querySelectorAll("tr[data-inv-id]").forEach((tr) => {
       const id = tr.getAttribute("data-inv-id");

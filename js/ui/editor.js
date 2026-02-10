@@ -46,9 +46,143 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+// --- UI State + Proficiencies UI helpers ---
+function getUiState() {
+  try {
+    window.__codex = window.__codex || {};
+    window.__codex.uiState = window.__codex.uiState || {};
+    return window.__codex.uiState;
+  } catch {
+    return {};
+  }
+}
+
+function renderChipList(label, values, max = 6) {
+  const arr = Array.isArray(values) ? values.filter(Boolean) : [];
+  const shown = arr.slice(0, max);
+  const extra = arr.length - shown.length;
+  const chips = shown.map(v => `<span class="chip">${escapeHtml(prettyId(v))}</span>`).join(" ");
+  const more = extra > 0 ? `<span class="chip chip-muted">+${extra} more</span>` : "";
+  const empty = arr.length === 0 ? `<span class="chip chip-muted">(none)</span>` : "";
+  return `
+    <div class="prof-line">
+      <div class="prof-line-label">${escapeHtml(label)}</div>
+      <div class="prof-line-chips">${chips}${more}${empty}</div>
+    </div>
+  `;
+}
+
+function renderSaveToggles(selected) {
+  const set = new Set((Array.isArray(selected) ? selected : []).map(s => (s || "").toString().toLowerCase()));
+  const saves = [
+    ["str", "STR"],
+    ["dex", "DEX"],
+    ["con", "CON"],
+    ["int", "INT"],
+    ["wis", "WIS"],
+    ["cha", "CHA"],
+  ];
+  return `
+    <div class="prof-saves-row">
+      ${saves.map(([k, lab]) => `
+        <label class="prof-save" title="${lab}">
+          <input type="checkbox" data-prof-save="${k}" ${set.has(k) ? "checked" : ""} />
+          <span class="prof-save-lab">${lab}</span>
+        </label>
+      `).join("")}
+    </div>
+  `;
+}
+
 function normaliseTrackers(c) {
   if (!c.trackers) c.trackers = [];
   if (!Array.isArray(c.trackers)) c.trackers = [];
+}
+
+// --- Proficiency Normalisation Helpers ---
+function normList(arr) {
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const x of arr) {
+    const s = (x ?? "").toString().trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+function parseCsvList(text) {
+  const raw = (text ?? "").toString();
+  if (!raw.trim()) return [];
+  // split on comma or newline
+  return normList(raw.split(/[\n,]/g).map(s => s.trim()));
+}
+
+function toLowerKeys(arr) {
+  return normList(arr).map(s => s.toLowerCase());
+}
+
+function normaliseProficiencies(c) {
+  if (!c.proficiencies || typeof c.proficiencies !== "object") c.proficiencies = {};
+  if (!c.expertise || typeof c.expertise !== "object") c.expertise = {};
+
+  const p = c.proficiencies;
+  const e = c.expertise;
+
+  // Canonical arrays
+  p.skills = normList(p.skills);
+  p.saves = normList(p.saves);
+  p.tools = normList(p.tools);
+  p.languages = normList(p.languages);
+  p.armor = normList(p.armor);
+  p.weapons = normList(p.weapons);
+
+  e.skills = normList(e.skills);
+
+  // Merge legacy fields if present
+  if (Array.isArray(c.skillProficiencies) && c.skillProficiencies.length) {
+    p.skills = normList([...p.skills, ...c.skillProficiencies]);
+  }
+  if (Array.isArray(c.skillExpertise) && c.skillExpertise.length) {
+    e.skills = normList([...e.skills, ...c.skillExpertise]);
+  }
+  if (Array.isArray(c.saveProficiencies) && c.saveProficiencies.length) {
+    p.saves = normList([...p.saves, ...c.saveProficiencies]);
+  }
+  if (Array.isArray(c.savingThrowProficiencies) && c.savingThrowProficiencies.length) {
+    p.saves = normList([...p.saves, ...c.savingThrowProficiencies]);
+  }
+  if (Array.isArray(c.toolProficiencies) && c.toolProficiencies.length) {
+    p.tools = normList([...p.tools, ...c.toolProficiencies]);
+  }
+  if (Array.isArray(c.armorProficiencies) && c.armorProficiencies.length) {
+    p.armor = normList([...p.armor, ...c.armorProficiencies]);
+  }
+  if (Array.isArray(c.weaponProficiencies) && c.weaponProficiencies.length) {
+    p.weapons = normList([...p.weapons, ...c.weaponProficiencies]);
+  }
+  if (Array.isArray(c.languages) && c.languages.length) {
+    p.languages = normList([...p.languages, ...c.languages]);
+  }
+
+  // Ensure saves are stored as ability keys where possible
+  const map = { STR: "str", DEX: "dex", CON: "con", INT: "int", WIS: "wis", CHA: "cha" };
+  p.saves = normList(p.saves).map(s => map[s.toUpperCase()] || s.toLowerCase());
+
+  // Expertise should be a subset of skills (but don't remove; just keep consistent ordering)
+  // We won't enforce subset strictly to avoid surprise deletions.
+}
+// Debug: confirm this module version is loaded in the browser
+try {
+  window.__codex = window.__codex || {};
+  window.__codex.__editor_loaded_at = new Date().toISOString();
+  window.__codex.__has_normaliseProficiencies = (typeof normaliseProficiencies === "function");
+} catch {
+  // ignore
 }
 
 function normaliseClasses(c) {
@@ -109,15 +243,6 @@ function renderEmpty() {
   `;
 }
 
-function abilityRow(label, key, val) {
-  const safeVal = (val ?? "").toString();
-  return `
-    <tr>
-      <td><label for="ab_${key}">${label}</label></td>
-      <td><input id="ab_${key}" data-ab="${key}" type="number" inputmode="numeric" value="${safeVal}" /></td>
-    </tr>
-  `;
-}
 
 export function mountEditor({ root, getCharacter, onChange }) {
   if (!root) throw new Error("mountEditor: root is required");
@@ -144,6 +269,10 @@ export function mountEditor({ root, getCharacter, onChange }) {
 
     normaliseTrackers(c);
     normaliseClasses(c);
+    if (typeof normaliseProficiencies !== "function") {
+      throw new Error("normaliseProficiencies is not defined (editor.js module mismatch/cache)");
+    }
+    normaliseProficiencies(c);
 
     const rulesetId = c.core?.rulesetId ?? c.meta?.ruleset_id ?? "";
     const classId = c.core?.classId ?? c.core?.class_id ?? "";
@@ -176,6 +305,27 @@ export function mountEditor({ root, getCharacter, onChange }) {
             <label>Species</label>
             <div class="readonly" id="species_id" title="${escapeHtml(speciesId)}">${escapeHtml(speciesLabel)}</div>
           </div>
+        </div>
+      </section>
+
+      <div class="cards-2col">
+      <section class="card" id="card_proficiencies">
+        <h2 class="card-title-row">Proficiencies <button type="button" id="prof_open" class="prof-edit-btn">Edit</button></h2>
+        <div class="card-body">
+
+          <div class="prof-card">
+            <div class="prof-view">
+              ${renderChipList("Saving throws", c.proficiencies.saves.map(s => (s || "").toString().toUpperCase()))}
+              ${renderChipList("Skills", c.proficiencies.skills)}
+              ${renderChipList("Expertise", c.expertise.skills)}
+              ${renderChipList("Tools", c.proficiencies.tools)}
+              ${renderChipList("Languages", c.proficiencies.languages)}
+              ${renderChipList("Armor", c.proficiencies.armor)}
+              ${renderChipList("Weapons", c.proficiencies.weapons)}
+              <div class="hint" style="margin-top:10px;">v0: editable. Rules data may suggest defaults later; nothing here is locked.</div>
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -219,6 +369,7 @@ export function mountEditor({ root, getCharacter, onChange }) {
         <button type="button" id="class_add">Add class (manual)</button>
         <p class="hint">v0: class selection is manual here. Later we can make this a selector and enforce multiclassing rules.</p>
       </section>
+      </div>
 
       <section class="card">
         <h2>Core Combat</h2>
@@ -251,45 +402,7 @@ export function mountEditor({ root, getCharacter, onChange }) {
         </div>
       </section>
 
-      <section class="card">
-        <h2>Abilities</h2>
-        <table class="table">
-          <thead>
-            <tr><th>Ability</th><th>Score</th></tr>
-          </thead>
-          <tbody>
-            ${abilityRow("STR", "str", c.abilities?.str)}
-            ${abilityRow("DEX", "dex", c.abilities?.dex)}
-            ${abilityRow("CON", "con", c.abilities?.con)}
-            ${abilityRow("INT", "int", c.abilities?.int)}
-            ${abilityRow("WIS", "wis", c.abilities?.wis)}
-            ${abilityRow("CHA", "cha", c.abilities?.cha)}
-          </tbody>
-        </table>
-        <p class="hint">Tip: Derived modifiers are not automated in v1. Enter raw scores.</p>
-      </section>
 
-      <section class="card">
-        <h2>Currency</h2>
-        <div class="grid">
-          <div class="field">
-            <label for="cur_cp">CP</label>
-            <input id="cur_cp" type="number" inputmode="numeric" value="${c.currency?.cp ?? 0}" />
-          </div>
-          <div class="field">
-            <label for="cur_sp">SP</label>
-            <input id="cur_sp" type="number" inputmode="numeric" value="${c.currency?.sp ?? 0}" />
-          </div>
-          <div class="field">
-            <label for="cur_gp">GP</label>
-            <input id="cur_gp" type="number" inputmode="numeric" value="${c.currency?.gp ?? 0}" />
-          </div>
-          <div class="field">
-            <label for="cur_pp">PP</label>
-            <input id="cur_pp" type="number" inputmode="numeric" value="${c.currency?.pp ?? 0}" />
-          </div>
-        </div>
-      </section>
 
       <section class="card">
         <h2>Trackers</h2>
@@ -297,7 +410,7 @@ export function mountEditor({ root, getCharacter, onChange }) {
         <div class="grid">
           <div class="field">
             <label for="trk_label">New tracker label</label>
-            <input id="trk_label" type="text" placeholder="e.g., Spell Slots (Lvl 1)" />
+            <input id="trk_label" type="text" placeholder="e.g., Ki Points / Rage uses / Sorcery Points" />
           </div>
 
           <div class="field">
@@ -336,7 +449,7 @@ export function mountEditor({ root, getCharacter, onChange }) {
         <div style="margin-top: 12px;">
           ${
             (c.trackers.length === 0)
-              ? `<p class="hint">No trackers yet. Add counters for spell slots, ki, rages, etc.</p>`
+              ? `<p class="hint">No trackers yet. Add counters for ki, rages, inspiration, charges, etc.</p>`
               : `
                 <table class="table">
                   <thead>
@@ -459,6 +572,159 @@ export function mountEditor({ root, getCharacter, onChange }) {
       });
     });
 
+
+    // Proficiencies editor: open overlay dialog
+    const profOpenBtn = root.querySelector("#prof_open");
+    if (profOpenBtn) {
+      profOpenBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const dlg = document.querySelector("#dlgProficiencies");
+        if (!dlg) {
+          alert("Proficiencies dialog not found (dlgProficiencies). Check index.html.");
+          return;
+        }
+
+        const body = dlg.querySelector("#profModalBody");
+        const btnClose = dlg.querySelector("#profCancel");
+        const form = dlg.querySelector("#formProficiencies");
+        if (!body || !btnClose || !form) {
+          alert("Proficiencies dialog is missing required elements.");
+          return;
+        }
+
+        // Render modal body (edit UI)
+        body.innerHTML = `
+          <div class="prof-edit">
+            <div class="prof-edit-grid">
+              <div class="prof-block">
+                <div class="prof-block-title">Saving throws</div>
+                ${renderSaveToggles(c.proficiencies.saves)}
+              </div>
+
+              <div class="prof-block">
+                <div class="prof-block-title">Skills</div>
+                <input id="prof_skills" type="text" placeholder="e.g., perception, stealth, arcana" value="${escapeHtml(c.proficiencies.skills.join(", "))}" />
+              </div>
+
+              <div class="prof-block">
+                <div class="prof-block-title">Expertise (skills)</div>
+                <input id="prof_expertise" type="text" placeholder="e.g., stealth, perception" value="${escapeHtml(c.expertise.skills.join(", "))}" />
+              </div>
+
+              <div class="prof-block">
+                <div class="prof-block-title">Tools</div>
+                <input id="prof_tools" type="text" placeholder="e.g., thieves' tools, herbalism kit" value="${escapeHtml(c.proficiencies.tools.join(", "))}" />
+              </div>
+
+              <div class="prof-block">
+                <div class="prof-block-title">Languages</div>
+                <input id="prof_lang" type="text" placeholder="e.g., Common, Elvish, Draconic" value="${escapeHtml(c.proficiencies.languages.join(", "))}" />
+                <div class="hint" style="margin-top:6px;">Add any languages your character knows (species/background/training/DM).</div>
+              </div>
+
+              <div class="prof-block">
+                <div class="prof-block-title">Armor</div>
+                <input id="prof_armor" type="text" placeholder="e.g., light armor, medium armor" value="${escapeHtml(c.proficiencies.armor.join(", "))}" />
+              </div>
+
+              <div class="prof-block">
+                <div class="prof-block-title">Weapons</div>
+                <input id="prof_weapons" type="text" placeholder="e.g., simple weapons, longsword" value="${escapeHtml(c.proficiencies.weapons.join(", "))}" />
+              </div>
+
+            <div class="hint" style="margin-top:10px;">Tip: keep entries short during play. We can switch these to selectors later.</div>
+          </div>
+        `;
+
+        function commitProfs(mut) {
+          applyUpdate((next) => {
+            normaliseProficiencies(next);
+            mut(next);
+            normaliseProficiencies(next);
+          });
+        }
+
+        // Wire modal controls
+        const skillsEl = dlg.querySelector("#prof_skills");
+        const expEl = dlg.querySelector("#prof_expertise");
+        const toolsEl = dlg.querySelector("#prof_tools");
+        const langEl = dlg.querySelector("#prof_lang");
+        const armorEl = dlg.querySelector("#prof_armor");
+        const weapEl = dlg.querySelector("#prof_weapons");
+
+        if (skillsEl) {
+          skillsEl.addEventListener("input", () => {
+            commitProfs((next) => {
+              next.proficiencies.skills = parseCsvList(skillsEl.value).map(s => s.toLowerCase());
+            });
+          });
+        }
+
+        if (expEl) {
+          expEl.addEventListener("input", () => {
+            commitProfs((next) => {
+              next.expertise.skills = parseCsvList(expEl.value).map(s => s.toLowerCase());
+            });
+          });
+        }
+
+        if (toolsEl) {
+          toolsEl.addEventListener("input", () => {
+            commitProfs((next) => {
+              next.proficiencies.tools = parseCsvList(toolsEl.value);
+            });
+          });
+        }
+
+        if (langEl) {
+          langEl.addEventListener("input", () => {
+            commitProfs((next) => {
+              next.proficiencies.languages = parseCsvList(langEl.value);
+            });
+          });
+        }
+
+        if (armorEl) {
+          armorEl.addEventListener("input", () => {
+            commitProfs((next) => {
+              next.proficiencies.armor = parseCsvList(armorEl.value);
+            });
+          });
+        }
+
+        if (weapEl) {
+          weapEl.addEventListener("input", () => {
+            commitProfs((next) => {
+              next.proficiencies.weapons = parseCsvList(weapEl.value);
+            });
+          });
+        }
+
+        dlg.querySelectorAll("input[data-prof-save]").forEach((el) => {
+          el.addEventListener("change", () => {
+            const key = (el.getAttribute("data-prof-save") || "").toLowerCase();
+            if (!key) return;
+            commitProfs((next) => {
+              const arr = new Set(toLowerKeys(next.proficiencies.saves));
+              if (el.checked) arr.add(key);
+              else arr.delete(key);
+              next.proficiencies.saves = Array.from(arr);
+            });
+          });
+        });
+
+        // Close handlers
+        btnClose.onclick = () => dlg.close("cancel");
+        dlg.addEventListener("close", () => {
+          // re-render view-mode chips after closing
+          render();
+        }, { once: true });
+
+        // Show the dialog
+        dlg.showModal();
+      });
+    }
+
     // Combat
     const acEl = root.querySelector("#combat_ac");
     acEl.addEventListener("input", () => {
@@ -507,36 +773,7 @@ export function mountEditor({ root, getCharacter, onChange }) {
       });
     });
 
-    // Abilities
-    root.querySelectorAll("input[data-ab]").forEach((el) => {
-      el.addEventListener("input", () => {
-        const key = el.getAttribute("data-ab");
-        const v = clampInt(el.value);
-        if (v === null) return;
-        applyUpdate((next) => {
-          next.abilities[key] = v;
-        });
-      });
-    });
 
-    // Currency
-    const curMap = [
-      ["#cur_cp", "cp"],
-      ["#cur_sp", "sp"],
-      ["#cur_gp", "gp"],
-      ["#cur_pp", "pp"]
-    ];
-
-    curMap.forEach(([sel, key]) => {
-      const el = root.querySelector(sel);
-      el.addEventListener("input", () => {
-        const v = clampInt(el.value, 0);
-        if (v === null) return;
-        applyUpdate((next) => {
-          next.currency[key] = v;
-        });
-      });
-    });
 
     // Trackers
     const addBtn = root.querySelector("#trk_add");
