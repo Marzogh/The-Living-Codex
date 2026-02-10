@@ -202,13 +202,17 @@ function normaliseClasses(c) {
     c.core.classes.push({ id: c.core.classId, level: 1, isPrimary: c.core.classes.length === 0 });
   }
 
+  // Canonicalise stored single-class field too
+  if (c.core.classId) c.core.classId = c.core.classId.toString().trim().toLowerCase();
+
   // Normalise fields + ensure min level
   c.core.classes = c.core.classes
     .filter(x => x && (x.id ?? "").toString().trim())
     .map(x => ({
-      id: (x.id ?? "").toString().trim(),
+      id: (x.id ?? "").toString().trim().toLowerCase(),
       level: clampInt(x.level ?? 1, 1) ?? 1,
-      isPrimary: Boolean(x.isPrimary)
+      isPrimary: Boolean(x.isPrimary),
+      subclassId: (x.subclassId ?? x.subclass_id ?? "").toString().trim() || ""
     }));
 
   // Ensure exactly one primary if any classes exist
@@ -234,6 +238,49 @@ function normaliseClasses(c) {
   }
 }
 
+function getRulesDbFromWindow() {
+  try {
+    const w = window;
+    return w?.__codex?.appState?.rulesDb || w?.__codex?.rulesDb || null;
+  } catch {
+    return null;
+  }
+}
+
+function getSubclassesForClassId(classId) {
+  const id = (classId || "").toString().trim().toLowerCase();
+  if (!id) return [];
+  const db = getRulesDbFromWindow();
+  const sc = db?.subclasses || db?.subclass || null;
+  if (!sc) return [];
+
+  let arr = [];
+  // Generic API (our RulesDB): { list(), get(id), search(q) }
+  if (typeof sc.list === "function") {
+    try { arr = sc.list(); } catch { arr = []; }
+  } else if (typeof sc.values === "function") {
+    // Map-like
+    try { arr = Array.from(sc.values()); } catch { arr = []; }
+  } else if (Array.isArray(sc)) {
+    arr = sc;
+  } else if (sc && typeof sc === "object") {
+    arr = Object.values(sc);
+  }
+
+  return arr
+    .filter(r => {
+      const cid = (r?.class_id || r?.classId || r?.class || "").toString().trim().toLowerCase();
+      return cid === id;
+    })
+    .map(r => ({
+      id: (r?.id || r?.subclass_id || r?.subclassId || "").toString().trim(),
+      name: (r?.name || r?.label || r?.title || "").toString().trim(),
+      min_level: clampInt(r?.min_level ?? r?.minLevel ?? 0, 0) ?? 0
+    }))
+    .filter(x => x.id)
+    .sort((a,b) => (a.name || a.id).localeCompare(b.name || b.id));
+}
+
 function renderEmpty() {
   return `
     <section class="card">
@@ -243,11 +290,193 @@ function renderEmpty() {
   `;
 }
 
+// --- Spell Edit Modal (reuses the same <dialog>-style UX as other overlays) ---
+function ensureSpellEditDialog() {
+  const existing = document.querySelector("#dlgSpellEdit");
+  if (existing) return existing;
+
+  const dlg = document.createElement("dialog");
+  dlg.id = "dlgSpellEdit";
+  dlg.className = "dlg";
+
+  // NOTE: We keep markup structure similar to other dialogs (header/body/footer)
+  // so app.css can style it consistently.
+  dlg.innerHTML = `
+    <form method="dialog" class="dlg-form" id="formSpellEdit">
+      <div class="dlg-card">
+        <div class="dlg-header">
+          <div class="dlg-title" id="spellEditTitle">Edit Spell</div>
+          <button type="button" class="dlg-x" id="spellEditX" aria-label="Close">×</button>
+        </div>
+
+        <div class="dlg-body" id="spellEditBody"></div>
+
+        <div class="dlg-footer">
+          <button type="button" class="btn" id="spellEditCancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="spellEditSave">Save</button>
+        </div>
+      </div>
+    </form>
+  `;
+
+  document.body.appendChild(dlg);
+  return dlg;
+}
+
+function openSpellEditDialog({
+  spell,
+  title,
+  onSave,
+  onCancel,
+  allowLevelEdit = true
+} = {}) {
+  const dlg = ensureSpellEditDialog();
+  const body = dlg.querySelector("#spellEditBody");
+  const titleEl = dlg.querySelector("#spellEditTitle");
+  const btnX = dlg.querySelector("#spellEditX");
+  const btnCancel = dlg.querySelector("#spellEditCancel");
+  const btnSave = dlg.querySelector("#spellEditSave");
+
+  const s = spell || {};
+  const safeName = (s.name ?? "").toString();
+
+  if (titleEl) titleEl.textContent = title || (safeName ? `Edit: ${safeName}` : "Edit Spell");
+
+  // Render form fields (we only edit reference metadata; toggles remain inline in spells UI)
+  // We keep ids stable so spells.js can call this without caring about DOM structure.
+  body.innerHTML = `
+    <div class="grid grid-2">
+      <div class="field">
+        <label for="se_name">Name</label>
+        <input id="se_name" type="text" value="${escapeHtml(safeName)}" />
+      </div>
+
+      <div class="field">
+        <label for="se_level">Level</label>
+        <input id="se_level" type="number" min="0" max="9" inputmode="numeric" value="${escapeHtml(s.level ?? 0)}" ${allowLevelEdit ? "" : "disabled"} />
+      </div>
+
+      <div class="field">
+        <label for="se_school">School</label>
+        <input id="se_school" type="text" placeholder="e.g., Evocation" value="${escapeHtml(s.school ?? "")}" />
+      </div>
+
+      <div class="field">
+        <label for="se_cast">Casting Time</label>
+        <input id="se_cast" type="text" placeholder="e.g., 1 action" value="${escapeHtml(s.casting_time ?? s.cast ?? "")}" />
+      </div>
+
+      <div class="field">
+        <label for="se_range">Range</label>
+        <input id="se_range" type="text" placeholder="e.g., 60 feet" value="${escapeHtml(s.range ?? "")}" />
+      </div>
+
+      <div class="field">
+        <label for="se_duration">Duration</label>
+        <input id="se_duration" type="text" placeholder="e.g., Instantaneous" value="${escapeHtml(s.duration ?? "")}" />
+      </div>
+
+      <div class="field">
+        <label for="se_components">Components</label>
+        <input id="se_components" type="text" placeholder="e.g., V, S, M" value="${escapeHtml(s.components ?? "")}" />
+      </div>
+
+      <div class="field">
+        <label for="se_source">Source</label>
+        <input id="se_source" type="text" placeholder="e.g., PHB" value="${escapeHtml(s.source ?? "")}" />
+      </div>
+
+      <div class="field">
+        <label for="se_page">Page</label>
+        <input id="se_page" type="text" placeholder="e.g., 242" value="${escapeHtml(s.page ?? "")}" />
+      </div>
+
+      <div class="field" style="grid-column: 1 / -1;">
+        <label for="se_notes">Notes</label>
+        <textarea id="se_notes" rows="4" placeholder="Optional notes (keep brief during play)">${escapeHtml(s.notes ?? "")}</textarea>
+      </div>
+
+      <div class="hint" style="grid-column: 1 / -1; margin-top: 6px;">
+        Tip: Prepared / Ritual / Concentration toggles stay on the spell list for fast gameplay edits.
+      </div>
+    </div>
+  `;
+
+  function collect() {
+    const name = (dlg.querySelector("#se_name")?.value ?? "").toString().trim();
+    const level = clampInt(dlg.querySelector("#se_level")?.value, 0, 9) ?? 0;
+    const school = (dlg.querySelector("#se_school")?.value ?? "").toString().trim();
+    const casting_time = (dlg.querySelector("#se_cast")?.value ?? "").toString().trim();
+    const range = (dlg.querySelector("#se_range")?.value ?? "").toString().trim();
+    const duration = (dlg.querySelector("#se_duration")?.value ?? "").toString().trim();
+    const components = (dlg.querySelector("#se_components")?.value ?? "").toString().trim();
+    const source = (dlg.querySelector("#se_source")?.value ?? "").toString().trim();
+    const page = (dlg.querySelector("#se_page")?.value ?? "").toString().trim();
+    const notes = (dlg.querySelector("#se_notes")?.value ?? "").toString().trim();
+
+    // Preserve unknown fields; only override editable ones.
+    return {
+      ...s,
+      name,
+      level: allowLevelEdit ? level : (s.level ?? 0),
+      school,
+      casting_time,
+      range,
+      duration,
+      components,
+      source,
+      page,
+      notes,
+    };
+  }
+
+  // Clean up any previous handlers by overwriting them.
+  const closeAsCancel = () => {
+    try { dlg.close("cancel"); } catch { /* ignore */ }
+  };
+
+  btnX.onclick = (e) => { e.preventDefault(); closeAsCancel(); };
+  btnCancel.onclick = (e) => { e.preventDefault(); closeAsCancel(); };
+
+  btnSave.onclick = (e) => {
+    e.preventDefault();
+    const next = collect();
+    try {
+      if (typeof onSave === "function") onSave(next);
+    } finally {
+      try { dlg.close("save"); } catch { /* ignore */ }
+    }
+  };
+
+  // When dialog closes, call onCancel only if we didn't save.
+  dlg.addEventListener("close", () => {
+    const rv = (dlg.returnValue || "").toString();
+    if (rv !== "save") {
+      if (typeof onCancel === "function") onCancel();
+    }
+  }, { once: true });
+
+  dlg.showModal();
+}
+
+// Expose modal API for other modules (spells.js) without introducing circular imports
+try {
+  window.__codex = window.__codex || {};
+  window.__codex.ui = window.__codex.ui || {};
+  window.__codex.ui.openSpellEditDialog = openSpellEditDialog;
+  window.__codex.__has_spell_edit_dialog = true;
+} catch {
+  // ignore
+}
+
 
 export function mountEditor({ root, getCharacter, onChange }) {
   if (!root) throw new Error("mountEditor: root is required");
   if (typeof getCharacter !== "function") throw new Error("mountEditor: getCharacter must be a function");
   if (typeof onChange !== "function") throw new Error("mountEditor: onChange must be a function");
+
+  // Guard to prevent subclass autofix recursion
+  let subclassAutoFixInProgress = false;
 
   function applyUpdate(mutator) {
     const current = getCharacter();
@@ -269,6 +498,40 @@ export function mountEditor({ root, getCharacter, onChange }) {
 
     normaliseTrackers(c);
     normaliseClasses(c);
+    // Subclass level gating (rules-data driven):
+    // If a subclass is selected but the class level is below the subclass min_level, clear it.
+    // We apply this via onChange to keep state consistent and persisted.
+    if (!subclassAutoFixInProgress) {
+      const fixes = [];
+      for (let i = 0; i < (c.core?.classes?.length || 0); i++) {
+        const cl = c.core.classes[i];
+        const sid = (cl?.subclassId || "").toString().trim();
+        if (!sid) continue;
+        const subs = getSubclassesForClassId(cl.id);
+        if (!subs || subs.length === 0) continue; // no rules data -> can't gate
+        const rec = subs.find(s => (s.id || "").toString().trim() === sid);
+        if (!rec) continue;
+        const minLvl = Number(rec.min_level || 0);
+        const curLvl = Number(cl.level || 1);
+        if (minLvl > 0 && curLvl < minLvl) {
+          fixes.push({ idx: i, reason: `below min level ${minLvl}` });
+        }
+      }
+
+      if (fixes.length > 0) {
+        subclassAutoFixInProgress = true;
+        applyUpdate((next) => {
+          normaliseClasses(next);
+          for (const f of fixes) {
+            if (next.core?.classes?.[f.idx]) next.core.classes[f.idx].subclassId = "";
+          }
+          normaliseClasses(next);
+        });
+        subclassAutoFixInProgress = false;
+        // Re-render with corrected state
+        return render();
+      }
+    }
     if (typeof normaliseProficiencies !== "function") {
       throw new Error("normaliseProficiencies is not defined (editor.js module mismatch/cache)");
     }
@@ -337,13 +600,14 @@ export function mountEditor({ root, getCharacter, onChange }) {
             <tr>
               <th>Class</th>
               <th style="width: 110px;">Level</th>
+              <th>Subclass</th>
               <th style="width: 90px;">Primary</th>
               <th style="width: 110px;">Actions</th>
             </tr>
           </thead>
           <tbody>
             ${c.core.classes.length === 0
-              ? `<tr><td colspan="4" class="hint">No classes set yet.</td></tr>`
+              ? `<tr><td colspan="5" class="hint">No classes set yet.</td></tr>`
               : c.core.classes.map((cl, idx) => `
                 <tr data-class-row="1" data-class-idx="${idx}">
                   <td title="${escapeHtml(cl.id)}">${escapeHtml(prettyId(cl.id))}</td>
@@ -351,6 +615,48 @@ export function mountEditor({ root, getCharacter, onChange }) {
                     <input type="number" min="1" inputmode="numeric"
                       data-class-level="1" data-class-idx="${idx}"
                       value="${cl.level ?? 1}" />
+                  </td>
+                  <td>
+                    ${(() => {
+                      const subs = getSubclassesForClassId(cl.id);
+                      const current = (cl.subclassId || "").toString();
+                      if (subs.length > 0) {
+                        return (() => {
+                          const curLvl = Number(cl.level ?? 1);
+                          const mins = subs.map(s => Number(s.min_level || 0)).filter(n => n > 0);
+                          const minAny = mins.length ? Math.min(...mins) : 0;
+
+                          // If subclasses are level-gated and we're below the first unlock level,
+                          // keep the UI clean: show only a hint (no dropdown yet).
+                          if (minAny > 0 && curLvl < minAny) {
+                            return `<div class=\"hint\">Subclass unlocks at level ${minAny}+.</div>`;
+                          }
+
+                          // Eligible: show dropdown.
+                          // We also hide higher-level subclasses until eligible (cleaner UX than showing disabled options).
+                          const current = (cl.subclassId || "").toString();
+                          const eligibleSubs = subs.filter(s => {
+                            const req = Number(s.min_level || 0);
+                            return !req || curLvl >= req;
+                          });
+
+                          return `
+                            <select data-class-subclass="1" data-class-idx="${idx}">
+                              <option value="">(none)</option>
+                              ${eligibleSubs.map(s => {
+                                const sel = current === s.id ? "selected" : "";
+                                return `<option value="${escapeHtml(s.id)}" ${sel}>${escapeHtml(s.name || prettyId(s.id))}</option>`;
+                              }).join("")}
+                            </select>
+                          `;
+                        })();
+                      }
+                      // No rules data: allow manual entry
+                      return `
+                        <input type="text" data-class-subclass-text="1" data-class-idx="${idx}"
+                          placeholder="subclass id (e.g. arcane_trickster)" value="${escapeHtml(current)}" />
+                      `;
+                    })()}
                   </td>
                   <td style="text-align:center;">
                     <input type="radio" name="primary_class"
@@ -544,6 +850,34 @@ export function mountEditor({ root, getCharacter, onChange }) {
           normaliseClasses(next);
         });
         render();
+      });
+    });
+
+    // Subclass selection (dropdown from rulesdb or manual text)
+    root.querySelectorAll("select[data-class-subclass]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const idx = Number(el.getAttribute("data-class-idx"));
+        if (Number.isNaN(idx)) return;
+        const v = (el.value || "").toString().trim();
+        applyUpdate((next) => {
+          normaliseClasses(next);
+          if (!next.core.classes[idx]) return;
+          next.core.classes[idx].subclassId = v;
+        });
+        render();
+      });
+    });
+
+    root.querySelectorAll("input[data-class-subclass-text]").forEach((el) => {
+      el.addEventListener("input", () => {
+        const idx = Number(el.getAttribute("data-class-idx"));
+        if (Number.isNaN(idx)) return;
+        const v = (el.value || "").toString().trim().toLowerCase();
+        applyUpdate((next) => {
+          normaliseClasses(next);
+          if (!next.core.classes[idx]) return;
+          next.core.classes[idx].subclassId = v;
+        });
       });
     });
 

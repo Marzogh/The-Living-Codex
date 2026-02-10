@@ -1,7 +1,7 @@
 {
   "rulesetId": "dnd5e_2014",
   "schemaVersion": "0.1.0",
-  "builtAt": "2026-02-10T12:36:27.069Z",
+  "builtAt": "2026-02-10T17:14:59.436Z",
   "notes": "Minimal selector datasets for The Living Codex (2014 rules). Counts are computed at runtime; this file is descriptive only.",
   "sources": [
     {
@@ -10,7 +10,7 @@
     }
   ],
   "counts": {
-    "spells": 286,
+    "spells": 300,
     "items": 0,
     "classes": 13,
     "species": 14
