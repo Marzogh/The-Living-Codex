@@ -5,6 +5,7 @@ Normalize extracted spell index into canonical IDs + class IDs + CSV source-of-t
 Input:
   data/dnd5e_2014/spells.min.json   (from extractor)
   data/dnd5e_2014/classes.json      (canonical class IDs)
+  data/dnd5e_2014/cantrips.json (optional: manual cantrip additions)
 
 Output:
   data_src/dnd5e_2014/spells.csv    (source-of-truth)
@@ -54,6 +55,7 @@ def main() -> int:
 
     in_json = Path("data") / ruleset / "spells.min.json"
     classes_json = Path("data") / ruleset / "classes.json"
+    extra_json = Path("data") / ruleset / "cantrips.json"
 
     if not in_json.exists():
         raise SystemExit(f"Missing input: {in_json}")
@@ -62,6 +64,14 @@ def main() -> int:
 
     spells: List[dict] = load_json(in_json)
     classes: List[dict] = load_json(classes_json)
+
+    # Optional: merge in manual additions (e.g., cantrips not present in extractor PDFs)
+    if extra_json.exists():
+        extra = load_json(extra_json)
+        if isinstance(extra, list):
+            spells.extend(extra)
+        else:
+            raise SystemExit(f"Expected list in {extra_json}")
 
     # canonical class IDs
     class_ids = {c["id"] for c in classes if "id" in c}
@@ -182,11 +192,12 @@ def main() -> int:
     save_json(out_json, out_list)
 
     # Report
-    missing_class = sum(1 for r in out_list if not r.get("classes"))
+    if extra_json.exists():
+        print(f"Merged extras: {extra_json}")
     print(f"Canonical spells: {len(out_list)}")
     print(f"Wrote CSV: {out_csv}")
     print(f"Rewrote JSON: {out_json}")
-    print(f"Spells with 0 recognised classes (likely Artificer until added): {missing_class}")
+    print(f"Spells with 0 recognised classes (likely Artificer until added): {sum(1 for r in out_list if not r.get('classes'))}")
     return 0
 
 

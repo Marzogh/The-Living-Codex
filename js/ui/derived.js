@@ -215,40 +215,114 @@ function getClassIdsForInference(character) {
     .filter(Boolean);
 }
 
+function getRulesDbFromWindow() {
+  try {
+    const w = window;
+    // Preferred: app state namespace
+    const db = w?.__codex?.appState?.rulesDb || w?.__codex?.rulesDb || null;
+    return db;
+  } catch {
+    return null;
+  }
+}
 
 function inferSpellcastingAbility(character) {
-  // Explicit always wins
-  const explicit = character?.spellcasting?.ability || character?.spellcasting_ability || character?.spellcastingAbility;
+  // Explicit override always wins
+  const explicit =
+    character?.spellcasting?.ability ||
+    character?.spellcasting_ability ||
+    character?.spellcastingAbility;
+
   if (explicit) return explicit.toString().trim().toLowerCase();
 
-  // Infer from class(es)
-  const classIds = getClassIdsForInference(character);
-  if (classIds.length === 0) return null;
+  const classes = Array.isArray(character?.core?.classes)
+    ? character.core.classes
+    : [];
 
-  const map = {
-    // INT
-    wizard: "int",
-    artificer: "int",
+  if (classes.length === 0) return null;
 
-    // WIS
-    cleric: "wis",
-    druid: "wis",
-    ranger: "wis",
+  const db = getRulesDbFromWindow();
 
-    // CHA
-    bard: "cha",
-    paladin: "cha",
-    sorcerer: "cha",
-    warlock: "cha"
+  // Helper: get casting ability for a class id from rules DB
+  const abilityForClassId = (cid) => {
+    if (!db || !cid) return null;
+    const rec = db?.classes?.get?.(cid) || null;
+    if (!rec) return null;
+
+    const raw =
+      rec.spellcasting_ability ||
+      rec.spellcastingAbility ||
+      rec.castingAbility ||
+      rec.spellcasting?.ability ||
+      null;
+
+    if (!raw) return null;
+
+    const k = raw.toString().toLowerCase();
+    if (k === "int" || k === "wis" || k === "cha") return k;
+    if (k === "intelligence") return "int";
+    if (k === "wisdom") return "wis";
+    if (k === "charisma") return "cha";
+    return null;
   };
 
-  // Primary class first. If not a caster, pick first caster class.
-  for (const cid of classIds) {
-    const ability = map[cid];
-    if (ability) return ability;
+  // 1. Primary class (if caster)
+  const primary = classes.find(c => c?.isPrimary);
+  if (primary) {
+    const a = abilityForClassId(primary.id);
+    if (a) return a;
   }
 
-  return null;
+  // 2. Highest-level caster
+  const casters = classes
+    .map(c => ({ id: c.id, level: asNumber(c.level) ?? 0 }))
+    .map(c => ({ ...c, ability: abilityForClassId(c.id) }))
+    .filter(c => c.ability);
+
+  if (casters.length === 0) return null;
+
+  casters.sort((a, b) => b.level - a.level);
+  return casters[0].ability;
+}
+
+function inferSubclassSpellRules(character) {
+  const out = {};
+
+  const classes = Array.isArray(character?.core?.classes)
+    ? character.core.classes
+    : [];
+
+  for (const cl of classes) {
+    if (!cl?.id) continue;
+
+    // Default: no restrictions
+    out[cl.id] = {
+      hasSubclassSpellRules: false,
+      allowedSchools: null,
+      note: null
+    };
+
+    // Prep hooks for later enforcement
+    if (cl.id === "rogue") {
+      // Arcane Trickster – schools restricted later
+      out[cl.id] = {
+        hasSubclassSpellRules: true,
+        allowedSchools: ["enchantment", "illusion"],
+        note: "Arcane Trickster school restrictions apply (enforcement pending)"
+      };
+    }
+
+    if (cl.id === "fighter") {
+      // Eldritch Knight – schools restricted later
+      out[cl.id] = {
+        hasSubclassSpellRules: true,
+        allowedSchools: ["abjuration", "evocation"],
+        note: "Eldritch Knight school restrictions apply (enforcement pending)"
+      };
+    }
+  }
+
+  return out;
 }
 
 function uniqSorted(arr) {
@@ -414,6 +488,7 @@ export function mountDerived({ root, getCharacter }) {
       : (10 + perceptionBonus);
 
     const sca = inferSpellcastingAbility(c); // 'int'|'wis'|'cha' etc.
+    const subclassSpellRules = inferSubclassSpellRules(c);
     const scaMod = sca ? modFromScore(getAbilityScore(c, sca)) : null;
     const spellAttack = (prof != null && scaMod != null) ? (prof + scaMod) : null;
     const spellSaveDc = (prof != null && scaMod != null) ? (8 + prof + scaMod) : null;

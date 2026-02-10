@@ -1,0 +1,236 @@
+[
+  {
+    "name": "Acid Splash",
+    "level": 0,
+    "school": "Conjuration",
+    "classes": ["Artificer", "Sorcerer", "Wizard"],
+    "summary_basic": "Hurl acid at one or two creatures, dealing acid damage.",
+    "sourceHint": "PHB",
+    "page": "211"
+  },
+  {
+    "name": "Blade Ward",
+    "level": 0,
+    "school": "Abjuration",
+    "classes": ["Bard", "Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "Gain resistance to weapon damage until your next turn.",
+    "sourceHint": "PHB",
+    "page": "218"
+  },
+  {
+    "name": "Chill Touch",
+    "level": 0,
+    "school": "Necromancy",
+    "classes": ["Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "A ghostly hand deals necrotic damage and hinders undead healing.",
+    "sourceHint": "PHB",
+    "page": "221"
+  },
+  {
+    "name": "Dancing Lights",
+    "level": 0,
+    "school": "Evocation",
+    "classes": ["Bard", "Sorcerer", "Wizard"],
+    "summary_basic": "Create floating lights that illuminate or distract.",
+    "sourceHint": "PHB",
+    "page": "230"
+  },
+  {
+    "name": "Druidcraft",
+    "level": 0,
+    "school": "Transmutation",
+    "classes": ["Druid"],
+    "summary_basic": "Predict weather, create small natural effects, or light candles.",
+    "sourceHint": "PHB",
+    "page": "236"
+  },
+  {
+    "name": "Eldritch Blast",
+    "level": 0,
+    "school": "Evocation",
+    "classes": ["Warlock"],
+    "summary_basic": "A beam of magical force that deals force damage.",
+    "sourceHint": "PHB",
+    "page": "237"
+  },
+  {
+    "name": "Fire Bolt",
+    "level": 0,
+    "school": "Evocation",
+    "classes": ["Sorcerer", "Wizard"],
+    "summary_basic": "Ranged spell attack dealing fire damage; ignites objects.",
+    "sourceHint": "PHB",
+    "page": "242"
+  },
+  {
+    "name": "Friends",
+    "level": 0,
+    "school": "Enchantment",
+    "classes": ["Bard", "Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "Gain advantage on social checks; target becomes hostile after.",
+    "sourceHint": "PHB",
+    "page": "244"
+  },
+  {
+    "name": "Guidance",
+    "level": 0,
+    "school": "Divination",
+    "classes": ["Cleric", "Druid"],
+    "summary_basic": "Touch a creature to add a bonus to one ability check.",
+    "sourceHint": "PHB",
+    "page": "248"
+  },
+  {
+    "name": "Light",
+    "level": 0,
+    "school": "Evocation",
+    "classes": ["Bard", "Cleric", "Sorcerer", "Wizard"],
+    "summary_basic": "Make an object glow with light.",
+    "sourceHint": "PHB",
+    "page": "255"
+  },
+  {
+    "name": "Mage Hand",
+    "level": 0,
+    "school": "Conjuration",
+    "classes": ["Bard", "Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "Create a spectral hand that can manipulate objects.",
+    "sourceHint": "PHB",
+    "page": "256"
+  },
+  {
+    "name": "Mending",
+    "level": 0,
+    "school": "Transmutation",
+    "classes": ["Bard", "Cleric", "Druid", "Sorcerer", "Wizard"],
+    "summary_basic": "Repair small breaks or tears in objects.",
+    "sourceHint": "PHB",
+    "page": "259"
+  },
+  {
+    "name": "Message",
+    "level": 0,
+    "school": "Transmutation",
+    "classes": ["Bard", "Sorcerer", "Wizard"],
+    "summary_basic": "Whisper a message that only one creature can hear.",
+    "sourceHint": "PHB",
+    "page": "259"
+  },
+  {
+    "name": "Minor Illusion",
+    "level": 0,
+    "school": "Illusion",
+    "classes": ["Bard", "Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "Create a simple sound or visual illusion.",
+    "sourceHint": "PHB",
+    "page": "260"
+  },
+  {
+    "name": "Poison Spray",
+    "level": 0,
+    "school": "Conjuration",
+    "classes": ["Druid", "Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "Release toxic gas that damages a nearby creature.",
+    "sourceHint": "PHB",
+    "page": "266"
+  },
+  {
+    "name": "Prestidigitation",
+    "level": 0,
+    "school": "Transmutation",
+    "classes": ["Bard", "Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "Perform minor magical effects like cleaning or flavoring food.",
+    "sourceHint": "PHB",
+    "page": "267"
+  },
+  {
+    "name": "Produce Flame",
+    "level": 0,
+    "school": "Conjuration",
+    "classes": ["Druid"],
+    "summary_basic": "Create a flame in your hand or throw it at a foe.",
+    "sourceHint": "PHB",
+    "page": "269"
+  },
+  {
+    "name": "Ray of Frost",
+    "level": 0,
+    "school": "Evocation",
+    "classes": ["Sorcerer", "Wizard"],
+    "summary_basic": "A freezing ray damages and slows a creature.",
+    "sourceHint": "PHB",
+    "page": "271"
+  },
+  {
+    "name": "Resistance",
+    "level": 0,
+    "school": "Abjuration",
+    "classes": ["Cleric", "Druid"],
+    "summary_basic": "Touch a creature to add a bonus to one saving throw.",
+    "sourceHint": "PHB",
+    "page": "272"
+  },
+  {
+    "name": "Sacred Flame",
+    "level": 0,
+    "school": "Evocation",
+    "classes": ["Cleric"],
+    "summary_basic": "Radiant flame damages a creature that fails a save.",
+    "sourceHint": "PHB",
+    "page": "272"
+  },
+  {
+    "name": "Shillelagh",
+    "level": 0,
+    "school": "Transmutation",
+    "classes": ["Druid"],
+    "summary_basic": "Imbue a club or staff with magical power.",
+    "sourceHint": "PHB",
+    "page": "275"
+  },
+  {
+    "name": "Spare the Dying",
+    "level": 0,
+    "school": "Necromancy",
+    "classes": ["Cleric"],
+    "summary_basic": "Stabilise a dying creature.",
+    "sourceHint": "PHB",
+    "page": "277"
+  },
+  {
+    "name": "Thaumaturgy",
+    "level": 0,
+    "school": "Transmutation",
+    "classes": ["Cleric"],
+    "summary_basic": "Manifest minor divine effects like booming voice or tremors.",
+    "sourceHint": "PHB",
+    "page": "282"
+  },
+  {
+    "name": "Thorn Whip",
+    "level": 0,
+    "school": "Transmutation",
+    "classes": ["Druid"],
+    "summary_basic": "Create a vine whip that pulls creatures closer.",
+    "sourceHint": "PHB",
+    "page": "282"
+  },
+  {
+    "name": "True Strike",
+    "level": 0,
+    "school": "Divination",
+    "classes": ["Bard", "Sorcerer", "Warlock", "Wizard"],
+    "summary_basic": "Gain advantage on your next attack against a target.",
+    "sourceHint": "PHB",
+    "page": "284"
+  },
+  {
+    "name": "Vicious Mockery",
+    "level": 0,
+    "school": "Enchantment",
+    "classes": ["Bard"],
+    "summary_basic": "Insult a creature to deal psychic damage and impose disadvantage.",
+    "sourceHint": "PHB",
+    "page": "285"
+  }
+]

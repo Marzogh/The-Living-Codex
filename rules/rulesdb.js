@@ -140,6 +140,7 @@ export const RulesDB = {
     let spells = [];
     let items = [];
     let classes = [];
+    let subclasses = [];
     let species = [];
     let meta = null;
 
@@ -149,6 +150,10 @@ export const RulesDB = {
     try { classes = await fetchJson(new URL("classes.min.json", baseUrl).href); }
     catch {
       try { classes = await fetchJson(new URL("classes.json", baseUrl).href); } catch { /* optional */ }
+    }
+    try { subclasses = await fetchJson(new URL("subclasses.min.json", baseUrl).href); }
+    catch {
+      try { subclasses = await fetchJson(new URL("subclasses.json", baseUrl).href); } catch { /* optional */ }
     }
 
     try { species = await fetchJson(new URL("species.min.json", baseUrl).href); }
@@ -167,6 +172,7 @@ export const RulesDB = {
     const itemsIndex = buildIndex(items);
     const classesIndex = buildIndex(classes);
     const speciesIndex = buildIndex(species);
+    const subclassesIndex = buildIndex(subclasses);
 
     return {
       rulesetId: rs,
@@ -176,11 +182,13 @@ export const RulesDB = {
         spells: spellsIndex.list.length,
         items: itemsIndex.list.length,
         classes: classesIndex.list.length,
+        subclasses: subclassesIndex.list.length,
         species: speciesIndex.list.length
       },
       spells: makeSpellApi(spellsIndex),
       items: makeGenericApi(itemsIndex),
       classes: makeGenericApi(classesIndex),
+      subclasses: makeGenericApi(subclassesIndex),
       species: makeGenericApi(speciesIndex)
     };
   }
