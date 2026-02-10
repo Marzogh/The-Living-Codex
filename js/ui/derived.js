@@ -22,8 +22,10 @@ function asNumber(v) {
 
 function clampLevel(lvl) {
   if (lvl == null) return null;
-  const n = Math.max(1, Math.min(20, lvl));
-  return n;
+  const raw = asNumber(lvl);
+  if (raw == null) return null;
+  const n = Math.trunc(raw);
+  return Math.max(1, Math.min(20, n));
 }
 
 function modFromScore(score) {
@@ -44,6 +46,61 @@ function profBonusFromLevel(level) {
   if (level <= 12) return 4;
   if (level <= 16) return 5;
   return 6;
+}
+
+function normaliseKey(x) {
+  return (x ?? "").toString().trim().toLowerCase();
+}
+
+function hasSkillInList(list, skillName) {
+  if (!Array.isArray(list)) return false;
+  const target = normaliseKey(skillName);
+  return list.some((s) => normaliseKey(s) === target);
+}
+
+function getSkillProficiencyMultiplier(character, skillName) {
+  // Returns 0 (not proficient), 1 (proficient), or 2 (expertise)
+  const sk = normaliseKey(skillName);
+
+  // Common shapes:
+  // character.skills = { perception: { proficient:true } }
+  // character.skills = { Perception: { prof:true, expertise:true } }
+  // character.proficiencies.skills = ["perception", ...]
+  // character.expertise.skills = ["perception", ...]
+
+  const skillsObj = character?.skills;
+  if (skillsObj && typeof skillsObj === "object") {
+    const entry = skillsObj[sk] ?? skillsObj[sk.toUpperCase()] ?? skillsObj[sk[0]?.toUpperCase() + sk.slice(1)];
+    if (entry && typeof entry === "object") {
+      const exp = Boolean(entry.expertise || entry.expert || entry.isExpertise);
+      if (exp) return 2;
+      const prof = Boolean(entry.proficient || entry.prof || entry.isProficient);
+      if (prof) return 1;
+    }
+    // Sometimes skills are booleans
+    const boolish = skillsObj[sk] ?? skillsObj[sk.toUpperCase()];
+    if (boolish === true) return 1;
+  }
+
+  if (hasSkillInList(character?.expertise?.skills, sk)) return 2;
+  if (hasSkillInList(character?.proficiencies?.skills, sk)) return 1;
+
+  // Legacy/fallback arrays
+  if (hasSkillInList(character?.skillProficiencies, sk)) return 1;
+  if (hasSkillInList(character?.skillExpertise, sk)) return 2;
+
+  return 0;
+}
+
+function getSkillBonus(character, skillName, abilityKey, profBonus) {
+  const abilityMod = modFromScore(getAbilityScore(character, abilityKey));
+  if (abilityMod == null) return null;
+
+  const mult = getSkillProficiencyMultiplier(character, skillName);
+  if (!profBonus) return abilityMod;
+  if (mult === 0) return abilityMod;
+  if (mult === 1) return abilityMod + profBonus;
+  return abilityMod + (2 * profBonus);
 }
 
 function getAbilityScore(character, key /* 'str'|'dex'|... */) {
@@ -117,14 +174,203 @@ function getClassSummary(character) {
   return rows;
 }
 
+function getClassIdsForInference(character) {
+  // Prefer multiclass-ready location
+  const out = [];
+
+  const coreClasses = Array.isArray(character?.core?.classes) ? character.core.classes : null;
+  if (coreClasses) {
+    // Primary first, then the rest
+    const primary = coreClasses.find(c => c?.isPrimary && c?.id);
+    if (primary?.id) out.push(primary.id);
+    for (const cl of coreClasses) {
+      if (!cl?.id) continue;
+      if (primary?.id && cl.id === primary.id) continue;
+      out.push(cl.id);
+    }
+  }
+
+  // Fallbacks
+  if (out.length === 0) {
+    if (character?.core?.classId) out.push(character.core.classId);
+    else if (character?.core?.class_id) out.push(character.core.class_id);
+    else if (character?.classId) out.push(character.classId);
+    else if (character?.class_id) out.push(character.class_id);
+  }
+
+  // Legacy array
+  if (out.length === 0 && Array.isArray(character?.classes)) {
+    const legacyPrimary = character.classes.find(c => c?.isPrimary && (c?.id || c?.class_id || c?.name));
+    if (legacyPrimary) out.push(legacyPrimary.id || legacyPrimary.class_id || legacyPrimary.name);
+    for (const cl of character.classes) {
+      const id = cl?.id || cl?.class_id || cl?.name;
+      if (!id) continue;
+      if (legacyPrimary && id === (legacyPrimary.id || legacyPrimary.class_id || legacyPrimary.name)) continue;
+      out.push(id);
+    }
+  }
+
+  return out
+    .map(x => (x ?? "").toString().trim().toLowerCase())
+    .filter(Boolean);
+}
+
+
 function inferSpellcastingAbility(character) {
-  // Possible explicit fields
+  // Explicit always wins
   const explicit = character?.spellcasting?.ability || character?.spellcasting_ability || character?.spellcastingAbility;
   if (explicit) return explicit.toString().trim().toLowerCase();
 
-  // If user later adds class info, we can infer from class name.
-  // For v1, keep conservative: no guess if not explicit.
+  // Infer from class(es)
+  const classIds = getClassIdsForInference(character);
+  if (classIds.length === 0) return null;
+
+  const map = {
+    // INT
+    wizard: "int",
+    artificer: "int",
+
+    // WIS
+    cleric: "wis",
+    druid: "wis",
+    ranger: "wis",
+
+    // CHA
+    bard: "cha",
+    paladin: "cha",
+    sorcerer: "cha",
+    warlock: "cha"
+  };
+
+  // Primary class first. If not a caster, pick first caster class.
+  for (const cid of classIds) {
+    const ability = map[cid];
+    if (ability) return ability;
+  }
+
   return null;
+}
+
+function uniqSorted(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const x of (arr || [])) {
+    const s = (x ?? "").toString().trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+function titleish(s) {
+  const t = (s ?? "").toString().trim();
+  if (!t) return "";
+  // Keep common abbreviations like STR/DEX as-is
+  if (t.length <= 4 && t.toUpperCase() === t) return t;
+  return t
+    .split(/\s+/)
+    .map(w => w ? (w[0].toUpperCase() + w.slice(1)) : "")
+    .join(" ");
+}
+
+function collectFromMany(character, paths) {
+  // paths: array of functions returning an array-ish value
+  const all = [];
+  for (const fn of paths) {
+    try {
+      const v = fn(character);
+      if (Array.isArray(v)) all.push(...v);
+      else if (typeof v === "string" && v.trim()) all.push(v);
+    } catch {
+      // ignore
+    }
+  }
+  return uniqSorted(all);
+}
+
+function getProficienciesSummary(character) {
+  // Skills
+  const skills = collectFromMany(character, [
+    c => c?.proficiencies?.skills,
+    c => c?.core?.proficiencies?.skills,
+    c => c?.skillProficiencies,
+    c => c?.skills && typeof c.skills === "object" ? Object.keys(c.skills).filter(k => {
+      const entry = c.skills[k];
+      if (entry === true) return true;
+      if (entry && typeof entry === "object") return Boolean(entry.proficient || entry.prof || entry.isProficient);
+      return false;
+    }) : []
+  ]);
+
+  // Expertise
+  const expertiseSkills = collectFromMany(character, [
+    c => c?.expertise?.skills,
+    c => c?.core?.expertise?.skills,
+    c => c?.skillExpertise,
+    c => c?.skills && typeof c.skills === "object" ? Object.keys(c.skills).filter(k => {
+      const entry = c.skills[k];
+      if (entry && typeof entry === "object") return Boolean(entry.expertise || entry.expert || entry.isExpertise);
+      return false;
+    }) : []
+  ]);
+
+  // Saving throws
+  const saves = collectFromMany(character, [
+    c => c?.proficiencies?.saves,
+    c => c?.core?.proficiencies?.saves,
+    c => c?.saveProficiencies,
+    c => c?.savingThrowProficiencies
+  ]).map(x => {
+    const k = normaliseKey(x);
+    const map = { str: "STR", dex: "DEX", con: "CON", int: "INT", wis: "WIS", cha: "CHA" };
+    return map[k] || x.toString().trim().toUpperCase();
+  });
+
+  // Tools / kits
+  const tools = collectFromMany(character, [
+    c => c?.proficiencies?.tools,
+    c => c?.core?.proficiencies?.tools,
+    c => c?.toolProficiencies,
+    c => c?.tools
+  ]).map(titleish);
+
+  // Languages
+  const languages = collectFromMany(character, [
+    c => c?.languages,
+    c => c?.proficiencies?.languages,
+    c => c?.core?.proficiencies?.languages
+  ]).map(titleish);
+
+  // Armor / weapons
+  const armor = collectFromMany(character, [
+    c => c?.proficiencies?.armor,
+    c => c?.core?.proficiencies?.armor,
+    c => c?.armorProficiencies
+  ]).map(titleish);
+
+  const weapons = collectFromMany(character, [
+    c => c?.proficiencies?.weapons,
+    c => c?.core?.proficiencies?.weapons,
+    c => c?.weaponProficiencies
+  ]).map(titleish);
+
+  return {
+    skills: skills.map(titleish),
+    expertiseSkills: expertiseSkills.map(titleish),
+    saves,
+    tools,
+    languages,
+    armor,
+    weapons
+  };
+}
+
+function renderListOrDash(items) {
+  if (!items || items.length === 0) return "—";
+  return items.map(escapeHtml).join(", ");
 }
 
 export function mountDerived({ root, getCharacter }) {
@@ -159,12 +405,21 @@ export function mountDerived({ root, getCharacter }) {
     const wisMod = abilities.find(x => x.k === "wis")?.mod ?? null;
 
     const initiative = dexMod;
-    const passivePerception = wisMod == null ? null : (10 + wisMod);
+
+    // Passive Perception is 10 + Perception skill bonus when we can infer proficiency/expertise.
+    // If we can't, fall back to 10 + WIS mod.
+    const perceptionBonus = getSkillBonus(c, "perception", "wis", prof);
+    const passivePerception = perceptionBonus == null
+      ? (wisMod == null ? null : (10 + wisMod))
+      : (10 + perceptionBonus);
 
     const sca = inferSpellcastingAbility(c); // 'int'|'wis'|'cha' etc.
     const scaMod = sca ? modFromScore(getAbilityScore(c, sca)) : null;
     const spellAttack = (prof != null && scaMod != null) ? (prof + scaMod) : null;
     const spellSaveDc = (prof != null && scaMod != null) ? (8 + prof + scaMod) : null;
+
+    const profs = getProficienciesSummary(c);
+    const hasAnyProfs = Object.values(profs).some(arr => Array.isArray(arr) && arr.length > 0);
 
     root.innerHTML = `
       <section class="card">
@@ -189,8 +444,9 @@ export function mountDerived({ root, getCharacter }) {
             <div>${formatSigned(initiative)}</div>
           </div>
           <div class="field">
-            <label>Passive Perception (10 + WIS)</label>
+            <label>Passive Perception</label>
             <div>${passivePerception ?? "—"}</div>
+            <div class="hint">10 + Perception bonus (uses WIS mod, plus proficiency/expertise if known)</div>
           </div>
         </div>
 
@@ -213,6 +469,55 @@ export function mountDerived({ root, getCharacter }) {
             `).join("")}
           </tbody>
         </table>
+
+        <details class="profs" ${hasAnyProfs ? "" : ""}>
+          <summary>Proficiencies</summary>
+          ${hasAnyProfs ? `
+            <div class="grid" style="margin-top: 10px;">
+              ${profs.saves.length ? `
+                <div class="field">
+                  <label>Saving Throws</label>
+                  <div>${renderListOrDash(profs.saves)}</div>
+                </div>
+              ` : ""}
+              ${profs.skills.length ? `
+                <div class="field">
+                  <label>Skills</label>
+                  <div>${renderListOrDash(profs.skills)}</div>
+                </div>
+              ` : ""}
+              ${profs.expertiseSkills.length ? `
+                <div class="field">
+                  <label>Expertise</label>
+                  <div>${renderListOrDash(profs.expertiseSkills)}</div>
+                </div>
+              ` : ""}
+              ${profs.tools.length ? `
+                <div class="field">
+                  <label>Tools</label>
+                  <div>${renderListOrDash(profs.tools)}</div>
+                </div>
+              ` : ""}
+              ${profs.languages.length ? `
+                <div class="field">
+                  <label>Languages</label>
+                  <div>${renderListOrDash(profs.languages)}</div>
+                </div>
+              ` : ""}
+              ${(profs.armor.length || profs.weapons.length) ? `
+                <div class="field">
+                  <label>Armor / Weapons</label>
+                  <div>
+                    ${profs.armor.length ? `<div class="hint"><strong>Armor:</strong> ${renderListOrDash(profs.armor)}</div>` : ""}
+                    ${profs.weapons.length ? `<div class="hint"><strong>Weapons:</strong> ${renderListOrDash(profs.weapons)}</div>` : ""}
+                  </div>
+                </div>
+              ` : ""}
+            </div>
+          ` : `
+            <p class="hint" style="margin-top: 10px;">No proficiency data recorded yet. Once skills/saves/tools/languages are added to the character data, they will appear here.</p>
+          `}
+        </details>
 
         ${sca ? `
           <h3 style="margin-top: 10px;">Spellcasting</h3>

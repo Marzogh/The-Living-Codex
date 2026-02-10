@@ -11,7 +11,112 @@ import { mountDerived } from "./ui/derived.js";
 
 
 
+
 const $ = (id) => document.getElementById(id);
+
+// ---------- UI helpers: collapsible cards + theming ----------
+const LS_PREFIX = "codex.card.";
+
+function slugify(s) {
+  return (s ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function cardKey(cardEl) {
+  const h2 = cardEl?.querySelector(":scope > h2");
+  const title = h2?.textContent || "card";
+  const id = cardEl.id ? `#${cardEl.id}` : "";
+  return `${LS_PREFIX}${slugify(title)}${id}`;
+}
+
+function getCollapsed(cardEl) {
+  try {
+    return localStorage.getItem(cardKey(cardEl)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setCollapsed(cardEl, collapsed) {
+  if (!cardEl) return;
+  cardEl.classList.toggle("collapsed", Boolean(collapsed));
+  try {
+    localStorage.setItem(cardKey(cardEl), collapsed ? "1" : "0");
+  } catch {}
+}
+
+function ensureCardBodyWrapper(cardEl) {
+  if (!cardEl || cardEl.querySelector(":scope > .card-body")) return;
+
+  const body = document.createElement("div");
+  body.className = "card-body";
+
+  // Move everything except the first h2 into the body wrapper
+  const kids = Array.from(cardEl.childNodes);
+  let seenH2 = false;
+  for (const node of kids) {
+    if (node.nodeType === 1 && node.tagName === "H2" && !seenH2) {
+      seenH2 = true;
+      continue;
+    }
+    body.appendChild(node);
+  }
+
+  cardEl.appendChild(body);
+}
+
+function initCollapsibleCards(root = document) {
+  const cards = root.querySelectorAll(".card");
+  cards.forEach((card) => {
+    if (card.getAttribute("data-collapsible") === "1") return;
+
+    const h2 = card.querySelector(":scope > h2");
+    if (!h2) return;
+
+    ensureCardBodyWrapper(card);
+
+    // restore state
+    setCollapsed(card, getCollapsed(card));
+
+    h2.addEventListener("click", () => {
+      const next = !card.classList.contains("collapsed");
+      setCollapsed(card, next);
+    });
+
+    card.setAttribute("data-collapsible", "1");
+  });
+}
+
+function setBodyThemeFromCharacter(c) {
+  const body = document.body;
+  if (!body) return;
+
+  const classId = (c?.core?.classId || c?.core?.class_id || "").toString().trim().toLowerCase();
+  const speciesId = (c?.core?.speciesId || c?.core?.species_id || c?.core?.raceId || c?.core?.race_id || "")
+    .toString()
+    .trim()
+    .toLowerCase();
+
+  if (classId) body.dataset.class = classId;
+  else delete body.dataset.class;
+
+  if (speciesId) body.dataset.species = speciesId;
+  else delete body.dataset.species;
+}
+
+function renderAll() {
+  editor.render();
+  inventory.render();
+  spells.render();
+  logUI.render();
+  derived.render();
+  // Re-initialise collapsibles because many sections re-render their markup.
+  initCollapsibleCards(document);
+}
 
 // New Character dialog elements
 const dlgNewChar = $("dlgNewChar");
@@ -22,6 +127,14 @@ const ncClass = $("ncClass");
 const ncSpecies = $("ncSpecies");
 const ncRulesStatus = $("ncRulesStatus");
 const ncCancel = $("ncCancel");
+
+// Optional ability inputs (may be added later to the dialog)
+const ncStr = $("ncStr");
+const ncDex = $("ncDex");
+const ncCon = $("ncCon");
+const ncInt = $("ncInt");
+const ncWis = $("ncWis");
+const ncCha = $("ncCha");
 
 // RulesDB instance used only for the dialog population (does not affect current character until created)
 let newCharRulesDb = null;
@@ -55,6 +168,176 @@ function fillSelect(selectEl, items, { placeholder = "(Select)", valueKey = "id"
   if (prev && [...selectEl.options].some(o => o.value === prev)) {
     selectEl.value = prev;
   }
+}
+
+function clampAbilityScore(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  // 1–30 covers almost all cases; keeps us safe if someone types nonsense.
+  if (n < 1) return 1;
+  if (n > 30) return 30;
+  return Math.trunc(n);
+}
+
+function readAbilityInputsOrNull() {
+  // If the dialog doesn't have these fields yet, return null so defaults remain.
+  if (!ncStr && !ncDex && !ncCon && !ncInt && !ncWis && !ncCha) return null;
+
+  const out = {
+    str: clampAbilityScore(ncStr?.value),
+    dex: clampAbilityScore(ncDex?.value),
+    con: clampAbilityScore(ncCon?.value),
+    int: clampAbilityScore(ncInt?.value),
+    wis: clampAbilityScore(ncWis?.value),
+    cha: clampAbilityScore(ncCha?.value)
+  };
+
+  // If none were provided/parsable, treat as absent.
+  const any = Object.values(out).some((x) => x !== null);
+  return any ? out : null;
+}
+
+function normList(arr) {
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const x of arr) {
+    const s = (x ?? "").toString().trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+function normaliseSaveKeys(list) {
+  const map = { STR: "str", DEX: "dex", CON: "con", INT: "int", WIS: "wis", CHA: "cha" };
+  return normList(list).map((s) => {
+    const t = (s ?? "").toString().trim();
+    const up = t.toUpperCase();
+    if (map[up]) return map[up];
+    const low = t.toLowerCase();
+    if (["str", "dex", "con", "int", "wis", "cha"].includes(low)) return low;
+    return low;
+  });
+}
+
+function ensureProficiencyContainers(character) {
+  if (!character.proficiencies || typeof character.proficiencies !== "object") character.proficiencies = {};
+  if (!character.expertise || typeof character.expertise !== "object") character.expertise = {};
+  const p = character.proficiencies;
+  const e = character.expertise;
+  p.skills = Array.isArray(p.skills) ? p.skills : [];
+  p.saves = Array.isArray(p.saves) ? p.saves : [];
+  p.tools = Array.isArray(p.tools) ? p.tools : [];
+  p.languages = Array.isArray(p.languages) ? p.languages : [];
+  p.armor = Array.isArray(p.armor) ? p.armor : [];
+  p.weapons = Array.isArray(p.weapons) ? p.weapons : [];
+
+  // Back-compat aliases (some UI may still read these keys)
+  p.saving_throws = Array.isArray(p.saving_throws) ? p.saving_throws : p.saves;
+  p.armour = Array.isArray(p.armour) ? p.armour : p.armor;
+  e.skills = Array.isArray(e.skills) ? e.skills : [];
+}
+
+function getRuleRecord(db, collectionName, id) {
+  if (!db || !id) return null;
+  const col = db[collectionName];
+  if (!col) return null;
+  if (typeof col.get === "function") return col.get(id) || null;
+  if (Array.isArray(col)) return col.find((x) => (x?.id || "") === id) || null;
+  return null;
+}
+
+function applyProficiencyDefaultsFromRules(character, rulesDb) {
+  if (!character || !rulesDb) return;
+  ensureProficiencyContainers(character);
+
+  const p = character.proficiencies;
+
+  // Only fill if empty (do not overwrite)
+  const wantSkills = p.skills.length === 0;
+  const wantSaves = p.saves.length === 0;
+  const wantTools = p.tools.length === 0;
+  const wantLangs = p.languages.length === 0;
+  const wantArmor = p.armor.length === 0;
+  const wantWeapons = p.weapons.length === 0;
+
+  const classId = character?.core?.classId || character?.core?.class_id || null;
+  const speciesId =
+    character?.core?.speciesId ||
+    character?.core?.species_id ||
+    character?.core?.raceId ||
+    character?.core?.race_id ||
+    null;
+
+  const classRec = getRuleRecord(rulesDb, "classes", classId);
+  const speciesRec = getRuleRecord(rulesDb, "species", speciesId) || getRuleRecord(rulesDb, "races", speciesId);
+
+  if (classRec) {
+    if (wantSaves) {
+      const saves = classRec.saving_throws || classRec.savingThrows || classRec.save_proficiencies || classRec.saves || [];
+      p.saves = normaliseSaveKeys(saves);
+    }
+    if (wantSkills) {
+      const sk = classRec.skill_proficiencies || classRec.skillProficiencies || classRec.skills || [];
+      p.skills = normList(sk).map((s) => s.toLowerCase());
+    }
+    if (wantArmor) {
+      const ar = classRec.armor || classRec.armor_proficiencies || classRec.armorProficiencies || [];
+      p.armor = normList(ar);
+    }
+    if (wantWeapons) {
+      const wp = classRec.weapons || classRec.weapon_proficiencies || classRec.weaponProficiencies || [];
+      p.weapons = normList(wp);
+    }
+    if (wantTools) {
+      const tl = classRec.tools || classRec.tool_proficiencies || classRec.toolProficiencies || [];
+      p.tools = normList(tl);
+    }
+  }
+
+  if (speciesRec) {
+    if (wantLangs) {
+      const langs =
+        speciesRec.languages ||
+        speciesRec.language_proficiencies ||
+        speciesRec.languageProficiencies ||
+        speciesRec.proficiencies?.languages ||
+        [];
+      p.languages = normList(langs);
+    }
+    if (wantTools && p.tools.length === 0) {
+      const tl = speciesRec.tools || speciesRec.tool_proficiencies || speciesRec.proficiencies?.tools || [];
+      p.tools = normList(tl);
+    }
+    if (wantWeapons && p.weapons.length === 0) {
+      const wp = speciesRec.weapons || speciesRec.weapon_proficiencies || speciesRec.proficiencies?.weapons || [];
+      p.weapons = normList(wp);
+    }
+    if (wantArmor && p.armor.length === 0) {
+      const ar = speciesRec.armor || speciesRec.armor_proficiencies || speciesRec.proficiencies?.armor || [];
+      p.armor = normList(ar);
+    }
+    if (wantSkills && p.skills.length === 0) {
+      const sk = speciesRec.skills || speciesRec.skill_proficiencies || speciesRec.proficiencies?.skills || [];
+      p.skills = normList(sk).map((s) => s.toLowerCase());
+    }
+  }
+
+  // Final normalisation
+  p.skills = normList(p.skills).map((s) => s.toLowerCase());
+  p.saves = normaliseSaveKeys(p.saves);
+  p.tools = normList(p.tools);
+  p.languages = normList(p.languages);
+  p.armor = normList(p.armor);
+  p.weapons = normList(p.weapons);
+
+  // Keep aliases in sync
+  p.saving_throws = p.saves;
+  p.armour = p.armor;
 }
 
 async function ensureNewCharRulesDbLoaded(rulesetId) {
@@ -110,6 +393,14 @@ function openNewCharacterDialog() {
   // Defaults
   if (ncRuleset && !ncRuleset.value) ncRuleset.value = "dnd5e_2014";
   if (ncName) ncName.value = "";
+
+  // Ability defaults (only if fields exist in the dialog)
+  if (ncStr && !ncStr.value) ncStr.value = "10";
+  if (ncDex && !ncDex.value) ncDex.value = "10";
+  if (ncCon && !ncCon.value) ncCon.value = "10";
+  if (ncInt && !ncInt.value) ncInt.value = "10";
+  if (ncWis && !ncWis.value) ncWis.value = "10";
+  if (ncCha && !ncCha.value) ncCha.value = "10";
 
   // Populate selectors based on current ruleset selection
   ensureNewCharRulesDbLoaded(ncRuleset?.value || "dnd5e_2014");
@@ -231,6 +522,7 @@ const derived = mountDerived({
 function setCharacter(character) {
   appState.character = character;
   Autosave.save(character);
+  setBodyThemeFromCharacter(character);
   setStatus("● Autosaved");
 }
 
@@ -282,6 +574,14 @@ async function ensureRulesDbLoaded(character) {
 
     appState.rulesetLoaded = rulesetId;
     setStatus(`Rules data loaded (${rulesetId})`);
+    // Apply rule-based defaults (non-destructive) after rules load
+    try {
+      if (appState.character && appState.rulesDb) {
+        applyProficiencyDefaultsFromRules(appState.character, appState.rulesDb);
+      }
+    } catch (err) {
+      console.warn("Proficiency defaults not applied after rules load:", err);
+    }
   } catch (err) {
     console.error("RulesDB not loaded (module missing or failed):", err);
     appState.rulesDb = null;
@@ -673,15 +973,30 @@ if (formNewChar && dlgNewChar) {
     character.core.classId = classId || character.core.classId || "";
     character.core.speciesId = speciesId || character.core.speciesId || "";
 
+    // Optional: persist ability scores captured during creation
+    const abil = readAbilityInputsOrNull();
+    if (abil) {
+      character.abilities = character.abilities || {};
+      for (const k of ["str", "dex", "con", "int", "wis", "cha"]) {
+        if (abil[k] !== null) character.abilities[k] = abil[k];
+      }
+    }
+
+    // v0: apply selector defaults from rules dataset (non-destructive)
+    // Only fills proficiency arrays that are currently empty.
+    try {
+      if (selectorMode && newCharRulesDb) {
+        applyProficiencyDefaultsFromRules(character, newCharRulesDb);
+      }
+    } catch (err) {
+      console.warn("Proficiency defaults not applied:", err);
+    }
+
+
+
     setCharacter(character);
     await ensureRulesDbLoaded(character);
-
-    editor.render();
-    inventory.render();
-    spells.render();
-    logUI.render();
-    derived.render();
-
+    renderAll();
     dlgNewChar.close("create");
   });
 }
@@ -701,11 +1016,7 @@ $("btnImportZip").addEventListener("click", async () => {
       setCharacter(character);
       await ensureRulesDbLoaded(character);
       setStatus("Imported ZIP (autosaved)");
-      editor.render();
-      inventory.render();
-      spells.render();
-      logUI.render();
-      derived.render();
+      renderAll();
     } catch (err) {
       console.error(err);
       alert("Failed to import ZIP. See console for details.");
@@ -782,27 +1093,16 @@ $("btnExportPdf").addEventListener("click", async () => {
         await ensureRulesDbLoaded(recovered);
         // ensureRulesDbLoaded() already sets a meaningful status (rules loaded vs manual mode).
         // Don't overwrite it here.
-        editor.render();
-        inventory.render();
-        spells.render();
-        logUI.render();
-        derived.render();
+        renderAll();
       } else {
         setStatus("Ready");
-        editor.render();
-        inventory.render();
-        spells.render();
-        logUI.render();
-        derived.render();
+        initCollapsibleCards(document);
+        renderAll();
       }
     } catch (err) {
       console.error(err);
       setStatus("Ready");
-      editor.render();
-      inventory.render();
-      spells.render();
-      logUI.render();
-      derived.render();
+      renderAll();
     }
   });
 })();
@@ -812,8 +1112,4 @@ if (!assertVendorsPresent()) {
   // Keep the page up, but do not attempt ZIP/CSV operations.
 }
 
-editor.render();
-inventory.render();
-spells.render();
-logUI.render();
-derived.render();
+renderAll();

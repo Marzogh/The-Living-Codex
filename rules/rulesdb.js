@@ -145,8 +145,22 @@ export const RulesDB = {
 
     try { spells = await fetchJson(new URL("spells.min.json", baseUrl).href); } catch { /* optional */ }
     try { items = await fetchJson(new URL("items.min.json", baseUrl).href); } catch { /* optional */ }
-    try { classes = await fetchJson(new URL("classes.json", baseUrl).href); } catch { /* optional */ }
-    try { species = await fetchJson(new URL("species.json", baseUrl).href); } catch { /* optional */ }
+    // Prefer minified packs; fall back to non-min (and legacy races.json)
+    try { classes = await fetchJson(new URL("classes.min.json", baseUrl).href); }
+    catch {
+      try { classes = await fetchJson(new URL("classes.json", baseUrl).href); } catch { /* optional */ }
+    }
+
+    try { species = await fetchJson(new URL("species.min.json", baseUrl).href); }
+    catch {
+      try { species = await fetchJson(new URL("species.json", baseUrl).href); }
+      catch {
+        try { species = await fetchJson(new URL("races.min.json", baseUrl).href); }
+        catch {
+          try { species = await fetchJson(new URL("races.json", baseUrl).href); } catch { /* optional */ }
+        }
+      }
+    }
     try { meta = await fetchJson(new URL("meta.json", baseUrl).href); } catch { /* optional */ }
 
     const spellsIndex = buildIndex(spells);

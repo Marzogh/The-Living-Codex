@@ -7,25 +7,69 @@
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
-  <header class="app-header">
-    <img class="header-banner" src="assets/headers/header-default.png" alt="Header" />
+  <!-- Fixed, non-scrolling backdrop (Rahu-style) -->
+  <div class="bg-fixed" aria-hidden="true"></div>
+  <div class="watermark" aria-hidden="true"></div>
 
-    <div class="toolbar">
-      <button id="btnNew" type="button">New Character</button>
-      <button id="btnImportZip" type="button">Import ZIP</button>
-      <button id="btnExportZip" type="button">Export ZIP</button>
-      <button id="btnExportPdf" type="button">Export PDF</button>
-      <span id="saveStatus" class="status">Ready</span>
+  <header class="hero" role="banner">
+    <div class="hero-banner" style="background-image:url('assets/headers/header-default.png');" aria-hidden="true"></div>
+
+    <div class="hero-inner">
+      <div class="hero-top">
+        <div class="titleblock">
+          <div>
+            <h1>The Living Codex</h1>
+            <p class="subtitle">A soft, gameplay-first character sheet that autosaves to local files.</p>
+          </div>
+        </div>
+
+        <div class="toolbar actions" aria-label="Sheet actions">
+          <button id="btnNew" type="button">New Character</button>
+          <button id="btnImportZip" type="button">Import ZIP</button>
+          <button id="btnExportZip" type="button">Export ZIP</button>
+          <button id="btnExportPdf" type="button">Export PDF</button>
+          <span id="saveStatus" class="status">Ready</span>
+        </div>
+      </div>
     </div>
   </header>
 
-  <main class="app-root">
-    <div id="appRoot"></div>
-    <div id="inventoryRoot"></div>
-    <div id="spellsRoot"></div>
-    <div id="logRoot"></div>
-    <div id="derivedRoot"></div>
-  </main>
+  <div class="wrap">
+    <main class="app-root">
+
+    <!-- Sheet header: identity & high-level stats -->
+    <section class="sheet-header">
+      <div id="appRoot"></div>
+    </section>
+
+    <!-- Main gameplay sheet (official-style layout) -->
+    <section class="sheet-layout">
+
+      <!-- Left column: combat & resources -->
+      <div class="sheet-col col-left">
+        <div id="derivedRoot"></div>
+      </div>
+
+      <!-- Middle column: abilities & core character -->
+      <div class="sheet-col col-mid">
+        <!-- Abilities live inside appRoot; nothing extra needed here yet -->
+      </div>
+
+      <!-- Right column: spells & casting -->
+      <div class="sheet-col col-right">
+        <div id="spellsRoot"></div>
+      </div>
+
+    </section>
+
+    <!-- Bottom section: equipment, notes, logs -->
+    <section class="sheet-bottom">
+      <div id="inventoryRoot"></div>
+      <div id="logRoot"></div>
+    </section>
+
+    </main>
+  </div>
 
   <!-- New Character dialog (v0: ruleset chosen at creation; class/species chosen up-front) -->
   <dialog id="dlgNewChar" class="modal">
@@ -51,6 +95,27 @@
         <select id="ncSpecies" name="ncSpecies">
           <option value="">Loading…</option>
         </select>
+
+        <!-- Ability Scores (set at creation; editable later via setup) -->
+        <div class="form-divider">Ability Scores</div>
+
+        <label for="ncStr">Strength</label>
+        <input id="ncStr" name="ncStr" type="number" min="1" max="30" inputmode="numeric" placeholder="10" />
+
+        <label for="ncDex">Dexterity</label>
+        <input id="ncDex" name="ncDex" type="number" min="1" max="30" inputmode="numeric" placeholder="10" />
+
+        <label for="ncCon">Constitution</label>
+        <input id="ncCon" name="ncCon" type="number" min="1" max="30" inputmode="numeric" placeholder="10" />
+
+        <label for="ncInt">Intelligence</label>
+        <input id="ncInt" name="ncInt" type="number" min="1" max="30" inputmode="numeric" placeholder="10" />
+
+        <label for="ncWis">Wisdom</label>
+        <input id="ncWis" name="ncWis" type="number" min="1" max="30" inputmode="numeric" placeholder="10" />
+
+        <label for="ncCha">Charisma</label>
+        <input id="ncCha" name="ncCha" type="number" min="1" max="30" inputmode="numeric" placeholder="10" />
       </div>
 
       <p id="ncRulesStatus" class="hint">Rules data not loaded yet.</p>
@@ -58,6 +123,18 @@
       <div class="modal-actions">
         <button id="ncCancel" value="cancel" type="button">Cancel</button>
         <button id="ncCreate" value="create" type="submit">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Proficiencies editor dialog (keeps the sheet clean; edit happens in an overlay) -->
+  <dialog id="dlgProficiencies" class="modal">
+    <form method="dialog" id="formProficiencies" class="modal-content">
+      <h2>Proficiencies</h2>
+      <div id="profModalBody"></div>
+      <div class="modal-actions">
+        <button id="profCancel" value="cancel" type="button">Close</button>
+        <button id="profDone" value="done" type="submit">Done</button>
       </div>
     </form>
   </dialog>

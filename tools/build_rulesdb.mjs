@@ -1,6 +1,4 @@
-
-
-/**
+/****
  * Build RulesDB datasets from CSV source-of-truth.
  *
  * Usage:
@@ -9,9 +7,13 @@
  *
  * Inputs:
  *   data_src/<rulesetId>/spells.csv
+ *   data/<rulesetId>/classes.json
+ *   data/<rulesetId>/species.json (or races.json)
  *
  * Outputs:
  *   data/<rulesetId>/spells.min.json
+ *   data/<rulesetId>/classes.min.json
+ *   data/<rulesetId>/species.min.json
  *   data/<rulesetId>/meta.json  (updates builtAt + counts)
  */
 
@@ -25,6 +27,14 @@ const IN_CSV = path.join(ROOT, "data_src", RULESET_ID, "spells.csv");
 const OUT_DIR = path.join(ROOT, "data", RULESET_ID);
 const OUT_JSON = path.join(OUT_DIR, "spells.min.json");
 const META_JSON = path.join(OUT_DIR, "meta.json");
+
+// Optional JSON datasets (source-of-truth lives in data/<rulesetId>/)
+const IN_CLASSES_JSON = path.join(OUT_DIR, "classes.json");
+const IN_SPECIES_JSON = path.join(OUT_DIR, "species.json");
+const IN_RACES_JSON = path.join(OUT_DIR, "races.json");
+
+const OUT_CLASSES_MIN = path.join(OUT_DIR, "classes.min.json");
+const OUT_SPECIES_MIN = path.join(OUT_DIR, "species.min.json");
 
 function die(msg) {
   console.error(msg);
@@ -190,6 +200,40 @@ function writeMeta(meta, counts) {
   fs.writeFileSync(META_JSON, JSON.stringify(out, null, 2) + "\n", "utf-8");
 }
 
+function readJsonArrayOrNull(p) {
+  if (!fileExists(p)) return null;
+  try {
+    const v = JSON.parse(fs.readFileSync(p, "utf-8"));
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function validateIdNameArray(arr, label) {
+  if (!Array.isArray(arr)) return;
+  const seen = new Set();
+  const errors = [];
+  for (const rec of arr) {
+    const id = String(rec?.id ?? "").trim();
+    const name = String(rec?.name ?? "").trim();
+    if (!id) errors.push(`${label}: missing id`);
+    if (!name) errors.push(`${label} '${id || "(no id)"}': missing name`);
+    if (id) {
+      if (seen.has(id)) errors.push(`${label}: duplicate id '${id}'`);
+      seen.add(id);
+    }
+  }
+  if (errors.length) {
+    die("RulesDB build failed:\n" + errors.slice(0, 50).join("\n") + (errors.length > 50 ? `\n...and ${errors.length - 50} more` : ""));
+  }
+}
+
+function writeMinJson(pOut, arr) {
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.writeFileSync(pOut, JSON.stringify(arr) + "\n", "utf-8");
+}
+
 function main() {
   if (!fileExists(IN_CSV)) {
     die(`Input CSV not found: ${IN_CSV}`);
@@ -226,19 +270,36 @@ function main() {
   // Minified (small) but still stable ordering
   fs.writeFileSync(OUT_JSON, JSON.stringify(spells) + "\n", "utf-8");
 
-  const meta = readMeta();
+  // Optional datasets: classes + species
+  const classes = readJsonArrayOrNull(IN_CLASSES_JSON);
+  validateIdNameArray(classes, "Class");
+  if (classes) {
+    writeMinJson(OUT_CLASSES_MIN, classes);
+  }
+
+  // Prefer species.json; fall back to races.json (legacy)
+  const species = readJsonArrayOrNull(IN_SPECIES_JSON) || readJsonArrayOrNull(IN_RACES_JSON);
+  validateIdNameArray(species, "Species");
+  if (species) {
+    writeMinJson(OUT_SPECIES_MIN, species);
+  }
+
   const counts = {
     spells: spells.length,
     items: 0,
-    classes: 0,
-    species: 0
+    classes: classes ? classes.length : 0,
+    species: species ? species.length : 0
   };
-  writeMeta(meta, counts);
+  writeMeta(readMeta(), counts);
 
   console.log(`Built ruleset '${RULESET_ID}'`);
   console.log(`- wrote ${OUT_JSON}`);
+  if (classes) console.log(`- wrote ${OUT_CLASSES_MIN}`);
+  if (species) console.log(`- wrote ${OUT_SPECIES_MIN}`);
   console.log(`- updated ${META_JSON}`);
   console.log(`- spells: ${counts.spells}`);
+  if (classes) console.log(`- classes: ${counts.classes}`);
+  if (species) console.log(`- species: ${counts.species}`);
 }
 
 main();

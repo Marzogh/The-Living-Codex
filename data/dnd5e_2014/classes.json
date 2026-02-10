@@ -1,17 +1,17 @@
 
 
 [
-  {"id":"barbarian","name":"Barbarian","source":"PHB"},
-  {"id":"bard","name":"Bard","source":"PHB"},
-  {"id":"cleric","name":"Cleric","source":"PHB","spellcasting":true},
-  {"id":"druid","name":"Druid","source":"PHB","spellcasting":true},
-  {"id":"fighter","name":"Fighter","source":"PHB"},
-  {"id":"monk","name":"Monk","source":"PHB"},
-  {"id":"paladin","name":"Paladin","source":"PHB","spellcasting":true},
-  {"id":"ranger","name":"Ranger","source":"PHB","spellcasting":true},
-  {"id":"rogue","name":"Rogue","source":"PHB"},
-  {"id":"sorcerer","name":"Sorcerer","source":"PHB","spellcasting":true},
-  {"id":"warlock","name":"Warlock","source":"PHB","spellcasting":true},
-  {"id":"wizard","name":"Wizard","source":"PHB","spellcasting":true},
-  {"id":"artificer","name":"Artificer","source":"TCE","spellcasting":true}
+  {"id":"barbarian","name":"Barbarian","source":"PHB","saving_throws":["str","con"]},
+  {"id":"bard","name":"Bard","source":"PHB","saving_throws":["dex","cha"],"spellcasting":true,"spellcasting_ability":"cha"},
+  {"id":"cleric","name":"Cleric","source":"PHB","spellcasting":true,"saving_throws":["wis","cha"],"spellcasting_ability":"wis"},
+  {"id":"druid","name":"Druid","source":"PHB","spellcasting":true,"saving_throws":["int","wis"],"spellcasting_ability":"wis"},
+  {"id":"fighter","name":"Fighter","source":"PHB","saving_throws":["str","con"]},
+  {"id":"monk","name":"Monk","source":"PHB","saving_throws":["str","dex"]},
+  {"id":"paladin","name":"Paladin","source":"PHB","spellcasting":true,"saving_throws":["wis","cha"],"spellcasting_ability":"cha"},
+  {"id":"ranger","name":"Ranger","source":"PHB","spellcasting":true,"saving_throws":["str","dex"],"spellcasting_ability":"wis"},
+  {"id":"rogue","name":"Rogue","source":"PHB","saving_throws":["dex","int"]},
+  {"id":"sorcerer","name":"Sorcerer","source":"PHB","spellcasting":true,"saving_throws":["con","cha"],"spellcasting_ability":"cha"},
+  {"id":"warlock","name":"Warlock","source":"PHB","spellcasting":true,"saving_throws":["wis","cha"],"spellcasting_ability":"cha"},
+  {"id":"wizard","name":"Wizard","source":"PHB","spellcasting":true,"saving_throws":["int","wis"],"spellcasting_ability":"int"},
+  {"id":"artificer","name":"Artificer","source":"TCE","spellcasting":true,"saving_throws":["con","int"],"spellcasting_ability":"int"}
 ]
