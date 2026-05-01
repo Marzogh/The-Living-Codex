@@ -1,11 +1,21 @@
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  color: rgba(243, 240, 234, 0.95);
+  font-family: var(--font-sans);
+  color: var(--text);
+  line-height: 1.55;
   background:
-    radial-gradient(1200px 900px at 18% 12%, color-mix(in oklab, var(--accent) 32%, transparent) 0%, transparent 58%),
-    radial-gradient(900px 700px at 85% 22%, rgba(159, 178, 214, 0.10), transparent 58%),
-    linear-gradient(180deg, #070a10, #0b1020);
+    radial-gradient(920px 280px at 18% 0%, color-mix(in srgb, var(--accent) 15%, transparent 85%), transparent 64%),
+    radial-gradient(800px 240px at 84% 0%, var(--coral-soft), transparent 74%),
+    radial-gradient(680px 210px at 60% 0%, var(--leaf-soft), transparent 78%),
+    linear-gradient(180deg, rgba(11, 18, 32, 0.06) 0%, rgba(11, 18, 32, 0) 360px),
+    var(--paper);
+}
+
+h1,
+h2,
+h3 {
+  color: var(--text);
+  letter-spacing: -0.01em;
 }
 
 body::before {
@@ -13,14 +23,14 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.10;
+  opacity: 0.05;
   background:
-    radial-gradient(circle at 12% 20%, rgba(255,255,255,.10) 0 1px, transparent 2px),
-    radial-gradient(circle at 72% 35%, rgba(255,255,255,.08) 0 1px, transparent 2px),
-    radial-gradient(circle at 44% 78%, rgba(255,255,255,.06) 0 1px, transparent 2px);
+    radial-gradient(circle at 12% 20%, rgba(37, 99, 235, 0.16) 0 1px, transparent 2px),
+    radial-gradient(circle at 72% 35%, rgba(34, 197, 94, 0.12) 0 1px, transparent 2px),
+    radial-gradient(circle at 44% 78%, rgba(251, 113, 133, 0.10) 0 1px, transparent 2px);
   background-size: 520px 520px;
   filter: blur(.25px);
-  mix-blend-mode: overlay;
+  mix-blend-mode: normal;
 }
 
 /* --- Rahu-style fixed backdrop layers --- */
@@ -29,9 +39,11 @@ body::before {
   inset: 0;
   z-index: -3;
   background:
-    radial-gradient(900px 700px at 18% 12%, color-mix(in oklab, var(--accent) 26%, transparent) 0%, transparent 60%),
-    radial-gradient(900px 700px at 85% 22%, rgba(159, 178, 214, 0.10), transparent 60%),
-    linear-gradient(180deg, #070a10, #0b1020);
+    radial-gradient(760px 260px at 18% 0%, color-mix(in srgb, var(--accent) 13%, transparent 87%), transparent 66%),
+    radial-gradient(720px 220px at 82% 0%, var(--coral-soft), transparent 72%),
+    radial-gradient(560px 180px at 60% 0%, var(--leaf-soft), transparent 74%),
+    linear-gradient(180deg, rgba(11, 18, 32, 0.06) 0%, rgba(11, 18, 32, 0) 360px),
+    var(--paper);
 }
 
 .watermark {
@@ -39,14 +51,14 @@ body::before {
   inset: 0;
   z-index: -2;
   pointer-events: none;
-  opacity: 0.10;
+  opacity: 0.04;
   background:
-    radial-gradient(circle at 14% 22%, rgba(255,255,255,.11) 0 1px, transparent 2px),
-    radial-gradient(circle at 72% 35%, rgba(255,255,255,.08) 0 1px, transparent 2px),
-    radial-gradient(circle at 44% 78%, rgba(255,255,255,.06) 0 1px, transparent 2px);
+    radial-gradient(circle at 14% 22%, rgba(37, 99, 235, 0.12) 0 1px, transparent 2px),
+    radial-gradient(circle at 72% 35%, rgba(34, 197, 94, 0.10) 0 1px, transparent 2px),
+    radial-gradient(circle at 44% 78%, rgba(251, 113, 133, 0.10) 0 1px, transparent 2px);
   background-size: 520px 520px;
   filter: blur(.25px);
-  mix-blend-mode: overlay;
+  mix-blend-mode: normal;
 }
 
 /* --- .wrap container sizing --- */
@@ -62,8 +74,8 @@ body::before {
   top: 0;
   z-index: 60;
   border-bottom: 1px solid var(--border);
-  background: rgba(7, 10, 16, 0.62);
-  backdrop-filter: blur(12px);
+  background: var(--header-bg);
+  backdrop-filter: blur(10px);
 }
 
 .hero-banner {
@@ -95,7 +107,7 @@ body::before {
 
 .subtitle {
   margin: 6px 0 0;
-  color: var(--muted);
+  color: var(--text-2);
   font-size: 13.5px;
 }
 
@@ -115,7 +127,7 @@ body::before {
   top: 0;
   z-index: 50;
   border-bottom: 1px solid var(--border);
-  background: rgba(7, 10, 16, 0.70);
+  background: var(--header-bg);
   backdrop-filter: blur(10px);
   display: none;
 }
@@ -145,15 +157,15 @@ body::before {
 .hero .status {
   margin-left: 0;
   padding: 0 10px;
-  border: 1px solid rgba(243,240,234,0.16);
+  border: 1px solid var(--header-chip-border);
   border-radius: 999px;
-  background: rgba(0,0,0,0.22);
+  background: var(--header-chip-bg);
 }
 
 .status {
   margin-left: auto;
   opacity: 0.85;
-  color: var(--muted);
+  color: var(--text-2);
   display: inline-flex;
   gap: 8px;
   align-items: center;
@@ -247,7 +259,7 @@ body::before {
   border-radius: var(--radius);
   padding: 0;
   margin-bottom: 16px;
-  background: linear-gradient(180deg, var(--surface), var(--surface2));
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
   box-shadow: var(--shadow);
   position: relative;
   overflow: hidden;
@@ -278,7 +290,7 @@ body::before {
   font-size: 13px;
   letter-spacing: 0.34px;
   text-transform: uppercase;
-  color: rgba(243, 240, 234, 0.92);
+  color: var(--text);
   cursor: pointer;
   user-select: none;
   display: flex;
@@ -288,8 +300,8 @@ body::before {
 
   background: linear-gradient(
     90deg,
-    color-mix(in oklab, var(--accent) 35%, transparent),
-    rgba(159, 178, 214, 0.12)
+    color-mix(in srgb, var(--accent) 10%, var(--surface) 90%),
+    color-mix(in srgb, var(--surface-2) 82%, transparent 18%)
   );
   border-bottom: 1px solid var(--border);
 }
@@ -343,15 +355,15 @@ body::before {
   font-size: 0.95rem;
   min-height: var(--tap);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border2);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-2);
+  background: var(--surface-raised);
   color: var(--ink);
   outline: none;
 }
 
 .field input:focus {
-  border-color: color-mix(in oklab, var(--accent) 55%, rgba(243, 240, 234, 0.18));
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border-2) 54%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent 76%);
 }
 
 .readonly {
@@ -360,9 +372,9 @@ body::before {
   display: flex;
   align-items: center;
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.16);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
-  color: rgba(243, 240, 234, 0.90);
+  color: var(--text);
   font-size: 0.95rem;
 }
 
@@ -391,7 +403,7 @@ body::before {
 
 .table th,
 .table td {
-  border-bottom: 1px solid rgba(243, 240, 234, 0.10);
+  border-bottom: 1px solid var(--border);
   padding: 8px 8px;
   text-align: left;
 }
@@ -402,6 +414,11 @@ body::before {
   letter-spacing: 0.25px;
   text-transform: uppercase;
   opacity: 1;
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface-raised) 28%);
+}
+
+.table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface-raised) 96%);
 }
 
 /* Ability-style tables: tighten columns */
@@ -419,6 +436,7 @@ body::before {
   font-size: 0.85rem;
   color: var(--faint);
   margin-top: 8px;
+  line-height: 1.45;
 }
 
 /* --- Tracker UI refinements (v1) --- */
@@ -451,15 +469,17 @@ button {
   padding: 10px 12px;
   font-size: 0.95rem;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border2);
-  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid var(--border-2);
+  background: var(--surface-raised);
   color: var(--ink);
   font-weight: 650;
+  box-shadow: var(--shadow-sm);
   transition: transform 0.06s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
 button:hover {
-  border-color: color-mix(in oklab, var(--accent) 45%, rgba(243, 240, 234, 0.18));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-2) 66%);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised) 94%);
 }
 
 button:active {
@@ -468,8 +488,9 @@ button:active {
 
 button.primary,
 .btn-primary {
-  border-color: color-mix(in oklab, var(--accent) 60%, rgba(243, 240, 234, 0.18));
-  background: color-mix(in oklab, var(--accent) 18%, rgba(0, 0, 0, 0.20));
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border-2) 54%);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 select,
@@ -478,18 +499,30 @@ input[type="number"],
 textarea {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border2);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-2);
+  background: var(--surface-raised);
   color: var(--ink);
   outline: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--faint);
 }
 
 select:focus,
 input[type="text"]:focus,
 input[type="number"]:focus,
 textarea:focus {
-  border-color: color-mix(in oklab, var(--accent) 55%, rgba(243, 240, 234, 0.18));
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border-2) 54%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent 76%);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent 78%);
+  border-radius: 10px;
 }
 
 /* --- Print / PDF export (in-page print mode, no popups) --- */
@@ -501,13 +534,20 @@ textarea:focus {
 
 /* When exporting PDF, hide the normal app UI and show the print sheet */
 body.print-mode .app-header,
-body.print-mode .app-root {
+body.print-mode .app-root,
+body.print-mode .hero,
+body.print-mode .wrap {
   display: none;
 }
 
 body.print-mode .print-root {
   display: block;
   padding: 0;
+  color: #111;
+}
+
+body.print-mode {
+  background: #fff;
 }
 
 body.print-mode .print-sheet {
@@ -518,7 +558,9 @@ body.print-mode .print-sheet {
 @media print {
   /* Ensure the app UI never prints */
   .app-header,
-  .app-root {
+  .app-root,
+  .hero,
+  .wrap {
     display: none !important;
   }
 
@@ -561,6 +603,8 @@ body.print-mode .print-sheet {
   /* Page margins are controlled by the browser; keep body clean */
   body {
     margin: 0;
+    background: #fff !important;
+    color: #111 !important;
   }
 
   /* Try to keep tables readable across page breaks */
@@ -574,39 +618,64 @@ body.print-mode .print-sheet {
 }
 
 :root {
-  --accent: #5b6cff; /* default */
+  --font-sans: "Atkinson", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
-  --ink: rgba(243, 240, 234, 0.95);
-  --muted: rgba(243, 240, 234, 0.72);
-  --faint: rgba(243, 240, 234, 0.55);
+  --accent: #2563eb;
+  --accent-ink: #ffffff;
+  --coral: #fb7185;
+  --leaf: #22c55e;
 
-  --surface: rgba(18, 26, 47, 0.72);
-  --surface2: rgba(15, 20, 35, 0.72);
+  --paper: #f3f4f6;
+  --surface: #fcfdff;
+  --surface-2: #eef6ff;
+  --surface-raised: #ffffff;
+  --surface-glass: rgba(255, 255, 255, 0.84);
+  --surface-glass-border: rgba(255, 255, 255, 0.62);
+  --coral-soft: rgba(251, 113, 133, 0.08);
+  --leaf-soft: rgba(34, 197, 94, 0.08);
 
-  --border: rgba(243, 240, 234, 0.12);
-  --border2: rgba(243, 240, 234, 0.18);
+  --text: #0f172a;
+  --text-2: #334155;
+  --muted: #64748b;
+  --faint: #94a3b8;
 
-  --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  --border: #e5e7eb;
+  --border-2: #cbd5e1;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 22px rgba(15, 23, 42, 0.10);
+  --shadow: var(--shadow-md);
 
   --radius: 16px;
   --radius-sm: 12px;
-
   --pad: 14px;
   --gap: 12px;
-
   --tap: 44px;
+  --focus: color-mix(in srgb, var(--accent) 32%, transparent 68%);
+
+  --header-bg:
+    linear-gradient(180deg, rgba(226, 232, 240, 0.92) 0%, rgba(241, 245, 249, 0.88) 100%),
+    rgba(226, 232, 240, 0.92);
+  --header-chip-bg: rgba(255, 255, 255, 0.84);
+  --header-chip-border: rgba(15, 23, 42, 0.18);
+
+  /* compatibility aliases for existing selectors */
+  --ink: var(--text);
+  --surface2: var(--surface-2);
+  --border2: var(--border-2);
 }
 
-body[data-class="wizard"] { --accent: #6b5cff; }
-body[data-class="cleric"] { --accent: #d4b04c; }
-body[data-class="druid"] { --accent: #4caf50; }
+body[data-class="wizard"] { --accent: #4f46e5; }
+body[data-class="cleric"] { --accent: #b0891f; }
+body[data-class="druid"] { --accent: #2f9e44; }
 body[data-class="fighter"] { --accent: #8d6e63; }
-body[data-class="rogue"] { --accent: #546e7a; }
-body[data-class="bard"] { --accent: #ab47bc; }
-body[data-class="paladin"] { --accent: #fbc02d; }
-body[data-class="ranger"] { --accent: #689f38; }
-body[data-class="sorcerer"] { --accent: #ef5350; }
-body[data-class="warlock"] { --accent: #7e57c2; }
+body[data-class="rogue"] { --accent: #455a64; }
+body[data-class="bard"] { --accent: #be185d; }
+body[data-class="paladin"] { --accent: #ca8a04; }
+body[data-class="ranger"] { --accent: #558b2f; }
+body[data-class="sorcerer"] { --accent: #e53935; }
+body[data-class="warlock"] { --accent: #6d28d9; }
 
 /* --- Modal / New Character overlay (contrast + theme) --- */
 
@@ -620,17 +689,30 @@ dialog,
 
 /* Native dialog element */
 dialog {
-  border: 1px solid var(--border2);
+  border: 1px solid var(--border-2);
   border-radius: calc(var(--radius) + 6px);
   padding: 18px;
-  background: linear-gradient(180deg, rgba(10, 14, 24, 0.92), rgba(8, 10, 18, 0.92));
-  box-shadow: 0 22px 70px rgba(0,0,0,0.65);
+  position: fixed;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  width: min(980px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background:
+    radial-gradient(560px 180px at top left, color-mix(in srgb, var(--accent) 8%, transparent 92%), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98));
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.24);
   max-width: min(980px, calc(100vw - 32px));
+}
+
+dialog[open] {
+  display: block;
 }
 
 /* Backdrop for dialog */
 dialog::backdrop {
-  background: rgba(0,0,0,0.70);
+  background: rgba(15, 23, 42, 0.42);
   backdrop-filter: blur(8px);
 }
 
@@ -639,7 +721,7 @@ dialog::backdrop {
 .overlay-backdrop,
 .modal-overlay,
 .overlay {
-  background: rgba(0,0,0,0.70);
+  background: rgba(15, 23, 42, 0.42);
   backdrop-filter: blur(8px);
 }
 
@@ -671,8 +753,8 @@ dialog textarea,
 .dialog input,
 .dialog select,
 .dialog textarea {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(243,240,234,0.22);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-2);
   color: var(--ink);
 }
 
@@ -683,23 +765,24 @@ dialog textarea::placeholder,
 .modal textarea::placeholder,
 .dialog input::placeholder,
 .dialog textarea::placeholder {
-  color: rgba(243,240,234,0.55);
+  color: var(--faint);
 }
 
 /* Modal buttons: readable + consistent */
 dialog button,
 .modal button,
 .dialog button {
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(243,240,234,0.22);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-2);
   color: var(--ink);
 }
 
 dialog button.primary,
 .modal button.primary,
 .dialog button.primary {
-  border-color: color-mix(in oklab, var(--accent) 65%, rgba(243,240,234,0.22));
-  background: color-mix(in oklab, var(--accent) 22%, rgba(255,255,255,0.08));
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border-2) 54%);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* Optional: make the modal layout breathe on small screens */
@@ -725,12 +808,12 @@ label:has(input[type="checkbox"]) {
   gap: 10px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.14);
-  border: 1px solid rgba(243, 240, 234, 0.10);
+  background: color-mix(in srgb, var(--surface) 86%, var(--accent) 14%);
+  border: 1px solid var(--border-2);
 }
 
 label:has(input[type="checkbox"]):hover {
-  border-color: color-mix(in oklab, var(--accent) 40%, rgba(243, 240, 234, 0.14));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-2) 60%);
 }
 
 
@@ -755,14 +838,14 @@ input[type="checkbox"]:focus-visible {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.16);
+  background: var(--surface-raised);
 }
 
 .prof-head-title {
   font-size: 12.5px;
   letter-spacing: 0.22px;
   text-transform: uppercase;
-  color: rgba(243, 240, 234, 0.88);
+  color: var(--text-2);
 }
 
 .prof-edit-btn {
@@ -803,21 +886,204 @@ input[type="checkbox"]:focus-visible {
   gap: 8px;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(243, 240, 234, 0.12);
-  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid var(--border-2);
+  background: var(--surface-raised);
   font-size: 0.9rem;
   line-height: 1;
-  color: rgba(243, 240, 234, 0.92);
+  color: var(--text);
 }
 
 .chip-muted {
   opacity: 0.72;
 }
 
+/* --- Cross-module component convergence (phase 2) --- */
+
+.titleblock h1 {
+  font-size: clamp(1.6rem, 2.2vw, 2.05rem);
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.toolbar.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toolbar.actions > button {
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised) 92%);
+  color: var(--text-2);
+  font-size: 0.84rem;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.cantrip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface-raised) 28%);
+  border: 1px solid var(--border);
+}
+
+.inv-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 14px;
+  align-items: start;
+  margin-bottom: 10px;
+}
+
+.inv-currency {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface-raised) 30%);
+  min-width: min(100%, 460px);
+}
+
+.inv-currency-label {
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.inv-currency-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.inv-currency-row label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 0.78rem;
+}
+
+.inv-currency-row input {
+  min-height: 36px;
+  padding: 7px 9px;
+}
+
+.profs {
+  margin-top: 12px;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.profs > summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 700;
+  color: var(--text);
+  padding: 4px 0;
+}
+
+.profs > summary:hover {
+  color: var(--accent);
+}
+
+/* Spell edit dialog (editor.js) */
+.dlg {
+  border: none;
+  padding: 0;
+  max-width: min(760px, calc(100vw - 28px));
+}
+
+.dlg .dlg-form {
+  margin: 0;
+}
+
+.dlg .dlg-card {
+  border: 1px solid var(--border-2);
+  border-radius: calc(var(--radius) + 2px);
+  background:
+    radial-gradient(520px 180px at top left, color-mix(in srgb, var(--accent) 7%, transparent 93%), transparent 72%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98));
+  box-shadow: 0 22px 44px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+}
+
+.dlg .dlg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent 28%);
+}
+
+.dlg .dlg-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.dlg .dlg-x {
+  width: 34px;
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.dlg .dlg-body {
+  padding: 14px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent 16%);
+}
+
+.dlg .dlg-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 68%, transparent 32%);
+}
+
+.btn {
+  font-weight: 650;
+}
+
+.grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card {
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .card:hover {
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  }
+}
+
 .prof-edit {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.10);
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
   padding: 12px;
 }
 
@@ -859,15 +1125,15 @@ input[type="checkbox"]:focus-visible {
   gap: 10px;
   padding: 8px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(243, 240, 234, 0.12);
-  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid var(--border-2);
+  background: var(--surface-raised);
 }
 
 .prof-save-lab {
   font-size: 12px;
   letter-spacing: 0.22px;
   text-transform: uppercase;
-  color: rgba(243, 240, 234, 0.90);
+  color: var(--text);
 }
 
 /* Avoid global label:has() from over-styling the new prof-save pill */
@@ -882,5 +1148,20 @@ input[type="checkbox"]:focus-visible {
   }
   .prof-edit-grid {
     grid-template-columns: 1fr;
+  }
+  .inv-top {
+    grid-template-columns: 1fr;
+  }
+  .inv-currency-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .inv-currency-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
