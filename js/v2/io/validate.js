@@ -454,6 +454,7 @@ function normalizeRequiredObjects(character, report) {
   ensureObject(character, "proficiencies", report, "proficiencies");
   ensureObject(character, "expertise", report, "expertise");
   ensureObject(character, "spell_slots", report, "spell_slots");
+  ensureObject(character, "ui", report, "ui");
 }
 
 function normalizeListObject(obj, key, report, path) {
