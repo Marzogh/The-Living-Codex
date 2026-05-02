@@ -1,3 +1,4 @@
+import JSZipModule from "../../../vendor/jszip.min.js";
 import {
   fromInventoryRows,
   fromLogRows,
@@ -12,9 +13,14 @@ import { CSV_HEADERS } from "./headers.js";
 import { validateAndFixImportPayload } from "./validate.js";
 
 function assertJSZip() {
-  if (typeof JSZip === "undefined") {
+  const zipLib =
+    (typeof JSZipModule === "function" ? JSZipModule : null) ||
+    (typeof JSZipModule?.default === "function" ? JSZipModule.default : null) ||
+    (typeof globalThis !== "undefined" && typeof globalThis.JSZip === "function" ? globalThis.JSZip : null);
+  if (!zipLib) {
     throw new Error("JSZip is required for ZIP import/export.");
   }
+  return zipLib;
 }
 
 function asString(v) {
@@ -84,7 +90,7 @@ async function applyOptionalCsvOverrides(zip, character) {
 }
 
 async function importZipFromFile(file) {
-  assertJSZip();
+  const JSZip = assertJSZip();
   if (!file) throw new Error("File is required.");
 
   const buf = await file.arrayBuffer();
@@ -101,7 +107,7 @@ async function importZipFromFile(file) {
 }
 
 async function buildExportZipBlob(character, { includeReport = false, report = null } = {}) {
-  assertJSZip();
+  const JSZip = assertJSZip();
   if (!character || typeof character !== "object") throw new Error("Character object is required.");
 
   const zip = new JSZip();

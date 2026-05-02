@@ -46,12 +46,281 @@ function isTypingTarget(el) {
   return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
 }
 
+function elementPathWithinRoot(el, root) {
+  if (!el || !root || !root.contains(el)) return "";
+  const parts = [];
+  let node = el;
+  while (node && node !== root) {
+    const parent = node.parentElement;
+    if (!parent) break;
+    const idx = Array.from(parent.children).indexOf(node);
+    parts.push(`${node.tagName}:${idx}`);
+    node = parent;
+  }
+  return parts.reverse().join(">");
+}
+
+function queryByElementPath(root, path) {
+  if (!root || !path) return null;
+  let node = root;
+  const steps = path.split(">");
+  for (const step of steps) {
+    const [tag, idxRaw] = step.split(":");
+    const idx = asInt(idxRaw, -1);
+    if (!node || !Number.isInteger(idx) || idx < 0) return null;
+    const child = node.children[idx];
+    if (!child || child.tagName !== tag) return null;
+    node = child;
+  }
+  return node;
+}
+
 function makeSpellId(spell) {
   return (spell?.id || spell?.spell_id || spell?.name || crypto.randomUUID()).toString();
 }
 
 function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
+}
+
+function hexToRgbTriplet(hex, fallback = "253 249 239") {
+  const raw = (hex || "").toString().trim();
+  const m = raw.match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return fallback;
+  const n = m[1];
+  const r = Number.parseInt(n.slice(0, 2), 16);
+  const g = Number.parseInt(n.slice(2, 4), 16);
+  const b = Number.parseInt(n.slice(4, 6), 16);
+  return `${r} ${g} ${b}`;
+}
+
+function hexToRgb(hex) {
+  const raw = (hex || "").toString().trim();
+  const m = raw.match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return null;
+  const n = m[1];
+  return {
+    r: Number.parseInt(n.slice(0, 2), 16),
+    g: Number.parseInt(n.slice(2, 4), 16),
+    b: Number.parseInt(n.slice(4, 6), 16)
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  const clampByte = (x) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0");
+  return `#${clampByte(r)}${clampByte(g)}${clampByte(b)}`;
+}
+
+function blendHex(a, b, ratio = 0.5) {
+  const c1 = hexToRgb(a);
+  const c2 = hexToRgb(b);
+  if (!c1 || !c2) return a || b || "#000000";
+  const t = clamp(Number(ratio) || 0, 0, 1);
+  return rgbToHex({
+    r: c1.r + ((c2.r - c1.r) * t),
+    g: c1.g + ((c2.g - c1.g) * t),
+    b: c1.b + ((c2.b - c1.b) * t)
+  });
+}
+
+function relativeLuminance(hex) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 1;
+  const toLin = (n) => {
+    const v = n / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const r = toLin(rgb.r);
+  const g = toLin(rgb.g);
+  const b = toLin(rgb.b);
+  return (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+}
+
+function contrastRatio(fg, bg) {
+  const l1 = relativeLuminance(fg);
+  const l2 = relativeLuminance(bg);
+  const hi = Math.max(l1, l2);
+  const lo = Math.min(l1, l2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function ensureContrast(fg, bg, minRatio = 4.5) {
+  let out = fg;
+  let attempts = 0;
+  while (contrastRatio(out, bg) < minRatio && attempts < 20) {
+    const darken = relativeLuminance(out) >= relativeLuminance(bg);
+    out = blendHex(out, darken ? "#101010" : "#f8f4e8", 0.12);
+    attempts += 1;
+  }
+  return out;
+}
+
+function titleizeId(v) {
+  return (v || "")
+    .toString()
+    .trim()
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((x) => x[0].toUpperCase() + x.slice(1))
+    .join(" ");
+}
+
+const APPEARANCE_DEFAULTS = {
+  bg: "#eee7d8",
+  bgNoise: "#f6f1e6",
+  paper: "#fdf9ef",
+  paper2: "#f8f0dd",
+  ink: "#2e2418",
+  inkSoft: "#6d5a41",
+  line: "#d6c7a8",
+  accent: "#2c5f52",
+  accent2: "#8b3a2f",
+  ok: "#2f6f49",
+  warn: "#9a6b1d",
+  err: "#8f2f2f",
+  surfaceAlpha: 0.9,
+  shadowOpacity: 0.12,
+  shadowBlur: 28
+};
+
+const APPEARANCE_FIELDS = [
+  ["bg", "Background"],
+  ["bgNoise", "Background Glow"],
+  ["paper", "Surface Base"],
+  ["paper2", "Surface Alt"],
+  ["ink", "Primary Ink"],
+  ["inkSoft", "Secondary Ink"],
+  ["line", "Borders"],
+  ["accent", "Accent"],
+  ["accent2", "Accent Alt"],
+  ["ok", "Success"],
+  ["warn", "Warning"],
+  ["err", "Error"]
+];
+
+const CLASS_THEME_BASE = {
+  artificer: { accent: "#3b6f78", accent2: "#9a6f2f", ok: "#2f6f55", warn: "#a06a2d", err: "#914646", paper: "#f8f2e4", paper2: "#efe3cc" },
+  barbarian: { accent: "#7a3a2a", accent2: "#a06a36", ok: "#42613f", warn: "#a56a1d", err: "#8f2f2f", paper: "#f8efe2", paper2: "#f0dfca" },
+  bard: { accent: "#5c3a73", accent2: "#97682e", ok: "#3f6a57", warn: "#a1722c", err: "#7f3450", paper: "#f9f0e8", paper2: "#f1e1d4" },
+  cleric: { accent: "#466b74", accent2: "#9f7a36", ok: "#3d6e5a", warn: "#9f7828", err: "#8b3d3d", paper: "#f8f3e8", paper2: "#eee4d3" },
+  druid: { accent: "#44664a", accent2: "#8e6a3c", ok: "#2f6f49", warn: "#9a6b1d", err: "#8f3a2f", paper: "#f4efe0", paper2: "#e8ddc4" },
+  fighter: { accent: "#3d5b66", accent2: "#7f3f2e", ok: "#3e694f", warn: "#91662b", err: "#7a3131", paper: "#f4f0e7", paper2: "#e8dfcf" },
+  monk: { accent: "#5f5a46", accent2: "#8a6d3f", ok: "#3e6b54", warn: "#9b7425", err: "#8d3c2f", paper: "#f7f2e7", paper2: "#ece2d1" },
+  paladin: { accent: "#395a77", accent2: "#b08a3a", ok: "#3b7058", warn: "#a37d2f", err: "#8a3535", paper: "#f7f1e4", paper2: "#ece0ca" },
+  ranger: { accent: "#3f634b", accent2: "#876736", ok: "#2f6a46", warn: "#8f6823", err: "#7e3a30", paper: "#f3eee0", paper2: "#e7dcc4" },
+  rogue: { accent: "#4d4e55", accent2: "#7a5e3f", ok: "#3d6550", warn: "#8a6427", err: "#7a2f39", paper: "#f2ede3", paper2: "#e6dccf" },
+  sorcerer: { accent: "#5f3f76", accent2: "#99543a", ok: "#3a6755", warn: "#9b652a", err: "#8a3352", paper: "#f8efe8", paper2: "#efe0d5" },
+  warlock: { accent: "#3e385f", accent2: "#8b4a38", ok: "#345f50", warn: "#8f6028", err: "#742f47", paper: "#f3ecdf", paper2: "#e6dac9" },
+  wizard: { accent: "#3c4f79", accent2: "#91633a", ok: "#356752", warn: "#916728", err: "#7f3450", paper: "#f5efe6", paper2: "#e9dece" }
+};
+
+const SPECIES_FAMILY_ACCENT = {
+  draconic: { primary: "#9d6b2f", secondary: "#7e3b2a", glow: "#d8b87a", chip: "#f3e6ca" },
+  infernal: { primary: "#8f3a4d", secondary: "#5a345f", glow: "#d2a6b2", chip: "#f0d9de" },
+  celestial: { primary: "#8f7a36", secondary: "#4d6b74", glow: "#dfd5a6", chip: "#f3efd8" },
+  fey: { primary: "#5f6f44", secondary: "#6a4f78", glow: "#c7dca7", chip: "#e8f0d8" },
+  elfkin: { primary: "#4f6e67", secondary: "#6a5078", glow: "#b9d4cf", chip: "#e0eee9" },
+  dwarven: { primary: "#6b5943", secondary: "#4d5f66", glow: "#cdbda8", chip: "#ebe3d8" },
+  goblinoid: { primary: "#5f6a39", secondary: "#6f4a35", glow: "#c5cf9b", chip: "#e6ebd0" },
+  planar: { primary: "#3f6880", secondary: "#6d5b91", glow: "#b1cad9", chip: "#dae8ef" },
+  folk: { primary: "#6a604d", secondary: "#4f6a63", glow: "#d3c9b5", chip: "#ece7dc" }
+};
+
+const SPECIES_TO_FAMILY = {
+  dragonborn: "draconic", kobold: "draconic", lizardfolk: "draconic", yuan_ti: "draconic",
+  tiefling: "infernal", aasimar: "celestial",
+  eladrin: "fey", fairy: "fey", satyr: "fey", harengon: "fey", firbolg: "fey", changeling: "fey", shifter: "fey",
+  elf_high: "elfkin", elf_wood: "elfkin", elf_drow: "elfkin", sea_elf: "elfkin", shadar_kai: "elfkin",
+  dwarf_hill: "dwarven", dwarf_mountain: "dwarven", duergar: "dwarven", gnome_forest: "dwarven", gnome_rock: "dwarven", deep_gnome: "dwarven",
+  goblin: "goblinoid", hobgoblin: "goblinoid", bugbear: "goblinoid", orc: "goblinoid", half_orc: "goblinoid", minotaur: "goblinoid", kenku: "goblinoid", tabaxi: "goblinoid", goliath: "goblinoid",
+  genasi_air: "planar", genasi_earth: "planar", genasi_fire: "planar", genasi_water: "planar", githyanki: "planar", githzerai: "planar", triton: "planar",
+  human: "folk", half_elf: "folk", halfling_lightfoot: "folk", halfling_stout: "folk", tortle: "folk", centaur: "folk", aarakocra: "folk"
+};
+
+const SPECIES_TWEAK = {
+  dragonborn: { shift: 0.1 }, kobold: { shift: -0.1 }, yuan_ti: { shift: -0.08 }, tiefling: { shift: 0.08 }, aasimar: { shift: -0.06 },
+  elf_drow: { shift: 0.12 }, sea_elf: { shift: -0.08 }, duergar: { shift: 0.1 }, goblin: { shift: -0.05 }, githyanki: { shift: -0.04 }, githzerai: { shift: 0.04 }
+};
+
+function sanitizeAppearance(raw = {}) {
+  const out = { ...APPEARANCE_DEFAULTS };
+  for (const [key] of APPEARANCE_FIELDS) {
+    const v = (raw?.[key] || "").toString().trim();
+    if (/^#[0-9a-f]{6}$/i.test(v)) out[key] = v;
+  }
+  out.surfaceAlpha = clamp(Number(raw?.surfaceAlpha ?? out.surfaceAlpha) || out.surfaceAlpha, 0.65, 1);
+  out.shadowOpacity = clamp(Number(raw?.shadowOpacity ?? out.shadowOpacity) || out.shadowOpacity, 0.05, 0.28);
+  out.shadowBlur = clamp(asInt(raw?.shadowBlur, out.shadowBlur), 12, 44);
+  return out;
+}
+
+function primaryClassRow(character) {
+  const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+  if (!rows.length) return null;
+  const primary = rows.find((x) => x?.isPrimary && norm(x?.id));
+  if (primary) return primary;
+  const ranked = [...rows]
+    .filter((x) => norm(x?.id))
+    .sort((a, b) => asInt(b?.level, 0) - asInt(a?.level, 0));
+  return ranked[0] || rows[0];
+}
+
+function autoThemeLabel(character) {
+  const cls = primaryClassRow(character);
+  const classText = titleizeId(norm(cls?.id));
+  const speciesText = titleizeId(norm(character?.core?.speciesId));
+  if (!classText || !speciesText) return "Default Parchment";
+  return `${classText} + ${speciesText}`;
+}
+
+function tweakColor(hex, shift = 0) {
+  if (!shift) return hex;
+  return blendHex(shift > 0 ? hex : "#ffffff", shift > 0 ? "#1e1a14" : hex, Math.abs(shift));
+}
+
+function deriveAutoAppearance(character) {
+  const cls = primaryClassRow(character);
+  const classId = norm(cls?.id);
+  const speciesId = norm(character?.core?.speciesId);
+  if (!classId || !speciesId) {
+    return { appearance: sanitizeAppearance(APPEARANCE_DEFAULTS), label: "Default Parchment" };
+  }
+  const base = CLASS_THEME_BASE[classId];
+  if (!base) {
+    return { appearance: sanitizeAppearance(APPEARANCE_DEFAULTS), label: autoThemeLabel(character) };
+  }
+  const familyId = SPECIES_TO_FAMILY[speciesId] || "folk";
+  const family = SPECIES_FAMILY_ACCENT[familyId] || SPECIES_FAMILY_ACCENT.folk;
+  const tweak = SPECIES_TWEAK[speciesId] || { shift: 0 };
+  const primaryAccent = tweakColor(family.primary, tweak.shift || 0);
+  const secondaryAccent = tweakColor(family.secondary, (tweak.shift || 0) * -0.6);
+  const a = {
+    ...APPEARANCE_DEFAULTS,
+    paper: base.paper,
+    paper2: blendHex(base.paper2, family.chip, 0.18),
+    bg: blendHex(APPEARANCE_DEFAULTS.bg, base.paper, 0.25),
+    bgNoise: blendHex(APPEARANCE_DEFAULTS.bgNoise, family.glow, 0.22),
+    line: blendHex(APPEARANCE_DEFAULTS.line, family.secondary, 0.18),
+    accent: blendHex(base.accent, primaryAccent, 0.32),
+    accent2: blendHex(base.accent2, secondaryAccent, 0.32),
+    ok: blendHex(base.ok, primaryAccent, 0.15),
+    warn: base.warn,
+    err: base.err,
+    shadowOpacity: 0.12,
+    shadowBlur: 28,
+    surfaceAlpha: 0.9
+  };
+  a.ink = ensureContrast(APPEARANCE_DEFAULTS.ink, a.paper, 8);
+  a.inkSoft = ensureContrast(blendHex(APPEARANCE_DEFAULTS.inkSoft, a.accent, 0.12), a.paper, 5.2);
+  a.line = ensureContrast(a.line, a.paper, 2.1);
+  a.accent = ensureContrast(a.accent, a.paper, 4);
+  a.accent2 = ensureContrast(a.accent2, a.paper, 3.2);
+  a.ok = ensureContrast(a.ok, a.paper, 3.3);
+  a.warn = ensureContrast(a.warn, a.paper, 3.1);
+  a.err = ensureContrast(a.err, a.paper, 3.8);
+  return { appearance: sanitizeAppearance(a), label: autoThemeLabel(character) };
 }
 
 const ABILITY_KEYS = ["str", "dex", "con", "int", "wis", "cha"];
@@ -154,6 +423,32 @@ function deriveStats(character) {
     passivePerception,
     spellcasting: { classId, ability, spellMod, saveDcBase, spellSaveDc, attackBase, spellAttackBonus }
   };
+}
+
+function lookupLabel(rows, id) {
+  const key = norm(id);
+  if (!key) return "";
+  const row = (rows || []).find((x) => norm(x?.id) === key);
+  return (row?.name || "").toString().trim() || titleizeId(key);
+}
+
+function characterSubtitle(character, catalog = {}) {
+  const classes = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+  const classRows = classes.filter((c) => norm(c?.id));
+  const classText = classRows.length <= 1
+    ? (() => {
+        const row = classRows[0];
+        if (!row) return "";
+        const className = lookupLabel(catalog.classes || [], row.id);
+        const subclassName = norm(row?.subclassId) ? lookupLabel(catalog.subclasses || [], row.subclassId) : "";
+        const lvl = clamp(asInt(row.level, 1), 1, 20);
+        return subclassName ? `Level ${lvl} ${subclassName} ${className}` : `Level ${lvl} ${className}`;
+      })()
+    : `Classes: ${classRows.map((row) => `Level ${clamp(asInt(row.level, 1), 1, 20)} ${lookupLabel(catalog.classes || [], row.id)}`).join(" / ")}`;
+  const species = lookupLabel(catalog.species || [], character?.core?.speciesId || "");
+  const background = (character?.profile?.background || "").toString().trim();
+  const alignment = (character?.profile?.alignment || "").toString().trim();
+  return [classText, species, background, alignment].filter(Boolean).join(" • ");
 }
 
 const EDIT_TABS = [
@@ -284,6 +579,7 @@ function renderLookup(state) {
   const subtitle = state.type === "spell" ? "Search and insert spell records" : state.type === "class" ? "Choose a class" : "Choose a species";
   return `<div class="lookup-overlay" id="lookupOverlay">
     <section class="card lookup-panel" id="lookupPanel" role="dialog" aria-modal="true">
+      <button type="button" class="overlay-close" data-overlay-close="lookup" aria-label="Close overlay">×</button>
       <h2>Lookup: ${esc(state.type)}</h2>
       <div class="card-body">
       <p class="hint">${esc(subtitle)}</p>
@@ -313,6 +609,7 @@ function renderPalette(state, commands) {
   if (!state.open) return "";
   return `<div class="palette-overlay" id="paletteOverlay">
     <section class="palette" role="dialog" aria-modal="true">
+      <button type="button" class="overlay-close" data-overlay-close="palette" aria-label="Close overlay">×</button>
       <input id="paletteQuery" placeholder="Type a command..." value="${esc(state.query)}" />
       <div class="palette-list">
         ${commands.length === 0 ? `<p class="hint">No commands</p>` : commands.map((cmd, idx) => `<button type="button" class="palette-row ${state.selected === idx ? "is-selected" : ""}" data-command-id="${esc(cmd.id)}">
@@ -363,7 +660,6 @@ function renderPlayMode(character, uiState) {
 
   const activePane = uiState.activePlayPane || "spells";
   const paneNav = `<nav class="play-pane-tabs">${PLAY_PANES.map((p) => `<button type="button" class="${activePane === p.id ? "is-active" : ""}" data-play-pane="${p.id}">${esc(p.label)}</button>`).join("")}
-      <button type="button" id="openDiceTray">Roll Dice</button>
       <button type="button" data-toggle-utility>${uiState.playBoard?.utilityRailOpen !== false ? "Hide Utility Rail" : "Show Utility Rail"}</button>
       <button type="button" data-toggle-band>${uiState.playBoard?.bandCompact ? "Expand Combat Band" : "Compact Combat Band"}</button>
     </nav>`;
@@ -445,7 +741,21 @@ function renderPlayMode(character, uiState) {
         <button type="button" data-play-hp="1">+1 HP</button>
         <input type="number" id="playHpCurrent" min="0" value="${esc(hp.current)}" aria-label="Current HP" />
         <button type="button" id="playHpSet">Set HP</button>
-        <button type="button" id="openDiceTrayHud">Roll Dice</button>
+        <button type="button" id="openDiceTrayHud" class="d20-roll-tile" title="Open Dice Tray">
+          <span class="d20-roll-icon" aria-hidden="true">
+            <svg viewBox="0 0 100 100" focusable="false">
+              <polygon points="50,6 88,28 88,72 50,94 12,72 12,28"></polygon>
+              <line x1="50" y1="6" x2="50" y2="94"></line>
+              <line x1="12" y1="28" x2="88" y2="28"></line>
+              <line x1="12" y1="72" x2="88" y2="72"></line>
+              <line x1="12" y1="28" x2="50" y2="50"></line>
+              <line x1="88" y1="28" x2="50" y2="50"></line>
+              <line x1="12" y1="72" x2="50" y2="50"></line>
+              <line x1="88" y1="72" x2="50" y2="50"></line>
+            </svg>
+          </span>
+          <span class="d20-roll-label">Roll Dice</span>
+        </button>
       </div>
       </div>
       <div class="play-conditions">
@@ -500,6 +810,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
   const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
   const derived = deriveStats(character);
   const spellcasting = character?.spellcasting || {};
+  const portrait = character?.ui?.portrait?.data_url || "";
   const activeTab = uiState.activeEditTab || "core";
   const activeSections = new Set(tabSections(activeTab));
   const collapsed = uiState.collapsedSectionsByTab?.[activeTab] || {};
@@ -565,6 +876,13 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
     </div></article>
 
     <article class="card ${sectionClass("sec-profile")}" id="sec-profile"><h2>${cardTitle("Adventurer's Chronicle", edited.core)} <button type="button" class="card-toggle" data-toggle-sec="sec-profile">${collapsed["sec-profile"] ? "Expand" : "Collapse"}</button></h2><div class="card-body grid2">
+      <div class="portrait-editor">
+        ${portrait ? `<img class="portrait-preview" src="${esc(portrait)}" alt="Character portrait" />` : `<div class="portrait-placeholder">No portrait</div>`}
+        <div class="inline-actions">
+          <input id="portraitUpload" type="file" accept="image/*" />
+          ${portrait ? `<button type="button" id="portraitRemove">Remove</button>` : ""}
+        </div>
+      </div>
       <label>Background<input id="profileBackground" value="${esc(profile.background || "")}" /></label>
       <label>Alignment<input id="profileAlignment" value="${esc(profile.alignment || "")}" /></label>
       <label>Player Name<input id="profilePlayerName" value="${esc(profile.player_name || "")}" /></label>
@@ -617,14 +935,14 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
         <p class="hint">Computed: Spell Save DC <strong>${esc(derived.spellcasting.spellSaveDc)}</strong> · Spell Attack <strong>${esc(fmtSigned(derived.spellcasting.spellAttackBonus))}</strong></p>
       </div>
       <h3>Saves</h3>
-      <div class="grid2">
+      <div class="saves-table">
         ${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<div class="save-row">
           <strong>${k.toUpperCase()}</strong>
-          <label class="check"><input type="checkbox" data-save-prof="${k}" ${savingThrows?.[k]?.proficient ? "checked" : ""}/>Proficient</label>
-          <label class="check"><input type="checkbox" data-save-mode="${k}" ${(savingThrows?.[k]?.bonus_mode || "auto") === "manual" ? "checked" : ""}/>Manual total</label>
-          <input type="number" data-save-bonus="${k}" value="${esc(savingThrows?.[k]?.bonus ?? 0)}" placeholder="bonus" />
-          <input type="number" data-save-manual="${k}" value="${esc(savingThrows?.[k]?.manual_total ?? derived.savingThrows[k].base)}" placeholder="manual total" />
-          <span class="derived-chip">${esc(fmtSigned(derived.savingThrows[k].total))}</span>
+          <label class="check"><input type="checkbox" data-save-prof="${k}" ${savingThrows?.[k]?.proficient ? "checked" : ""}/>Prof</label>
+          <label class="check"><input type="checkbox" data-save-mode="${k}" ${(savingThrows?.[k]?.bonus_mode || "auto") === "manual" ? "checked" : ""}/>Manual</label>
+          <input type="number" data-save-bonus="${k}" value="${esc(savingThrows?.[k]?.bonus ?? 0)}" aria-label="${k.toUpperCase()} bonus" title="${k.toUpperCase()} bonus" />
+          <input type="number" data-save-manual="${k}" value="${esc(savingThrows?.[k]?.manual_total ?? derived.savingThrows[k].base)}" aria-label="${k.toUpperCase()} manual total" title="${k.toUpperCase()} manual total" />
+          <span class="derived-chip" title="Computed total">${esc(fmtSigned(derived.savingThrows[k].total))}</span>
         </div>`).join("")}
       </div>
       <h3>Talents</h3>
@@ -706,6 +1024,7 @@ export function mountV2UI({ root, getState, actions }) {
   const EDIT_TAB_KEY = "living-codex-v2.ui.edit_tab";
   const PLAY_PANE_KEY = "living-codex-v2.ui.play_pane";
   const PLAY_BOARD_KEY = "living-codex-v2.ui.play_board";
+  const APPEARANCE_KEY = "living-codex-v2.ui.appearance";
   const draft = {
     name: "New Character",
     rulesetId: "dnd5e_2014",
@@ -742,12 +1061,123 @@ export function mountV2UI({ root, getState, actions }) {
     lastAction: "",
     conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", notes: "", active: true } },
     diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
+    portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
+    toolsMenuOpen: false,
+    appearanceOpen: false,
+    appearanceSource: "auto",
+    appearanceAutoLabel: "Default Parchment",
+    appearanceDraft: sanitizeAppearance(),
     castMenu: { open: false, spellName: "", spellKey: "", baseLevel: 0, options: [] },
     palette: { open: false, query: "", selected: 0, recents: [] },
     lookup: { open: false, type: "spell", query: "", level: "", allowOffClassSpells: false, selected: 0, results: [], feedback: "", originSectionId: "", originScrollY: 0, cursor: 0 }
   };
 
   const sectionIds = ["sec-core", "sec-classes", "sec-combat", "sec-profile", "sec-mechanics", "sec-spells", "sec-inventory", "sec-trackers"];
+
+  function captureFocusState() {
+    const active = document.activeElement;
+    if (!active || !root.contains(active) || !isTypingTarget(active)) return null;
+    const textLike = active.tagName === "TEXTAREA" || (active.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "range", "color"].includes((active.type || "").toLowerCase()));
+    return {
+      id: active.id || "",
+      path: elementPathWithinRoot(active, root),
+      start: textLike ? (active.selectionStart ?? null) : null,
+      end: textLike ? (active.selectionEnd ?? null) : null
+    };
+  }
+
+  function restoreFocusState(state) {
+    if (!state) return false;
+    const target = (state.id && root.querySelector(`#${CSS.escape(state.id)}`)) || queryByElementPath(root, state.path);
+    if (!target || !isTypingTarget(target)) return false;
+    target.focus();
+    if (state.start != null && typeof target.setSelectionRange === "function") {
+      const max = (target.value || "").length;
+      const s = clamp(asInt(state.start, 0), 0, max);
+      const e = clamp(asInt(state.end, s), 0, max);
+      target.setSelectionRange(s, e);
+    }
+    return true;
+  }
+
+  function readLocalAppearance() {
+    try {
+      const stored = localStorage.getItem(APPEARANCE_KEY);
+      if (!stored) return null;
+      const raw = JSON.parse(stored || "{}");
+      if (!raw || typeof raw !== "object" || Object.keys(raw).length === 0) return null;
+      return sanitizeAppearance(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function readCharacterAppearance(character) {
+    const raw = character?.ui?.appearance;
+    if (!raw || typeof raw !== "object" || Object.keys(raw).length === 0) return null;
+    return sanitizeAppearance(raw);
+  }
+
+  function resolveAppearance(character) {
+    const charTheme = readCharacterAppearance(character);
+    if (charTheme) {
+      uiState.appearanceSource = "user";
+      uiState.appearanceAutoLabel = autoThemeLabel(character);
+      return charTheme;
+    }
+    const localTheme = readLocalAppearance();
+    if (localTheme) {
+      uiState.appearanceSource = "user";
+      uiState.appearanceAutoLabel = autoThemeLabel(character);
+      return localTheme;
+    }
+    const auto = deriveAutoAppearance(character);
+    uiState.appearanceSource = "auto";
+    uiState.appearanceAutoLabel = auto.label;
+    return auto.appearance;
+  }
+
+  function applyAppearance(appearance) {
+    const a = sanitizeAppearance(appearance);
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--bg", a.bg);
+    rootStyle.setProperty("--bg-noise", a.bgNoise);
+    rootStyle.setProperty("--paper", a.paper);
+    rootStyle.setProperty("--paper-2", a.paper2);
+    const paperRgb = hexToRgbTriplet(a.paper);
+    rootStyle.setProperty("--paper-rgb", paperRgb);
+    rootStyle.setProperty("--paper-2-rgb", hexToRgbTriplet(a.paper2, paperRgb));
+    rootStyle.setProperty("--topbar-rgb", paperRgb);
+    rootStyle.setProperty("--ink", a.ink);
+    rootStyle.setProperty("--ink-soft", a.inkSoft);
+    rootStyle.setProperty("--line", a.line);
+    rootStyle.setProperty("--accent", a.accent);
+    rootStyle.setProperty("--accent-2", a.accent2);
+    rootStyle.setProperty("--ok", a.ok);
+    rootStyle.setProperty("--warn", a.warn);
+    rootStyle.setProperty("--err", a.err);
+    rootStyle.setProperty("--surface-alpha", String(a.surfaceAlpha));
+    rootStyle.setProperty("--shadow-alpha", String(a.shadowOpacity));
+    rootStyle.setProperty("--shadow-blur", `${a.shadowBlur}px`);
+  }
+
+  function openAppearanceCustomizer() {
+    const state = getState();
+    uiState.appearanceDraft = resolveAppearance(state.character);
+    uiState.appearanceOpen = true;
+    uiState.toolsMenuOpen = false;
+    applyAppearance(uiState.appearanceDraft);
+    render();
+  }
+
+  function closeAppearanceCustomizer({ revert = false } = {}) {
+    uiState.appearanceOpen = false;
+    if (revert) {
+      const state = getState();
+      applyAppearance(resolveAppearance(state.character));
+    }
+    render();
+  }
 
   function policyAllows(row) {
     if (uiState.policyMode !== "core_only") return true;
@@ -900,6 +1330,62 @@ export function mountV2UI({ root, getState, actions }) {
     recordPlayAction(`Rolled ${label}: ${total}`);
   }
 
+  function openPortraitCrop(src, iw, ih) {
+    uiState.portraitCrop = { open: true, src, zoom: 1, x: 0, y: 0, iw, ih };
+    render();
+  }
+
+  function closePortraitCrop() {
+    uiState.portraitCrop = { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 };
+    render();
+  }
+
+  function drawPortraitPreview(size = 280) {
+    const crop = uiState.portraitCrop;
+    if (!crop.open || !crop.src) return;
+    const canvas = root.querySelector("#portraitPreview");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = size;
+      canvas.height = size;
+      ctx.clearRect(0, 0, size, size);
+      const base = Math.max(size / img.width, size / img.height) * crop.zoom;
+      const dw = img.width * base;
+      const dh = img.height * base;
+      const dx = (size - dw) / 2 + crop.x * ((Math.abs(size - dw)) / 2);
+      const dy = (size - dh) / 2 + crop.y * ((Math.abs(size - dh)) / 2);
+      ctx.drawImage(img, dx, dy, dw, dh);
+    };
+    img.src = crop.src;
+  }
+
+  function savePortraitFromCrop() {
+    const crop = uiState.portraitCrop;
+    if (!crop.open || !crop.src) return;
+    const img = new Image();
+    img.onload = () => {
+      const out = document.createElement("canvas");
+      out.width = 1024;
+      out.height = 1024;
+      const ctx = out.getContext("2d");
+      const base = Math.max(1024 / img.width, 1024 / img.height) * crop.zoom;
+      const dw = img.width * base;
+      const dh = img.height * base;
+      const dx = (1024 - dw) / 2 + crop.x * ((Math.abs(1024 - dw)) / 2);
+      const dy = (1024 - dh) / 2 + crop.y * ((Math.abs(1024 - dh)) / 2);
+      ctx.drawImage(img, dx, dy, dw, dh);
+      const dataUrl = out.toDataURL("image/jpeg", 0.92);
+      actions.updateCharacter((c) => {
+        c.ui = c.ui || {};
+        c.ui.portrait = { data_url: dataUrl, width: 1024, height: 1024, mime: "image/jpeg" };
+      });
+      closePortraitCrop();
+    };
+    img.src = crop.src;
+  }
+
   function markEdited(sectionKey) {
     if (!sectionKey || !Object.prototype.hasOwnProperty.call(uiState.edited, sectionKey)) return;
     uiState.edited[sectionKey] = true;
@@ -919,7 +1405,14 @@ export function mountV2UI({ root, getState, actions }) {
       { id: "toggle-mode", label: uiState.mode === "edit" ? "Switch to Play Mode" : "Switch to Edit Mode", hint: "View mode", keywords: ["mode", "play", "edit"], enabled: () => hasCharacter, run: () => setMode(uiState.mode === "edit" ? "play" : "edit") },
       { id: "policy-core", label: "Policy: Core Only", hint: "Hide DM approval options", keywords: ["policy", "core", "dm"], enabled: () => true, run: () => setPolicyMode("core_only") },
       { id: "policy-all", label: "Policy: All Official", hint: "Include DM approval options", keywords: ["policy", "all", "official"], enabled: () => true, run: () => setPolicyMode("all_official") },
-      { id: "open-diag", label: "Toggle Diagnostics", hint: "Status panel", keywords: ["diagnostics", "report"], enabled: () => true, run: () => { uiState.diagnosticsOpen = !uiState.diagnosticsOpen; } },
+      { id: "ui.openDiagnosticsDrawer", label: "Open Diagnostics", hint: "Drawer", keywords: ["diagnostics", "report", "errors"], enabled: () => true, run: () => { uiState.diagnosticsOpen = true; } },
+      { id: "ui.openToolsMenu", label: "Open Tools Menu", hint: "Header tools", keywords: ["tools", "gear", "menu"], enabled: () => true, run: () => { uiState.toolsMenuOpen = true; } },
+      { id: "ui.openAppearanceCustomizer", label: "Customize Appearance", hint: "Theme board", keywords: ["appearance", "theme", "colors"], enabled: () => true, run: () => openAppearanceCustomizer() },
+      { id: "ui.openPalette", label: "Open Command Palette", hint: "Cmd/Ctrl+K", keywords: ["palette", "command"], enabled: () => true, run: () => {
+        uiState.palette.open = true;
+        uiState.palette.query = "";
+        uiState.palette.selected = 0;
+      } },
       { id: "new", label: "Open Create Character", hint: "New draft", keywords: ["new", "create"], enabled: () => true, run: () => { uiState.showCreate = true; } },
       { id: "jump-core", label: "Jump: Core", hint: "Ctrl/Cmd+1", keywords: ["jump", "core"], enabled: () => uiState.mode === "edit", run: () => jumpToSection(0) },
       { id: "jump-classes", label: "Jump: Classes", hint: "Ctrl/Cmd+2", keywords: ["jump", "classes"], enabled: () => uiState.mode === "edit", run: () => jumpToSection(1) },
@@ -1251,6 +1744,7 @@ export function mountV2UI({ root, getState, actions }) {
   }
 
   function render() {
+    const priorFocus = captureFocusState();
     const state = getState();
     const character = state.character;
     const rawCatalog = actions.getCatalog ? actions.getCatalog() : { classes: [], species: [], spells: [], error: "" };
@@ -1260,22 +1754,26 @@ export function mountV2UI({ root, getState, actions }) {
     refreshLookup();
     const commands = visibleCommands();
 
+    applyAppearance(uiState.appearanceOpen ? uiState.appearanceDraft : resolveAppearance(character));
+
     root.innerHTML = `
       <header class="shell-topbar">
-        <div>
-          <h1>The Living Codex v2</h1>
-          <p class="hint">${character ? esc(character?.meta?.name || "Unnamed") : "No active character"}</p>
+        <div class="brand-block">
+          <h1>${character ? esc(character?.meta?.name || "Unnamed") : "No active character"}</h1>
+          <p class="brand-meta">${character ? esc(characterSubtitle(character, catalog)) : "The Living Codex"} </p>
         </div>
         <div class="top-actions">
           <div class="top-row-state">
-            <span class="status-chip ${state.app.dirty ? "dirty" : "saved"}">${state.app.dirty ? "Unsaved" : "Saved"}</span>
             <button type="button" id="densityToggle">${uiState.densityMode === "compact" ? "Comfortable View" : "Compact View"}</button>
-            <label class="dual-toggle-chip" for="policyModeToggle" title="Choose which player options appear in lookups and selectors">
-              <span class="${uiState.policyMode === "all_official" ? "is-active" : ""}">All Official Player Options</span>
-              <input id="policyModeToggle" type="checkbox" ${uiState.policyMode === "core_only" ? "checked" : ""} />
-              <span class="policy-switch" aria-hidden="true"></span>
-              <span class="${uiState.policyMode === "core_only" ? "is-active" : ""}">Core Options Only (PHB)</span>
-            </label>
+            <div class="policy-status-stack">
+              <label class="dual-toggle-chip" for="policyModeToggle" title="Choose which player options appear in lookups and selectors">
+                <span class="${uiState.policyMode === "all_official" ? "is-active" : ""}">All Official Player Options</span>
+                <input id="policyModeToggle" type="checkbox" ${uiState.policyMode === "core_only" ? "checked" : ""} />
+                <span class="policy-switch" aria-hidden="true"></span>
+                <span class="${uiState.policyMode === "core_only" ? "is-active" : ""}">Core Options Only (PHB)</span>
+              </label>
+              <span class="status-chip ${state.app.dirty ? "dirty" : "saved"}" title="${esc(runtime.message || "No recent action")}">${state.app.dirty ? "Unsaved" : "Saved"}</span>
+            </div>
             <label class="dual-toggle-chip ${character ? "" : "is-disabled"}" for="modeToggle">
               <span class="${uiState.mode === "edit" ? "is-active" : ""}">Edit</span>
               <input id="modeToggle" type="checkbox" ${uiState.mode === "play" ? "checked" : ""} ${character ? "" : "disabled"} />
@@ -1284,7 +1782,14 @@ export function mountV2UI({ root, getState, actions }) {
             </label>
           </div>
           <div class="top-row-actions">
-            <button type="button" id="openPalette">Command Palette</button>
+            <div class="tools-menu-wrap">
+              <button type="button" id="toolsMenuBtn" title="Tools" aria-label="Tools">⚙</button>
+              ${uiState.toolsMenuOpen ? `<div class="tools-menu" id="toolsMenu">
+                <button type="button" id="toolsOpenPalette">Command Palette</button>
+                <button type="button" id="toolsOpenAppearance">Customize Appearance</button>
+                <button type="button" id="toolsOpenDiagnostics">Diagnostics</button>
+              </div>` : ""}
+            </div>
             <button type="button" class="btn-primary" id="saveBtn" ${character ? "" : "disabled"}>Save</button>
             <button type="button" id="importBtn">Import</button>
             <button type="button" id="exportBtn" ${character ? "" : "disabled"}>Export</button>
@@ -1292,20 +1797,6 @@ export function mountV2UI({ root, getState, actions }) {
           </div>
         </div>
       </header>
-
-      <section class="card">
-        <h2>Status</h2>
-        <div class="card-body compact-status">
-          ${runtime.message ? `<span class="tone tone-${esc(runtime.tone || "info")}">${esc(runtime.message)}</span>` : `<span class="hint">No recent action</span>`}
-          <button type="button" id="diagToggle">${uiState.diagnosticsOpen ? "Hide" : "Show"} diagnostics</button>
-        </div>
-      </section>
-
-      ${uiState.diagnosticsOpen ? `<section class="card"><h2>Diagnostics</h2><div class="card-body">
-          ${rawCatalog.error ? `<p class="error">Rules data error: ${esc(rawCatalog.error)}</p>` : ""}
-          ${state.app.lastError ? `<p class="error">App error: ${esc(state.app.lastError)}</p>` : ""}
-          ${renderReport(state.importReport)}
-      </div></section>` : ""}
 
       ${(!character || uiState.showCreate) ? `<section class="card"><h2>Create Character</h2><div class="card-body create-grid">
         <label>Name<input id="newName" value="${esc(draft.name)}" /></label>
@@ -1317,8 +1808,27 @@ export function mountV2UI({ root, getState, actions }) {
       </div></section>` : `${uiState.mode === "play" ? renderPlayMode(character, uiState) : renderEditMode(character, catalog, uiState.lookup, uiState.edited, uiState)}`}
 
       ${renderPalette(uiState.palette, commands)}
+      ${uiState.appearanceOpen ? `<div class="palette-overlay" id="appearanceOverlay">
+        <section class="palette cast-menu" role="dialog" aria-modal="true">
+          <button type="button" class="overlay-close" data-overlay-close="appearance" aria-label="Close overlay">×</button>
+          <h3>Customize Appearance</h3>
+          <p class="hint">Theme source: <strong>${uiState.appearanceSource === "auto" ? `Auto (${esc(uiState.appearanceAutoLabel)})` : "User Customized"}</strong></p>
+          <div class="grid2 appearance-grid">
+            ${APPEARANCE_FIELDS.map(([key, label]) => `<label>${esc(label)}<input type="color" data-appearance-color="${esc(key)}" value="${esc(uiState.appearanceDraft[key])}" /></label>`).join("")}
+            <label>Surface Transparency<input type="range" min="0.65" max="1" step="0.01" data-appearance-range="surfaceAlpha" value="${esc(uiState.appearanceDraft.surfaceAlpha)}" /></label>
+            <label>Shadow Depth<input type="range" min="12" max="44" step="1" data-appearance-range="shadowBlur" value="${esc(uiState.appearanceDraft.shadowBlur)}" /></label>
+            <label>Shadow Opacity<input type="range" min="0.05" max="0.28" step="0.01" data-appearance-range="shadowOpacity" value="${esc(uiState.appearanceDraft.shadowOpacity)}" /></label>
+          </div>
+          <div class="inline-actions">
+            <button type="button" id="appearanceReset">Reset to Auto Theme</button>
+            <button type="button" id="appearanceCancel">Cancel</button>
+            <button type="button" class="btn-primary" id="appearanceSave">Save Theme</button>
+          </div>
+        </section>
+      </div>` : ""}
       ${uiState.castMenu.open ? `<div class="palette-overlay" id="castOverlay">
         <section class="palette cast-menu" role="dialog" aria-modal="true">
+          <button type="button" class="overlay-close" data-overlay-close="cast" aria-label="Close overlay">×</button>
           <h3>Cast ${esc(uiState.castMenu.spellName)}</h3>
           <p class="hint">Choose spell slot level</p>
           <div class="cast-options">
@@ -1329,6 +1839,7 @@ export function mountV2UI({ root, getState, actions }) {
       </div>` : ""}
       ${uiState.conditionEditor.open ? `<div class="palette-overlay" id="conditionOverlay">
         <section class="palette cast-menu" role="dialog" aria-modal="true">
+          <button type="button" class="overlay-close" data-overlay-close="condition" aria-label="Close overlay">×</button>
           <h3>${uiState.conditionEditor.index >= 0 ? "Edit Condition" : "Add Condition"}</h3>
           <div class="stack">
             <label>Name<input id="condName" value="${esc(uiState.conditionEditor.model.name || "")}" placeholder="e.g. Poisoned" /></label>
@@ -1346,6 +1857,7 @@ export function mountV2UI({ root, getState, actions }) {
       </div>` : ""}
       ${uiState.diceTray.open ? `<div class="palette-overlay" id="diceOverlay">
         <section class="palette cast-menu dice-tray" role="dialog" aria-modal="true">
+          <button type="button" class="overlay-close" data-overlay-close="dice" aria-label="Close overlay">×</button>
           <h3>Dice Tray</h3>
           <p class="hint">Choose dice, then roll.</p>
           <div class="grid2">
@@ -1370,32 +1882,87 @@ export function mountV2UI({ root, getState, actions }) {
           </div>` : ""}
         </section>
       </div>` : ""}
+      ${uiState.diagnosticsOpen ? `<div class="palette-overlay" id="diagnosticsOverlay">
+        <section class="diag-drawer" role="dialog" aria-modal="true">
+          <button type="button" class="overlay-close" data-overlay-close="diagnostics" aria-label="Close overlay">×</button>
+          <h3>Diagnostics</h3>
+          <div class="diag-drawer-body">
+            ${runtime.message ? `<p class="tone tone-${esc(runtime.tone || "info")}">${esc(runtime.message)}</p>` : `<p class="hint">No recent runtime message.</p>`}
+            ${rawCatalog.error ? `<p class="error">Rules data error: ${esc(rawCatalog.error)}</p>` : ""}
+            ${state.app.lastError ? `<p class="error">App error: ${esc(state.app.lastError)}</p>` : ""}
+            ${renderReport(state.importReport)}
+          </div>
+        </section>
+      </div>` : ""}
+      ${uiState.portraitCrop.open ? `<div class="palette-overlay" id="portraitOverlay">
+        <section class="palette cast-menu" role="dialog" aria-modal="true">
+          <button type="button" class="overlay-close" data-overlay-close="portrait" aria-label="Close overlay">×</button>
+          <h3>Crop Portrait</h3>
+          <div class="split-grid">
+            <canvas id="portraitPreview" width="280" height="280"></canvas>
+            <div class="stack">
+              <label>Zoom<input id="portraitZoom" type="range" min="1" max="3" step="0.01" value="${esc(uiState.portraitCrop.zoom)}" /></label>
+              <label>Horizontal<input id="portraitX" type="range" min="-1" max="1" step="0.01" value="${esc(uiState.portraitCrop.x)}" /></label>
+              <label>Vertical<input id="portraitY" type="range" min="-1" max="1" step="0.01" value="${esc(uiState.portraitCrop.y)}" /></label>
+            </div>
+          </div>
+          <div class="inline-actions"><button type="button" id="portraitCancel">Cancel</button><button type="button" class="btn-primary" id="portraitSave">Save Portrait</button></div>
+        </section>
+      </div>` : ""}
+      <footer class="app-footer">
+        <div class="app-footer-left">
+          <strong>The Living Codex</strong> <sub>v2</sub>
+        </div>
+        <div class="app-footer-right">
+          <p>Dungeons & Dragons and related marks are property of Wizards of the Coast. All trademarks and copyrights belong to their respective owners.</p>
+          <p>No warranty. Use at your own risk; you’re responsible for outcomes and any errors.</p>
+        </div>
+      </footer>
     `;
 
     bindEvents();
 
+    let explicitFocusHandled = false;
     if (uiState.palette.open) {
       const query = root.querySelector("#paletteQuery");
-      if (query) query.focus();
+      if (query) {
+        query.focus();
+        explicitFocusHandled = true;
+      }
     }
+
     if (uiState.lookup.open) {
       const lookup = root.querySelector("#lookupQuery");
       if (lookup) {
         lookup.focus();
         const pos = clamp(asInt(uiState.lookup.cursor, lookup.value.length), 0, lookup.value.length);
         lookup.setSelectionRange(pos, pos);
+        explicitFocusHandled = true;
       }
     }
+    if (uiState.portraitCrop.open) drawPortraitPreview();
+    if (!explicitFocusHandled) restoreFocusState(priorFocus);
   }
 
   function bindEvents() {
     const state = getState();
     const character = state.character;
 
-    root.querySelector("#openPalette")?.addEventListener("click", () => {
+    root.querySelector("#toolsMenuBtn")?.addEventListener("click", () => {
+      uiState.toolsMenuOpen = !uiState.toolsMenuOpen;
+      render();
+    });
+    root.querySelector("#toolsOpenPalette")?.addEventListener("click", () => {
+      uiState.toolsMenuOpen = false;
       uiState.palette.open = true;
       uiState.palette.query = "";
       uiState.palette.selected = 0;
+      render();
+    });
+    root.querySelector("#toolsOpenAppearance")?.addEventListener("click", () => openAppearanceCustomizer());
+    root.querySelector("#toolsOpenDiagnostics")?.addEventListener("click", () => {
+      uiState.toolsMenuOpen = false;
+      uiState.diagnosticsOpen = true;
       render();
     });
     root.querySelector("#saveBtn")?.addEventListener("click", () => actions.saveNow());
@@ -1417,7 +1984,6 @@ export function mountV2UI({ root, getState, actions }) {
       setMode(e.target.checked ? "play" : "edit");
       render();
     });
-    root.querySelector("#diagToggle")?.addEventListener("click", () => { uiState.diagnosticsOpen = !uiState.diagnosticsOpen; render(); });
 
     root.querySelector("#createBtn")?.addEventListener("click", () => {
       draft.name = root.querySelector("#newName")?.value || draft.name;
@@ -1439,6 +2005,80 @@ export function mountV2UI({ root, getState, actions }) {
         render();
       }
     });
+    root.querySelector("#appearanceOverlay")?.addEventListener("click", (e) => {
+      if (e.target?.id === "appearanceOverlay") closeAppearanceCustomizer({ revert: true });
+    });
+    root.querySelectorAll("[data-overlay-close]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        const type = e.currentTarget.getAttribute("data-overlay-close");
+        if (type === "palette") {
+          uiState.palette.open = false;
+          render();
+          return;
+        }
+        if (type === "lookup") {
+          closeLookup({ restore: true });
+          return;
+        }
+        if (type === "cast") {
+          closeCastMenu();
+          return;
+        }
+        if (type === "condition") {
+          closeConditionEditor();
+          return;
+        }
+        if (type === "dice") {
+          closeDiceTray();
+          return;
+        }
+        if (type === "appearance") {
+          closeAppearanceCustomizer({ revert: true });
+          return;
+        }
+        if (type === "diagnostics") {
+          uiState.diagnosticsOpen = false;
+          render();
+          return;
+        }
+        if (type === "portrait") {
+          closePortraitCrop();
+        }
+      });
+    });
+    root.querySelector("#appearanceCancel")?.addEventListener("click", () => closeAppearanceCustomizer({ revert: true }));
+    root.querySelector("#appearanceReset")?.addEventListener("click", () => {
+      const stateNow = getState();
+      const auto = deriveAutoAppearance(stateNow.character);
+      uiState.appearanceDraft = auto.appearance;
+      uiState.appearanceSource = "auto";
+      uiState.appearanceAutoLabel = auto.label;
+      applyAppearance(uiState.appearanceDraft);
+      render();
+    });
+    root.querySelector("#appearanceSave")?.addEventListener("click", () => {
+      const finalAppearance = sanitizeAppearance(uiState.appearanceDraft);
+      localStorage.setItem(APPEARANCE_KEY, JSON.stringify(finalAppearance));
+      uiState.appearanceSource = "user";
+      const stateNow = getState();
+      if (stateNow.character) {
+        actions.updateCharacter((c) => {
+          c.ui = c.ui || {};
+          c.ui.appearance = finalAppearance;
+        });
+      }
+      closeAppearanceCustomizer({ revert: false });
+    });
+    root.querySelectorAll("[data-appearance-color]").forEach((el) => el.addEventListener("input", (e) => {
+      const key = e.target.getAttribute("data-appearance-color");
+      uiState.appearanceDraft[key] = e.target.value;
+      applyAppearance(uiState.appearanceDraft);
+    }));
+    root.querySelectorAll("[data-appearance-range]").forEach((el) => el.addEventListener("input", (e) => {
+      const key = e.target.getAttribute("data-appearance-range");
+      uiState.appearanceDraft[key] = e.target.value;
+      applyAppearance(uiState.appearanceDraft);
+    }));
     root.querySelector("#castOverlay")?.addEventListener("click", (e) => {
       if (e.target?.id === "castOverlay") closeCastMenu();
     });
@@ -1447,6 +2087,15 @@ export function mountV2UI({ root, getState, actions }) {
     });
     root.querySelector("#diceOverlay")?.addEventListener("click", (e) => {
       if (e.target?.id === "diceOverlay") closeDiceTray();
+    });
+    root.querySelector("#diagnosticsOverlay")?.addEventListener("click", (e) => {
+      if (e.target?.id === "diagnosticsOverlay") {
+        uiState.diagnosticsOpen = false;
+        render();
+      }
+    });
+    root.querySelector("#portraitOverlay")?.addEventListener("click", (e) => {
+      if (e.target?.id === "portraitOverlay") closePortraitCrop();
     });
     root.querySelector("#castMenuCancel")?.addEventListener("click", () => closeCastMenu());
     root.querySelector("#condCancel")?.addEventListener("click", () => closeConditionEditor());
@@ -1502,6 +2151,11 @@ export function mountV2UI({ root, getState, actions }) {
       performDiceRoll();
       render();
     });
+    root.querySelector("#portraitCancel")?.addEventListener("click", () => closePortraitCrop());
+    root.querySelector("#portraitSave")?.addEventListener("click", () => savePortraitFromCrop());
+    root.querySelector("#portraitZoom")?.addEventListener("input", (e) => { uiState.portraitCrop.zoom = Number(e.target.value); drawPortraitPreview(); });
+    root.querySelector("#portraitX")?.addEventListener("input", (e) => { uiState.portraitCrop.x = Number(e.target.value); drawPortraitPreview(); });
+    root.querySelector("#portraitY")?.addEventListener("input", (e) => { uiState.portraitCrop.y = Number(e.target.value); drawPortraitPreview(); });
     root.querySelectorAll("[data-cast-at]").forEach((el) => {
       el.addEventListener("click", (e) => {
         const lvl = asInt(e.currentTarget.getAttribute("data-cast-at"), 0);
@@ -1597,7 +2251,6 @@ export function mountV2UI({ root, getState, actions }) {
         setPlayBoard({ hudCollapsed: !uiState.playBoard?.hudCollapsed });
         render();
       });
-      root.querySelector("#openDiceTray")?.addEventListener("click", () => openDiceTray());
       root.querySelector("#openDiceTrayHud")?.addEventListener("click", () => openDiceTray());
       root.querySelectorAll("[data-toggle-utility]").forEach((el) => el.addEventListener("click", () => {
         setPlayBoard({ utilityRailOpen: !(uiState.playBoard?.utilityRailOpen !== false) });
@@ -1795,6 +2448,22 @@ export function mountV2UI({ root, getState, actions }) {
     root.querySelector("#profileAllies")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.allies_organizations = e.target.value; }));
     root.querySelector("#profileAdditionalFeatures")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.additional_features = e.target.value; }));
     root.querySelector("#profileTreasure")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.treasure = e.target.value; }));
+    root.querySelector("#portraitUpload")?.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const src = reader.result?.toString() || "";
+        const img = new Image();
+        img.onload = () => openPortraitCrop(src, img.width, img.height);
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
+    });
+    root.querySelector("#portraitRemove")?.addEventListener("click", () => actions.updateCharacter((c) => {
+      c.ui = c.ui || {};
+      delete c.ui.portrait;
+    }));
     root.querySelector("#resCp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.cp = Math.max(0, asInt(e.target.value, 0)); }));
     root.querySelector("#resSp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.sp = Math.max(0, asInt(e.target.value, 0)); }));
     root.querySelector("#resEp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.ep = Math.max(0, asInt(e.target.value, 0)); }));
@@ -1973,6 +2642,26 @@ export function mountV2UI({ root, getState, actions }) {
       return;
     }
 
+    if (uiState.appearanceOpen && e.key === "Escape") {
+      e.preventDefault();
+      closeAppearanceCustomizer({ revert: true });
+      return;
+    }
+
+    if (uiState.toolsMenuOpen && e.key === "Escape") {
+      e.preventDefault();
+      uiState.toolsMenuOpen = false;
+      render();
+      return;
+    }
+
+    if (uiState.diagnosticsOpen && e.key === "Escape") {
+      e.preventDefault();
+      uiState.diagnosticsOpen = false;
+      render();
+      return;
+    }
+
     if (uiState.palette.open) {
       const list = visibleCommands();
       if (e.key === "Escape") {
@@ -2114,6 +2803,14 @@ export function mountV2UI({ root, getState, actions }) {
   }
 
   window.addEventListener("keydown", handleGlobalHotkeys);
+  document.addEventListener("click", (e) => {
+    if (!uiState.toolsMenuOpen) return;
+    const insideTools = typeof e.target?.closest === "function" && e.target.closest(".tools-menu-wrap");
+    if (!insideTools) {
+      uiState.toolsMenuOpen = false;
+      render();
+    }
+  });
 
   return {
     render,
