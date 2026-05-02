@@ -1274,6 +1274,7 @@ export function mountV2UI({ root, getState, actions }) {
     diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
     portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
     toolsMenuOpen: false,
+    toolsMenuOpenedAt: 0,
     appearanceOpen: false,
     appearanceSource: "auto",
     appearanceAutoLabel: "Default Parchment",
@@ -2299,8 +2300,11 @@ export function mountV2UI({ root, getState, actions }) {
     const state = getState();
     const character = state.character;
 
-    root.querySelector("#toolsMenuBtn")?.addEventListener("click", () => {
+    root.querySelector("#toolsMenuBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       uiState.toolsMenuOpen = !uiState.toolsMenuOpen;
+      if (uiState.toolsMenuOpen) uiState.toolsMenuOpenedAt = Date.now();
       render();
     });
     root.querySelector("#toolsOpenPalette")?.addEventListener("click", () => {
@@ -3207,9 +3211,56 @@ export function mountV2UI({ root, getState, actions }) {
   }
 
   window.addEventListener("keydown", handleGlobalHotkeys);
+  if (!root.__lcxToolsDelegationBound) {
+    root.addEventListener("click", (e) => {
+      const target = e.target && e.target.nodeType === 1 ? e.target : e.target?.parentElement;
+      if (!target) return;
+      const btn = typeof target.closest === "function" ? target.closest("#toolsMenuBtn") : null;
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        uiState.toolsMenuOpen = !uiState.toolsMenuOpen;
+        if (uiState.toolsMenuOpen) uiState.toolsMenuOpenedAt = Date.now();
+        render();
+        return;
+      }
+      const openPaletteBtn = typeof target.closest === "function" ? target.closest("#toolsOpenPalette") : null;
+      if (openPaletteBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        uiState.toolsMenuOpen = false;
+        uiState.palette.open = true;
+        uiState.palette.query = "";
+        uiState.palette.selected = 0;
+        render();
+        return;
+      }
+      const openAppearanceBtn = typeof target.closest === "function" ? target.closest("#toolsOpenAppearance") : null;
+      if (openAppearanceBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        openAppearanceCustomizer();
+        return;
+      }
+      const openDiagnosticsBtn = typeof target.closest === "function" ? target.closest("#toolsOpenDiagnostics") : null;
+      if (openDiagnosticsBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        uiState.toolsMenuOpen = false;
+        uiState.diagnosticsOpen = true;
+        render();
+      }
+    });
+    root.__lcxToolsDelegationBound = true;
+  }
   document.addEventListener("click", (e) => {
     if (!uiState.toolsMenuOpen) return;
-    const insideTools = typeof e.target?.closest === "function" && e.target.closest(".tools-menu-wrap");
+    if (Date.now() - asInt(uiState.toolsMenuOpenedAt, 0) < 220) return;
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    const targetEl = e.target && e.target.nodeType === 1 ? e.target : e.target?.parentElement;
+    const insideToolsByClosest = typeof targetEl?.closest === "function" && targetEl.closest(".tools-menu-wrap");
+    const insideToolsByPath = Array.isArray(path) && path.some((node) => node?.classList?.contains?.("tools-menu-wrap"));
+    const insideTools = Boolean(insideToolsByClosest || insideToolsByPath);
     if (!insideTools) {
       uiState.toolsMenuOpen = false;
       render();

@@ -111,7 +111,7 @@ label {
   align-items: stretch;
   padding: 0;
   gap: 0 14px;
-  overflow: hidden;
+  overflow: visible;
 }
 .play-profile-portrait {
   width: 160px;
@@ -200,7 +200,7 @@ label {
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(var(--paper-rgb), 0.98);
+  background: rgb(var(--paper-rgb) / 0.98);
   box-shadow: var(--shadow);
   display: grid;
   gap: 6px;
