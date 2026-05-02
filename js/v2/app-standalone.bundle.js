@@ -5032,6 +5032,22 @@
     const v = Number.isFinite(n) ? n : 0;
     return v >= 0 ? `+${v}` : `${v}`;
   }
+  function dieOutlineColor(die) {
+    const d = asInt(die, 20);
+    const map = {
+      4: "#6a4f91",
+      6: "#3d6f88",
+      8: "#3f7a52",
+      10: "#8a6a2f",
+      12: "#a05b2f",
+      20: "#8f3a2f",
+      100: "#4b4b63"
+    };
+    return map[d] || "#2c5f52";
+  }
+  function dieShapeClass(die) {
+    return `die-shape-d${asInt(die, 20)}`;
+  }
   function totalLevel(character) {
     const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
     return rows.reduce((acc, row) => acc + clamp(asInt(row?.level, 0), 0, 20), 0);
@@ -5142,8 +5158,7 @@
     { id: "spells", label: "Spells" },
     { id: "attacks", label: "Attacks" },
     { id: "trackers", label: "Trackers" },
-    { id: "log", label: "Log" },
-    { id: "checks", label: "Checks" }
+    { id: "log", label: "Log" }
   ];
   function tabSections(tabId) {
     return EDIT_TABS.find((t) => t.id === tabId)?.sections || EDIT_TABS[0].sections;
@@ -5322,8 +5337,20 @@
       byLevel.get(lvl).push(s);
     }
     const levelsWithSpells = [...byLevel.keys()].sort((a, b) => a - b);
+    const saveRows = ["str", "dex", "con", "int", "wis", "cha"].map((id) => ({
+      id,
+      label: `${id.toUpperCase()} Save`,
+      mod: asInt(derived?.savingThrows?.[id]?.total, 0)
+    }));
+    const skillRows = SKILL_DEFS.map(([id]) => ({
+      id,
+      label: titleizeId(id),
+      mod: asInt(derived?.skills?.[id]?.total, 0)
+    }));
+    const lastCheckRoll = character?.play_state?.last_check_roll || null;
     const activePane = uiState.activePlayPane || "spells";
     const paneNav = `<nav class="play-pane-tabs">${PLAY_PANES.map((p) => `<button type="button" class="${activePane === p.id ? "is-active" : ""}" data-play-pane="${p.id}">${esc(p.label)}</button>`).join("")}
+      <button type="button" data-open-checks-drawer>Checks</button>
       <button type="button" data-toggle-utility>${uiState.playBoard?.utilityRailOpen !== false ? "Hide Utility Rail" : "Show Utility Rail"}</button>
       <button type="button" data-toggle-band>${uiState.playBoard?.bandCompact ? "Expand Combat Band" : "Compact Combat Band"}</button>
     </nav>`;
@@ -5353,12 +5380,6 @@
     const attacksPane = `<article class="card"><h2>Arsenal</h2><div class="card-body">
       ${attacks.length === 0 ? `<p class="hint">No attacks added yet.</p>` : `<div class="attack-list">${attacks.slice(0, 8).map((a) => `<div class="attack-row"><strong>${esc(a.name || "Attack")}</strong><span>${esc(fmtSigned(asInt(a.atk_bonus, 0)))}</span><span>${esc([a.damage, a.damage_type].filter(Boolean).join(" "))}</span></div>`).join("")}</div>`}
     </div></article>`;
-    const checksPane = `<article class="card"><h2>Checks</h2><div class="card-body quick-grid">
-      <div><strong>DEX Save</strong><p>${esc(fmtSigned(derived.savingThrows.dex.total))}</p></div>
-      <div><strong>CON Save</strong><p>${esc(fmtSigned(derived.savingThrows.con.total))}</p></div>
-      <div><strong>Perception</strong><p>${esc(fmtSigned(derived.skills.perception.total))}</p></div>
-      <div><strong>Stealth</strong><p>${esc(fmtSigned(derived.skills.stealth.total))}</p></div>
-    </div></article>`;
     const trackersPane = `<article class="card"><h2>Trackers</h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="playTrackerAdd">Add Tracker</button></div>
       ${trackers.length === 0 ? `<p class="hint">No trackers</p>` : trackers.map((t, idx) => `<div class="tracker-row">
@@ -5381,7 +5402,7 @@
     }).join("")}
       </div>
     </div></article>`;
-    const paneMap = { spells: spellsPane, attacks: attacksPane, trackers: trackersPane, log: logPane, checks: checksPane };
+    const paneMap = { spells: spellsPane, attacks: attacksPane, trackers: trackersPane, log: logPane };
     const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round(hp.current / hp.max * 100))) : 0;
     return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
     <section class="play-hud card ${uiState.playBoard?.bandCompact ? "is-compact" : ""} ${uiState.playBoard?.hudCollapsed ? "is-collapsed" : ""}">
@@ -5389,7 +5410,11 @@
       <div class="card-body">
       <div class="hud-grid">
       <div class="hud-stat"><strong>AC</strong><p class="hud-value">${esc(character?.combat?.ac ?? 10)}</p></div>
-      <div class="hud-stat"><strong>Initiative</strong><p class="hud-value">${esc(character?.combat?.initiative_bonus ?? 0)}</p></div>
+      <button type="button" class="hud-stat hud-stat-action" id="rollInitiativeBtn" title="Roll initiative (1d20 + modifier)">
+        <strong>Initiative</strong>
+        <p class="hud-value">${esc(character?.combat?.initiative_bonus ?? 0)}</p>
+        <small class="hint">Roll initiative</small>
+      </button>
       <div class="hud-stat"><strong>Speed</strong><p class="hud-value">${esc(character?.combat?.speed ?? 30)}</p></div>
       <div class="hud-stat"><strong>Prof</strong><p class="hud-value">${esc(fmtSigned(derived.proficiency.value))}</p></div>
       <div class="hud-stat"><strong>Passive Perception</strong><p class="hud-value">${esc(derived.passivePerception)}</p></div>
@@ -5451,6 +5476,27 @@
         </aside>` : ""}
       </div>
     </section>
+    ${uiState.checksDrawerOpen ? `<div class="palette-overlay" id="checksDrawerOverlay">
+      <aside class="checks-drawer" role="dialog" aria-modal="true" aria-label="Checks and saves">
+        <button type="button" class="overlay-close" id="checksDrawerClose" aria-label="Close checks drawer">\xD7</button>
+        <h3>Checks &amp; Saves</h3>
+        ${lastCheckRoll ? `<p class="checks-last-roll ${lastCheckRoll.nat20 ? "is-nat20" : ""} ${lastCheckRoll.nat1 ? "is-nat1" : ""}">${esc(lastCheckRoll.label)}: d20(${lastCheckRoll.d20}) ${lastCheckRoll.mod >= 0 ? "+" : "-"} ${esc(Math.abs(lastCheckRoll.mod))} = <strong>${esc(lastCheckRoll.total)}</strong></p>` : `<p class="hint">Tap any row to roll a d20 with your current modifier.</p>`}
+        <div class="checks-drawer-body">
+          <section>
+            <h4>Saves</h4>
+            <ul class="checks-roll-list">
+              ${saveRows.map((row) => `<li><span>${esc(row.label)}</span><strong>${esc(fmtSigned(row.mod))}</strong><button type="button" data-roll-save="${esc(row.id)}">Roll</button></li>`).join("")}
+            </ul>
+          </section>
+          <section>
+            <h4>Skills</h4>
+            <ul class="checks-roll-list">
+              ${skillRows.map((row) => `<li><span>${esc(row.label)}</span><strong>${esc(fmtSigned(row.mod))}</strong><button type="button" data-roll-skill="${esc(row.id)}">Roll</button></li>`).join("")}
+            </ul>
+          </section>
+        </div>
+      </aside>
+    </div>` : ""}
   </section>`;
   }
   function cardTitle(label, isEdited) {
@@ -5719,6 +5765,7 @@
       hudState: { pinned: true, collapsed: false },
       lastCastLevel: 0,
       lastAction: "",
+      checksDrawerOpen: false,
       conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", notes: "", active: true } },
       diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
       portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
@@ -5867,6 +5914,7 @@
     }
     function setMode(mode) {
       uiState.mode = mode === "play" ? "play" : "edit";
+      if (uiState.mode !== "play") uiState.checksDrawerOpen = false;
       localStorage.setItem(MODE_KEY, uiState.mode);
     }
     function setPolicyMode(mode) {
@@ -5924,6 +5972,14 @@
       uiState.diceTray.rolling = false;
       render();
     }
+    function openChecksDrawer() {
+      uiState.checksDrawerOpen = true;
+      render();
+    }
+    function closeChecksDrawer() {
+      uiState.checksDrawerOpen = false;
+      render();
+    }
     function secureDieRoll(sides) {
       const max = Math.max(2, asInt(sides, 20));
       const span = Math.floor(4294967296 / max) * max;
@@ -5935,14 +5991,15 @@
       } while (v >= span);
       return v % max + 1;
     }
-    function performDiceRoll() {
-      const die = Math.max(2, asInt(uiState.diceTray.die, 20));
-      const count = clamp(asInt(uiState.diceTray.count, 1), 1, 20);
-      const mod = clamp(asInt(uiState.diceTray.mod, 0), -99, 99);
+    function buildDicePayload(die, count, mod) {
       const rolls = Array.from({ length: count }, () => secureDieRoll(die));
       const subtotal = rolls.reduce((a, b) => a + b, 0);
       const total = subtotal + mod;
       const label = `${count}d${die}${mod ? mod > 0 ? ` + ${mod}` : ` - ${Math.abs(mod)}` : ""}`;
+      return { die, count, mod, rolls, subtotal, total, label, utc: (/* @__PURE__ */ new Date()).toISOString() };
+    }
+    function applyDicePayload(payload) {
+      const { die, count, mod, rolls, subtotal, total, label, utc } = payload;
       actions.updateCharacter((c) => {
         c.play_state = c.play_state || {};
         c.play_state.dice_last_roll = {
@@ -5953,12 +6010,75 @@
           subtotal,
           total,
           label,
-          utc: (/* @__PURE__ */ new Date()).toISOString()
+          utc
         };
         c.log = Array.isArray(c.log) ? c.log : [];
-        c.log.push({ id: crypto.randomUUID(), utc: (/* @__PURE__ */ new Date()).toISOString(), tag: "roll", message: `${label} => [${rolls.join(", ")}] = ${total}` });
+        c.log.push({ id: crypto.randomUUID(), utc, tag: "roll", message: `${label} => [${rolls.join(", ")}] = ${total}` });
       });
       recordPlayAction(`Rolled ${label}: ${total}`);
+    }
+    function performDiceRoll() {
+      const die = Math.max(2, asInt(uiState.diceTray.die, 20));
+      const count = clamp(asInt(uiState.diceTray.count, 1), 1, 20);
+      const mod = clamp(asInt(uiState.diceTray.mod, 0), -99, 99);
+      applyDicePayload(buildDicePayload(die, count, mod));
+    }
+    function applyCheckRollResult(payload, type, id, label, mod) {
+      const d20 = payload.rolls?.[0] ?? payload.total;
+      const nat1 = d20 === 1;
+      const nat20 = d20 === 20;
+      actions.updateCharacter((c) => {
+        c.play_state = c.play_state || {};
+        c.play_state.last_check_roll = {
+          type,
+          id,
+          label,
+          mod,
+          d20,
+          total: payload.total,
+          nat1,
+          nat20,
+          utc: payload.utc
+        };
+        c.log = Array.isArray(c.log) ? c.log : [];
+        c.log.push({
+          id: crypto.randomUUID(),
+          utc: payload.utc,
+          tag: type === "save" ? "save" : "check",
+          message: `${label}: d20(${d20}) ${mod >= 0 ? "+" : "-"} ${Math.abs(mod)} = ${payload.total}`
+        });
+      });
+      recordPlayAction(`${label}: d20(${d20}) ${mod >= 0 ? "+" : "-"} ${Math.abs(mod)} = ${payload.total}${nat20 ? " (nat 20)" : nat1 ? " (nat 1)" : ""}`);
+    }
+    function performModifierRoll(type, id, label, mod = 0) {
+      const payload = buildDicePayload(20, 1, clamp(asInt(mod, 0), -99, 99));
+      applyCheckRollResult(payload, type, id, label, mod);
+    }
+    function performInitiativeRoll() {
+      const state = getState();
+      const derived = deriveStats(state.character || {});
+      const initiativeMod = asInt(derived?.abilityMods?.dex, 0);
+      const payload = buildDicePayload(20, 1, initiativeMod);
+      const d20 = payload.rolls?.[0] ?? payload.total;
+      actions.updateCharacter((c) => {
+        c.combat = c.combat || {};
+        c.combat.initiative_bonus = payload.total;
+        c.play_state = c.play_state || {};
+        c.play_state.last_check_roll = {
+          type: "initiative",
+          id: "initiative",
+          label: "Initiative",
+          mod: initiativeMod,
+          d20,
+          total: payload.total,
+          nat1: d20 === 1,
+          nat20: d20 === 20,
+          utc: payload.utc
+        };
+        c.log = Array.isArray(c.log) ? c.log : [];
+        c.log.push({ id: crypto.randomUUID(), utc: payload.utc, tag: "initiative", message: `Rolled initiative: d20(${d20}) ${initiativeMod >= 0 ? "+" : "-"} ${Math.abs(initiativeMod)} = ${payload.total}` });
+      });
+      recordPlayAction(`Rolled initiative: d20(${d20}) ${initiativeMod >= 0 ? "+" : "-"} ${Math.abs(initiativeMod)} = ${payload.total}`);
     }
     function openPortraitCrop(src, iw, ih) {
       uiState.portraitCrop = { open: true, src, zoom: 1, x: 0, y: 0, iw, ih };
@@ -6072,15 +6192,17 @@
         { id: "ui.pane.attacks", label: "Play Pane: Attacks", hint: "Play pane", keywords: ["pane", "attacks"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
         { id: "ui.pane.trackers", label: "Play Pane: Trackers", hint: "Play pane", keywords: ["pane", "trackers"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
         { id: "ui.pane.log", label: "Play Pane: Log", hint: "Play pane", keywords: ["pane", "log"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("log") },
-        { id: "ui.pane.checks", label: "Play Pane: Checks", hint: "Play pane", keywords: ["pane", "checks"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("checks") },
+        { id: "ui.play.openChecksDrawer", label: "Play: Open Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openChecksDrawer() },
+        { id: "ui.play.closeChecksDrawer", label: "Play: Close Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer", "close"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.checksDrawerOpen, run: () => closeChecksDrawer() },
         { id: "ui.play.focusCast", label: "Play Focus: Cast", hint: "Turn console", keywords: ["play", "cast", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
         { id: "ui.play.focusAttack", label: "Play Focus: Attack", hint: "Turn console", keywords: ["play", "attack", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
-        { id: "ui.play.focusChecks", label: "Play Focus: Checks", hint: "Turn console", keywords: ["play", "checks", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("checks") },
+        { id: "ui.play.focusChecks", label: "Play Focus: Checks", hint: "Checks and saves", keywords: ["play", "checks", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openChecksDrawer() },
         { id: "ui.play.focusResources", label: "Play Focus: Resources", hint: "Turn console", keywords: ["play", "resources", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
         { id: "ui.play.toggleUtilityRail", label: uiState.playBoard?.utilityRailOpen !== false ? "Hide Utility Rail" : "Show Utility Rail", hint: "Play layout", keywords: ["play", "utility", "rail"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ utilityRailOpen: !(uiState.playBoard?.utilityRailOpen !== false) }) },
         { id: "ui.play.toggleCompactBand", label: uiState.playBoard?.bandCompact ? "Expand Combat Band" : "Compact Combat Band", hint: "Play layout", keywords: ["play", "combat", "band", "compact"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ bandCompact: !uiState.playBoard?.bandCompact }) },
         { id: "ui.play.toggleHud", label: uiState.playBoard?.hudCollapsed ? "Expand Combat HUD" : "Collapse Combat HUD", hint: "Play layout", keywords: ["play", "hud", "collapse"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ hudCollapsed: !uiState.playBoard?.hudCollapsed }) },
         { id: "play.openDiceTray", label: "Play: Roll Dice", hint: "Open dice tray", keywords: ["play", "dice", "roll", "d20"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openDiceTray() },
+        { id: "play.rollInitiative", label: "Play: Roll Initiative", hint: "1d20 + Dex", keywords: ["play", "initiative", "roll"], enabled: () => hasCharacter && uiState.mode === "play", run: () => performInitiativeRoll() },
         { id: "play.roll.d20", label: "Play: Quick Roll 1d20", hint: "Immediate roll", keywords: ["play", "quick", "d20"], enabled: () => hasCharacter && uiState.mode === "play", run: () => {
           uiState.diceTray = { ...uiState.diceTray, die: 20, count: 1, mod: 0 };
           performDiceRoll();
@@ -6457,7 +6579,7 @@
         </section>
       </div>` : ""}
       ${uiState.diceTray.open ? `<div class="palette-overlay" id="diceOverlay">
-        <section class="palette cast-menu dice-tray" role="dialog" aria-modal="true">
+        <section class="palette cast-menu dice-tray" role="dialog" aria-modal="true" style="--die-outline:${esc(dieOutlineColor(uiState.diceTray.die))}">
           <button type="button" class="overlay-close" data-overlay-close="dice" aria-label="Close overlay">\xD7</button>
           <h3>Dice Tray</h3>
           <p class="hint">Choose dice, then roll.</p>
@@ -6478,7 +6600,7 @@
           </div>
           ${character?.play_state?.dice_last_roll ? `<div class="dice-result">
             <p><strong>${esc(character.play_state.dice_last_roll.label || "Roll")}</strong></p>
-            <p>Dice: ${esc((character.play_state.dice_last_roll.rolls || []).join(", "))}</p>
+            <p class="dice-result-rolls">Dice: ${(character.play_state.dice_last_roll.rolls || []).map((v) => `<span class="die-chip ${dieShapeClass(character.play_state.dice_last_roll.die || uiState.diceTray.die)}">${esc(v)}</span>`).join("")}</p>
             <p>Total: <strong>${esc(character.play_state.dice_last_roll.total ?? 0)}</strong></p>
           </div>` : ""}
         </section>
@@ -6682,6 +6804,9 @@
       root2.querySelector("#diceOverlay")?.addEventListener("click", (e) => {
         if (e.target?.id === "diceOverlay") closeDiceTray();
       });
+      root2.querySelector("#checksDrawerOverlay")?.addEventListener("click", (e) => {
+        if (e.target?.id === "checksDrawerOverlay") closeChecksDrawer();
+      });
       root2.querySelector("#diagnosticsOverlay")?.addEventListener("click", (e) => {
         if (e.target?.id === "diagnosticsOverlay") {
           uiState.diagnosticsOpen = false;
@@ -6724,6 +6849,7 @@
         closeConditionEditor();
       });
       root2.querySelector("#diceCancel")?.addEventListener("click", () => closeDiceTray());
+      root2.querySelector("#checksDrawerClose")?.addEventListener("click", () => closeChecksDrawer());
       root2.querySelector("#diceQuickD20")?.addEventListener("click", () => {
         uiState.diceTray.die = 20;
         uiState.diceTray.count = 1;
@@ -6736,6 +6862,10 @@
         uiState.diceTray.count = 2;
         uiState.diceTray.mod = 0;
         performDiceRoll();
+        render();
+      });
+      root2.querySelector("#diceType")?.addEventListener("change", (e) => {
+        uiState.diceTray.die = asInt(e.target.value, uiState.diceTray.die || 20);
         render();
       });
       root2.querySelector("#diceRollBtn")?.addEventListener("click", () => {
@@ -6848,7 +6978,9 @@
           setPlayBoard({ hudCollapsed: !uiState.playBoard?.hudCollapsed });
           render();
         });
+        root2.querySelector("#rollInitiativeBtn")?.addEventListener("click", () => performInitiativeRoll());
         root2.querySelector("#openDiceTrayHud")?.addEventListener("click", () => openDiceTray());
+        root2.querySelectorAll("[data-open-checks-drawer]").forEach((el) => el.addEventListener("click", () => openChecksDrawer()));
         root2.querySelectorAll("[data-toggle-utility]").forEach((el) => el.addEventListener("click", () => {
           setPlayBoard({ utilityRailOpen: !(uiState.playBoard?.utilityRailOpen !== false) });
           render();
@@ -6861,6 +6993,20 @@
           el.addEventListener("click", (e) => {
             setActivePlayPane(e.currentTarget.getAttribute("data-play-pane"));
             render();
+          });
+        });
+        root2.querySelectorAll("[data-roll-save]").forEach((el) => {
+          el.addEventListener("click", (e) => {
+            const id = e.currentTarget.getAttribute("data-roll-save") || "";
+            const mod = asInt(deriveStats(getState().character || {}).savingThrows?.[id]?.total, 0);
+            performModifierRoll("save", id, `${id.toUpperCase()} Save`, mod);
+          });
+        });
+        root2.querySelectorAll("[data-roll-skill]").forEach((el) => {
+          el.addEventListener("click", (e) => {
+            const id = e.currentTarget.getAttribute("data-roll-skill") || "";
+            const mod = asInt(deriveStats(getState().character || {}).skills?.[id]?.total, 0);
+            performModifierRoll("skill", id, titleizeId(id), mod);
           });
         });
         root2.querySelector("#addConditionBtn")?.addEventListener("click", () => openConditionEditor(-1));
@@ -7473,6 +7619,11 @@
         render();
         return;
       }
+      if (uiState.checksDrawerOpen && e.key === "Escape") {
+        e.preventDefault();
+        closeChecksDrawer();
+        return;
+      }
       if (uiState.palette.open) {
         const list = visibleCommands();
         if (e.key === "Escape") {
@@ -7538,7 +7689,7 @@
         }
       }
       if (targetTyping) return;
-      if (uiState.mode === "play" && e.altKey && /[1-5]/.test(e.key)) {
+      if (uiState.mode === "play" && e.altKey && /[1-4]/.test(e.key)) {
         e.preventDefault();
         const idx = asInt(e.key, 1) - 1;
         const pane = PLAY_PANES[idx]?.id;
@@ -7563,8 +7714,7 @@
         }
         if (e.key.toLowerCase() === "k") {
           e.preventDefault();
-          setActivePlayPane("checks");
-          render();
+          openChecksDrawer();
           return;
         }
         if (e.key.toLowerCase() === "r") {
