@@ -7367,7 +7367,7 @@
         c.core.speciesId = e.target.value;
       }));
       root2.querySelectorAll("[data-ability]").forEach((el) => {
-        el.addEventListener("input", (e) => {
+        el.addEventListener("change", (e) => {
           const key = e.target.getAttribute("data-ability");
           actions.updateCharacter((c) => {
             c.abilities[key] = Math.max(1, Math.min(30, asInt(e.target.value, 10)));
@@ -7384,7 +7384,7 @@
           if (c.core.classes[idx]) c.core.classes[idx].id = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-class-level]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-class-level]").forEach((el) => el.addEventListener("change", (e) => {
         const idx = asInt(e.target.getAttribute("data-class-level"), -1);
         actions.updateCharacter((c) => {
           if (c.core.classes[idx]) c.core.classes[idx].level = Math.max(1, Math.min(20, asInt(e.target.value, 1)));
@@ -7403,46 +7403,46 @@
           if (c.core.classes[0]) c.core.classes[0].isPrimary = true;
         });
       }));
-      root2.querySelector("#combatAc")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatAc")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.ac = Math.max(0, asInt(e.target.value, 10));
       }));
-      root2.querySelector("#combatInit")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatInit")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.initiative_bonus = asInt(e.target.value, 0);
       }));
-      root2.querySelector("#hpMax")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#hpMax")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.hp.max = Math.max(0, asInt(e.target.value, 1));
         if (c.combat.hp.current > c.combat.hp.max) c.combat.hp.current = c.combat.hp.max;
       }));
-      root2.querySelector("#hpCurrent")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#hpCurrent")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.hp.current = Math.max(0, asInt(e.target.value, 1));
         if (c.combat.hp.current > c.combat.hp.max) c.combat.hp.current = c.combat.hp.max;
       }));
-      root2.querySelector("#hpTemp")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#hpTemp")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.hp.temp = Math.max(0, asInt(e.target.value, 0));
       }));
-      root2.querySelector("#combatSpeed")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatSpeed")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.speed = Math.max(0, asInt(e.target.value, 30));
       }));
-      root2.querySelector("#combatInspiration")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatInspiration")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.inspiration = Math.max(0, Math.min(1, asInt(e.target.value, 0)));
       }));
-      root2.querySelector("#combatProfBonus")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatProfBonus")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.proficiency_bonus = asInt(e.target.value, 2);
       }));
-      root2.querySelector("#combatPassivePerception")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatPassivePerception")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.passive_perception = Math.max(0, asInt(e.target.value, 10));
       }));
-      root2.querySelector("#combatHitDiceTotal")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatHitDiceTotal")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.hit_dice_total = Math.max(0, asInt(e.target.value, 0));
       }));
-      root2.querySelector("#combatHitDiceUsed")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatHitDiceUsed")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.hit_dice_used = Math.max(0, asInt(e.target.value, 0));
       }));
-      root2.querySelector("#combatDeathSaveSuccess")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatDeathSaveSuccess")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 };
         c.combat.death_saves.success = Math.max(0, Math.min(3, asInt(e.target.value, 0)));
       }));
-      root2.querySelector("#combatDeathSaveFail")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#combatDeathSaveFail")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 };
         c.combat.death_saves.fail = Math.max(0, Math.min(3, asInt(e.target.value, 0)));
       }));
@@ -7458,7 +7458,7 @@
         c.spellcasting = c.spellcasting || {};
         c.spellcasting.save_dc_mode = e.target.value === "manual" ? "manual" : "auto";
       }));
-      root2.querySelector("#spellcastingSaveDcOverride")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#spellcastingSaveDcOverride")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.spellcasting = c.spellcasting || {};
         c.spellcasting.save_dc_override = asInt(e.target.value, 0);
       }));
@@ -7466,7 +7466,7 @@
         c.spellcasting = c.spellcasting || {};
         c.spellcasting.attack_bonus_mode = e.target.value === "manual" ? "manual" : "auto";
       }));
-      root2.querySelector("#spellcastingAtkOverride")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#spellcastingAtkOverride")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.spellcasting = c.spellcasting || {};
         c.spellcasting.attack_bonus_override = asInt(e.target.value, 0);
       }));
@@ -7482,7 +7482,7 @@
         c.profile = c.profile || {};
         c.profile.player_name = e.target.value;
       }));
-      root2.querySelector("#profileXp")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#profileXp")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.profile = c.profile || {};
         c.profile.experience_points = Math.max(0, asInt(e.target.value, 0));
       }));
@@ -7566,23 +7566,23 @@
         c.ui = c.ui || {};
         delete c.ui.portrait;
       }));
-      root2.querySelector("#resCp")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#resCp")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.resources = c.resources || {};
         c.resources.cp = Math.max(0, asInt(e.target.value, 0));
       }));
-      root2.querySelector("#resSp")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#resSp")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.resources = c.resources || {};
         c.resources.sp = Math.max(0, asInt(e.target.value, 0));
       }));
-      root2.querySelector("#resEp")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#resEp")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.resources = c.resources || {};
         c.resources.ep = Math.max(0, asInt(e.target.value, 0));
       }));
-      root2.querySelector("#resGp")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#resGp")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.resources = c.resources || {};
         c.resources.gp = Math.max(0, asInt(e.target.value, 0));
       }));
-      root2.querySelector("#resPp")?.addEventListener("input", (e) => actions.updateCharacter((c) => {
+      root2.querySelector("#resPp")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.resources = c.resources || {};
         c.resources.pp = Math.max(0, asInt(e.target.value, 0));
       }));
@@ -7594,7 +7594,7 @@
           c.saving_throws[key].proficient = Boolean(e.target.checked);
         });
       }));
-      root2.querySelectorAll("[data-save-bonus]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-save-bonus]").forEach((el) => el.addEventListener("change", (e) => {
         const key = e.target.getAttribute("data-save-bonus");
         actions.updateCharacter((c) => {
           c.saving_throws = c.saving_throws || {};
@@ -7610,7 +7610,7 @@
           c.saving_throws[key].bonus_mode = e.target.checked ? "manual" : "auto";
         });
       }));
-      root2.querySelectorAll("[data-save-manual]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-save-manual]").forEach((el) => el.addEventListener("change", (e) => {
         const key = e.target.getAttribute("data-save-manual");
         actions.updateCharacter((c) => {
           c.saving_throws = c.saving_throws || {};
@@ -7634,7 +7634,7 @@
           c.skills[key].expertise = Boolean(e.target.checked);
         });
       }));
-      root2.querySelectorAll("[data-skill-bonus]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-skill-bonus]").forEach((el) => el.addEventListener("change", (e) => {
         const key = e.target.getAttribute("data-skill-bonus");
         actions.updateCharacter((c) => {
           c.skills = c.skills || {};
@@ -7650,7 +7650,7 @@
           c.skills[key].bonus_mode = e.target.checked ? "manual" : "auto";
         });
       }));
-      root2.querySelectorAll("[data-skill-manual]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-skill-manual]").forEach((el) => el.addEventListener("change", (e) => {
         const key = e.target.getAttribute("data-skill-manual");
         actions.updateCharacter((c) => {
           c.skills = c.skills || {};
@@ -7668,7 +7668,7 @@
           if (c.attacks?.[i]) c.attacks[i].name = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-attack-bonus"), -1);
         actions.updateCharacter((c) => {
           if (c.attacks?.[i]) c.attacks[i].atk_bonus = asInt(e.target.value, 0);
@@ -7714,7 +7714,7 @@
           if (c.spells_known[i]) c.spells_known[i].name = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-spell-level]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-spell-level]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-spell-level"), -1);
         actions.updateCharacter((c) => {
           if (c.spells_known[i]) c.spells_known[i].level = Math.max(0, Math.min(9, asInt(e.target.value, 0)));
@@ -7755,7 +7755,7 @@
           if (c.inventory[i]) c.inventory[i].name = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-inv-qty]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-inv-qty]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-inv-qty"), -1);
         actions.updateCharacter((c) => {
           if (c.inventory[i]) c.inventory[i].qty = Math.max(0, asInt(e.target.value, 1));
@@ -7789,7 +7789,7 @@
           if (c.trackers[i]) c.trackers[i].reset = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-tracker-max]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-tracker-max]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-tracker-max"), -1);
         actions.updateCharacter((c) => {
           if (c.trackers[i]) {
@@ -7798,7 +7798,7 @@
           }
         });
       }));
-      root2.querySelectorAll("[data-tracker-current]").forEach((el) => el.addEventListener("input", (e) => {
+      root2.querySelectorAll("[data-tracker-current]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-tracker-current"), -1);
         actions.updateCharacter((c) => {
           if (c.trackers[i]) c.trackers[i].current = Math.max(0, Math.min(c.trackers[i].max || 0, asInt(e.target.value, 0)));

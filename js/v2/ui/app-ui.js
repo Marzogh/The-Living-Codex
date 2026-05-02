@@ -2772,7 +2772,7 @@ export function mountV2UI({ root, getState, actions }) {
     root.querySelector("#charSpecies")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.core.speciesId = e.target.value; }));
 
     root.querySelectorAll("[data-ability]").forEach((el) => {
-      el.addEventListener("input", (e) => {
+      el.addEventListener("change", (e) => {
         const key = e.target.getAttribute("data-ability");
         actions.updateCharacter((c) => {
           c.abilities[key] = Math.max(1, Math.min(30, asInt(e.target.value, 10)));
@@ -2788,7 +2788,7 @@ export function mountV2UI({ root, getState, actions }) {
       const idx = asInt(e.target.getAttribute("data-class-id"), -1);
       actions.updateCharacter((c) => { if (c.core.classes[idx]) c.core.classes[idx].id = e.target.value; });
     }));
-    root.querySelectorAll("[data-class-level]").forEach((el) => el.addEventListener("input", (e) => {
+    root.querySelectorAll("[data-class-level]").forEach((el) => el.addEventListener("change", (e) => {
       const idx = asInt(e.target.getAttribute("data-class-level"), -1);
       actions.updateCharacter((c) => { if (c.core.classes[idx]) c.core.classes[idx].level = Math.max(1, Math.min(20, asInt(e.target.value, 1))); });
     }));
@@ -2801,30 +2801,30 @@ export function mountV2UI({ root, getState, actions }) {
       actions.updateCharacter((c) => { c.core.classes.splice(idx, 1); if (c.core.classes[0]) c.core.classes[0].isPrimary = true; });
     }));
 
-    root.querySelector("#combatAc")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.ac = Math.max(0, asInt(e.target.value, 10)); }));
-    root.querySelector("#combatInit")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.initiative_bonus = asInt(e.target.value, 0); }));
-    root.querySelector("#hpMax")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.hp.max = Math.max(0, asInt(e.target.value, 1)); if (c.combat.hp.current > c.combat.hp.max) c.combat.hp.current = c.combat.hp.max; }));
-    root.querySelector("#hpCurrent")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.hp.current = Math.max(0, asInt(e.target.value, 1)); if (c.combat.hp.current > c.combat.hp.max) c.combat.hp.current = c.combat.hp.max; }));
-    root.querySelector("#hpTemp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.hp.temp = Math.max(0, asInt(e.target.value, 0)); }));
-    root.querySelector("#combatSpeed")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.speed = Math.max(0, asInt(e.target.value, 30)); }));
-    root.querySelector("#combatInspiration")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.inspiration = Math.max(0, Math.min(1, asInt(e.target.value, 0))); }));
-    root.querySelector("#combatProfBonus")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.proficiency_bonus = asInt(e.target.value, 2); }));
-    root.querySelector("#combatPassivePerception")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.passive_perception = Math.max(0, asInt(e.target.value, 10)); }));
-    root.querySelector("#combatHitDiceTotal")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.hit_dice_total = Math.max(0, asInt(e.target.value, 0)); }));
-    root.querySelector("#combatHitDiceUsed")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.hit_dice_used = Math.max(0, asInt(e.target.value, 0)); }));
-    root.querySelector("#combatDeathSaveSuccess")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 }; c.combat.death_saves.success = Math.max(0, Math.min(3, asInt(e.target.value, 0))); }));
-    root.querySelector("#combatDeathSaveFail")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 }; c.combat.death_saves.fail = Math.max(0, Math.min(3, asInt(e.target.value, 0))); }));
+    root.querySelector("#combatAc")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.ac = Math.max(0, asInt(e.target.value, 10)); }));
+    root.querySelector("#combatInit")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.initiative_bonus = asInt(e.target.value, 0); }));
+    root.querySelector("#hpMax")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.hp.max = Math.max(0, asInt(e.target.value, 1)); if (c.combat.hp.current > c.combat.hp.max) c.combat.hp.current = c.combat.hp.max; }));
+    root.querySelector("#hpCurrent")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.hp.current = Math.max(0, asInt(e.target.value, 1)); if (c.combat.hp.current > c.combat.hp.max) c.combat.hp.current = c.combat.hp.max; }));
+    root.querySelector("#hpTemp")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.hp.temp = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#combatSpeed")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.speed = Math.max(0, asInt(e.target.value, 30)); }));
+    root.querySelector("#combatInspiration")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.inspiration = Math.max(0, Math.min(1, asInt(e.target.value, 0))); }));
+    root.querySelector("#combatProfBonus")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.proficiency_bonus = asInt(e.target.value, 2); }));
+    root.querySelector("#combatPassivePerception")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.passive_perception = Math.max(0, asInt(e.target.value, 10)); }));
+    root.querySelector("#combatHitDiceTotal")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.hit_dice_total = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#combatHitDiceUsed")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.hit_dice_used = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#combatDeathSaveSuccess")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 }; c.combat.death_saves.success = Math.max(0, Math.min(3, asInt(e.target.value, 0))); }));
+    root.querySelector("#combatDeathSaveFail")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 }; c.combat.death_saves.fail = Math.max(0, Math.min(3, asInt(e.target.value, 0))); }));
     root.querySelector("#spellcastingClassId")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.class_id = e.target.value; }));
     root.querySelector("#spellcastingAbility")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.ability = e.target.value; }));
     root.querySelector("#spellcastingSaveDcMode")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.save_dc_mode = e.target.value === "manual" ? "manual" : "auto"; }));
-    root.querySelector("#spellcastingSaveDcOverride")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.save_dc_override = asInt(e.target.value, 0); }));
+    root.querySelector("#spellcastingSaveDcOverride")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.save_dc_override = asInt(e.target.value, 0); }));
     root.querySelector("#spellcastingAtkMode")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.attack_bonus_mode = e.target.value === "manual" ? "manual" : "auto"; }));
-    root.querySelector("#spellcastingAtkOverride")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.attack_bonus_override = asInt(e.target.value, 0); }));
+    root.querySelector("#spellcastingAtkOverride")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.attack_bonus_override = asInt(e.target.value, 0); }));
 
     root.querySelector("#profileBackground")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.background = e.target.value; }));
     root.querySelector("#profileAlignment")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.alignment = e.target.value; }));
     root.querySelector("#profilePlayerName")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.player_name = e.target.value; }));
-    root.querySelector("#profileXp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.experience_points = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#profileXp")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.experience_points = Math.max(0, asInt(e.target.value, 0)); }));
     root.querySelector("#profileAge")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.age = e.target.value; }));
     root.querySelector("#profileHeight")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.height = e.target.value; }));
     root.querySelector("#profileWeight")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.weight = e.target.value; }));
@@ -2857,11 +2857,11 @@ export function mountV2UI({ root, getState, actions }) {
       c.ui = c.ui || {};
       delete c.ui.portrait;
     }));
-    root.querySelector("#resCp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.cp = Math.max(0, asInt(e.target.value, 0)); }));
-    root.querySelector("#resSp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.sp = Math.max(0, asInt(e.target.value, 0)); }));
-    root.querySelector("#resEp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.ep = Math.max(0, asInt(e.target.value, 0)); }));
-    root.querySelector("#resGp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.gp = Math.max(0, asInt(e.target.value, 0)); }));
-    root.querySelector("#resPp")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.pp = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#resCp")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.cp = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#resSp")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.sp = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#resEp")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.ep = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#resGp")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.gp = Math.max(0, asInt(e.target.value, 0)); }));
+    root.querySelector("#resPp")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.resources = c.resources || {}; c.resources.pp = Math.max(0, asInt(e.target.value, 0)); }));
     root.querySelectorAll("[data-save-prof]").forEach((el) => el.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-save-prof");
       actions.updateCharacter((c) => {
@@ -2870,7 +2870,7 @@ export function mountV2UI({ root, getState, actions }) {
         c.saving_throws[key].proficient = Boolean(e.target.checked);
       });
     }));
-    root.querySelectorAll("[data-save-bonus]").forEach((el) => el.addEventListener("input", (e) => {
+    root.querySelectorAll("[data-save-bonus]").forEach((el) => el.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-save-bonus");
       actions.updateCharacter((c) => {
         c.saving_throws = c.saving_throws || {};
@@ -2886,7 +2886,7 @@ export function mountV2UI({ root, getState, actions }) {
         c.saving_throws[key].bonus_mode = e.target.checked ? "manual" : "auto";
       });
     }));
-    root.querySelectorAll("[data-save-manual]").forEach((el) => el.addEventListener("input", (e) => {
+    root.querySelectorAll("[data-save-manual]").forEach((el) => el.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-save-manual");
       actions.updateCharacter((c) => {
         c.saving_throws = c.saving_throws || {};
@@ -2910,7 +2910,7 @@ export function mountV2UI({ root, getState, actions }) {
         c.skills[key].expertise = Boolean(e.target.checked);
       });
     }));
-    root.querySelectorAll("[data-skill-bonus]").forEach((el) => el.addEventListener("input", (e) => {
+    root.querySelectorAll("[data-skill-bonus]").forEach((el) => el.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-skill-bonus");
       actions.updateCharacter((c) => {
         c.skills = c.skills || {};
@@ -2926,7 +2926,7 @@ export function mountV2UI({ root, getState, actions }) {
         c.skills[key].bonus_mode = e.target.checked ? "manual" : "auto";
       });
     }));
-    root.querySelectorAll("[data-skill-manual]").forEach((el) => el.addEventListener("input", (e) => {
+    root.querySelectorAll("[data-skill-manual]").forEach((el) => el.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-skill-manual");
       actions.updateCharacter((c) => {
         c.skills = c.skills || {};
@@ -2942,7 +2942,7 @@ export function mountV2UI({ root, getState, actions }) {
       const i = asInt(e.target.getAttribute("data-attack-name"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].name = e.target.value; });
     }));
-    root.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("input", (e) => {
+    root.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("change", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-bonus"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].atk_bonus = asInt(e.target.value, 0); });
     }));
@@ -2972,7 +2972,7 @@ export function mountV2UI({ root, getState, actions }) {
       c.spells_known.push({ id: crypto.randomUUID(), name: "", level: 0, school: "", source: "", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", spell_id: "", page: "", notes: "" });
     }));
     root.querySelectorAll("[data-spell-name]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-spell-name"), -1); actions.updateCharacter((c) => { if (c.spells_known[i]) c.spells_known[i].name = e.target.value; }); }));
-    root.querySelectorAll("[data-spell-level]").forEach((el) => el.addEventListener("input", (e) => { const i = asInt(e.target.getAttribute("data-spell-level"), -1); actions.updateCharacter((c) => { if (c.spells_known[i]) c.spells_known[i].level = Math.max(0, Math.min(9, asInt(e.target.value, 0))); }); }));
+    root.querySelectorAll("[data-spell-level]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-spell-level"), -1); actions.updateCharacter((c) => { if (c.spells_known[i]) c.spells_known[i].level = Math.max(0, Math.min(9, asInt(e.target.value, 0))); }); }));
     root.querySelectorAll("[data-spell-school]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-spell-school"), -1); actions.updateCharacter((c) => { if (c.spells_known[i]) c.spells_known[i].school = e.target.value; }); }));
     root.querySelectorAll("[data-spell-prep]").forEach((el) => el.addEventListener("change", (e) => {
       const i = asInt(e.target.getAttribute("data-spell-prep"), -1);
@@ -2996,7 +2996,7 @@ export function mountV2UI({ root, getState, actions }) {
 
     root.querySelector("#invAdd")?.addEventListener("click", () => actions.updateCharacter((c) => { c.inventory = Array.isArray(c.inventory) ? c.inventory : []; c.inventory.push({ id: crypto.randomUUID(), name: "", qty: 1, notes: "" }); }));
     root.querySelectorAll("[data-inv-name]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-name"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].name = e.target.value; }); }));
-    root.querySelectorAll("[data-inv-qty]").forEach((el) => el.addEventListener("input", (e) => { const i = asInt(e.target.getAttribute("data-inv-qty"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].qty = Math.max(0, asInt(e.target.value, 1)); }); }));
+    root.querySelectorAll("[data-inv-qty]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-qty"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].qty = Math.max(0, asInt(e.target.value, 1)); }); }));
     root.querySelectorAll("[data-inv-notes]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-notes"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].notes = e.target.value; }); }));
     root.querySelectorAll("[data-inv-del]").forEach((el) => el.addEventListener("click", (e) => { const i = asInt(e.currentTarget.getAttribute("data-inv-del"), -1); actions.updateCharacter((c) => { c.inventory.splice(i, 1); }); }));
 
@@ -3006,8 +3006,8 @@ export function mountV2UI({ root, getState, actions }) {
     }));
     root.querySelectorAll("[data-tracker-label]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-tracker-label"), -1); actions.updateCharacter((c) => { if (c.trackers[i]) c.trackers[i].label = e.target.value; }); }));
     root.querySelectorAll("[data-tracker-reset]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-tracker-reset"), -1); actions.updateCharacter((c) => { if (c.trackers[i]) c.trackers[i].reset = e.target.value; }); }));
-    root.querySelectorAll("[data-tracker-max]").forEach((el) => el.addEventListener("input", (e) => { const i = asInt(e.target.getAttribute("data-tracker-max"), -1); actions.updateCharacter((c) => { if (c.trackers[i]) { c.trackers[i].max = Math.max(0, asInt(e.target.value, 0)); if (c.trackers[i].current > c.trackers[i].max) c.trackers[i].current = c.trackers[i].max; } }); }));
-    root.querySelectorAll("[data-tracker-current]").forEach((el) => el.addEventListener("input", (e) => { const i = asInt(e.target.getAttribute("data-tracker-current"), -1); actions.updateCharacter((c) => { if (c.trackers[i]) c.trackers[i].current = Math.max(0, Math.min(c.trackers[i].max || 0, asInt(e.target.value, 0))); }); }));
+    root.querySelectorAll("[data-tracker-max]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-tracker-max"), -1); actions.updateCharacter((c) => { if (c.trackers[i]) { c.trackers[i].max = Math.max(0, asInt(e.target.value, 0)); if (c.trackers[i].current > c.trackers[i].max) c.trackers[i].current = c.trackers[i].max; } }); }));
+    root.querySelectorAll("[data-tracker-current]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-tracker-current"), -1); actions.updateCharacter((c) => { if (c.trackers[i]) c.trackers[i].current = Math.max(0, Math.min(c.trackers[i].max || 0, asInt(e.target.value, 0))); }); }));
     root.querySelectorAll("[data-tracker-del]").forEach((el) => el.addEventListener("click", (e) => { const i = asInt(e.currentTarget.getAttribute("data-tracker-del"), -1); actions.updateCharacter((c) => { c.trackers.splice(i, 1); }); }));
 
     root.querySelector("#logAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
