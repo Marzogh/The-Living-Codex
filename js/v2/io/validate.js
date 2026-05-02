@@ -117,7 +117,21 @@ function normalizeTrackers(character, report) {
     const out = isObj(t) ? t : {};
     if (!asString(out.id)) out.id = crypto.randomUUID();
     if (!asString(out.label)) out.label = `Tracker ${idx + 1}`;
-    if (!asString(out.type)) out.type = "counter";
+    const rawType = asString(out.type).trim().toLowerCase();
+    if (!rawType) out.type = "counter";
+    else if (rawType !== "counter") {
+      out.type = "counter";
+      report.fixes_applied.push({
+        code: "normalize-tracker-type",
+        mode: "auto",
+        path: `trackers[${idx}].type`,
+        message: "Normalized tracker type to 'counter' for v2 schema compatibility.",
+        before: rawType,
+        after: "counter"
+      });
+    } else {
+      out.type = "counter";
+    }
     if (!["none", "short_rest", "long_rest", "daily", "manual"].includes(asString(out.reset))) {
       addGuided(
         report,
@@ -366,6 +380,28 @@ function normalizeMeta(character, report) {
       after: meta.name
     });
   }
+  if (!asString(meta.schema_version)) {
+    meta.schema_version = "2.0.0";
+    report.fixes_applied.push({
+      code: "fill-schema-version",
+      mode: "auto",
+      path: "meta.schema_version",
+      message: "Filled missing meta.schema_version.",
+      after: meta.schema_version
+    });
+  } else if (asString(meta.schema_version) !== "2.0.0") {
+    const before = asString(meta.schema_version);
+    meta.schema_version = "2.0.0";
+    report.fixes_applied.push({
+      code: "normalize-schema-version",
+      mode: "auto",
+      path: "meta.schema_version",
+      message: "Normalized schema version to v2 canonical value.",
+      before,
+      after: meta.schema_version
+    });
+  }
+
   if (!asString(meta.ruleset_id)) {
     const inferred = asString(character?.core?.rulesetId) || "dnd5e_2014";
     meta.ruleset_id = inferred;

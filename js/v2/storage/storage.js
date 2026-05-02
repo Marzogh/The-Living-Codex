@@ -183,6 +183,7 @@ async function saveCharacterLocal(character, { makeActive = true } = {}) {
 
   return {
     ok: true,
+    character: clone(candidate),
     record: {
       id: record.id,
       name: record.name,
@@ -336,6 +337,7 @@ async function saveCharacter(character, { makeActive = true } = {}) {
 
   return {
     ok: true,
+    character: clone(candidate),
     record: {
       id: record.id,
       name: record.name,

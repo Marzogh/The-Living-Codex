@@ -1,18 +1,59 @@
 {
   "rulesetId": "dnd5e_2014",
   "schemaVersion": "0.1.0",
-  "builtAt": "2026-02-10T17:14:59.436Z",
+  "builtAt": "2026-05-01T21:52:55.546Z",
   "notes": "Minimal selector datasets for The Living Codex (2014 rules). Counts are computed at runtime; this file is descriptive only.",
   "sources": [
     {
+      "id": "BPGG",
+      "name": "BPGG"
+    },
+    {
+      "id": "DMG",
+      "name": "DMG"
+    },
+    {
+      "id": "DSOTDQ",
+      "name": "DSOTDQ"
+    },
+    {
+      "id": "EGW",
+      "name": "EGW"
+    },
+    {
+      "id": "FTD",
+      "name": "FTD"
+    },
+    {
+      "id": "MOTM",
+      "name": "MOTM"
+    },
+    {
       "id": "PHB",
-      "name": "Player's Handbook (2014)"
+      "name": "PHB"
+    },
+    {
+      "id": "SCAG",
+      "name": "SCAG"
+    },
+    {
+      "id": "TCE",
+      "name": "TCE"
+    },
+    {
+      "id": "VRGR",
+      "name": "VRGR"
+    },
+    {
+      "id": "XGE",
+      "name": "XGE"
     }
   ],
   "counts": {
     "spells": 300,
     "items": 0,
     "classes": 13,
-    "species": 14
+    "species": 47,
+    "subclasses": 118
   }
 }

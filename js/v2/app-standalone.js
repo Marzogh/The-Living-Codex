@@ -1,6 +1,9 @@
+import "../../vendor/jszip.min.js";
+import "../../vendor/papaparse.min.js";
 import { createAppController, createDefaultCharacterV2 } from "./core/index.js";
 import { V2ZipIO, validateAndFixImportPayload } from "./io/index.js";
 import { mountV2UI } from "./ui/app-ui.js";
+import { STANDALONE_CATALOG } from "./catalog-standalone.js";
 
 const root = document.getElementById("v2AppRoot");
 if (!root) throw new Error("Missing #v2AppRoot mount element");
@@ -24,30 +27,6 @@ let catalog = {
   spells: [],
   error: ""
 };
-
-function normText(v) {
-  return (v ?? "").toString().trim().toLowerCase();
-}
-
-function policyBadge(row) {
-  const mode = row?.availability?.default;
-  if (mode === "requires_dm_approval") return "DM Approval";
-  return "Core";
-}
-
-function formatSubtitle(kind, row) {
-  const src = (row?.source || "UNKNOWN").toString();
-  if (kind === "spell") {
-    const cls = Array.isArray(row?.classes) ? row.classes.join(", ") : "";
-    return `Level ${row?.level ?? 0} · ${row?.school || "Unknown school"}${cls ? ` · ${cls}` : ""}`;
-  }
-  return `${kind} · ${src} · ${policyBadge(row)}`;
-}
-
-function isAllowedByPolicy(row, policyMode) {
-  if (policyMode !== "core_only") return true;
-  return (row?.availability?.default || "allowed") !== "requires_dm_approval";
-}
 
 const runtimeStatus = {
   message: "",
@@ -131,29 +110,15 @@ function scheduleAutosave() {
 
 async function ensureCatalog(rulesetId = "dnd5e_2014") {
   const id = (rulesetId || "").toString().trim() || "dnd5e_2014";
-
-  try {
-    const mod = await import(new URL("../../rules/rulesdb.js", import.meta.url).href);
-    const db = await mod.RulesDB.load(id);
-    catalog = {
-      rulesetId: id,
-      classes: db?.classes?.list?.() || [],
-      subclasses: db?.subclasses?.list?.() || [],
-      species: db?.species?.list?.() || [],
-      spells: db?.spells?.list?.() || [],
-      error: ""
-    };
-  } catch (err) {
-    catalog = {
-      rulesetId: id,
-      classes: [],
-      subclasses: [],
-      species: [],
-      spells: [],
-      error: err?.message || String(err)
-    };
-  }
-
+  const selected = STANDALONE_CATALOG[id] || STANDALONE_CATALOG.dnd5e_2014;
+  catalog = {
+    rulesetId: selected.rulesetId,
+    classes: selected.classes,
+    subclasses: selected.subclasses || [],
+    species: selected.species,
+    spells: selected.spells,
+    error: ""
+  };
   ui.render();
 }
 
@@ -173,6 +138,30 @@ async function pickZipFile() {
     document.body.appendChild(input);
     input.click();
   });
+}
+
+function normText(v) {
+  return (v ?? "").toString().trim().toLowerCase();
+}
+
+function policyBadge(row) {
+  const mode = row?.availability?.default;
+  if (mode === "requires_dm_approval") return "DM Approval";
+  return "Core";
+}
+
+function formatSubtitle(kind, row) {
+  const src = (row?.source || "UNKNOWN").toString();
+  if (kind === "spell") {
+    const cls = Array.isArray(row?.classes) ? row.classes.join(", ") : "";
+    return `Level ${row?.level ?? 0} · ${row?.school || "Unknown school"}${cls ? ` · ${cls}` : ""}`;
+  }
+  return `${kind} · ${src} · ${policyBadge(row)}`;
+}
+
+function isAllowedByPolicy(row, policyMode) {
+  if (policyMode !== "core_only") return true;
+  return (row?.availability?.default || "allowed") !== "requires_dm_approval";
 }
 
 ui = mountV2UI({
@@ -235,11 +224,11 @@ ui = mountV2UI({
             if (!allowOffClassSpells && classFilter.length > 0) {
               const classes = Array.isArray(row?.classes) ? row.classes.map(normText) : [];
               const school = normText(row?.school || "");
-              const baseClassMatch = classes.some((id) => classFilter.includes(id));
+              const baseClassMatch = classes.some((id2) => classFilter.includes(id2));
               const subclassExpandedMatch = subclassRows.some((sub) => {
                 const access = sub?.spell_access || {};
                 const extraClasses = Array.isArray(access.class_ids) ? access.class_ids.map(normText).filter(Boolean) : [];
-                if (!extraClasses.length || !classes.some((id) => extraClasses.includes(id))) return false;
+                if (!extraClasses.length || !classes.some((id2) => extraClasses.includes(id2))) return false;
                 const schoolAllow = Array.isArray(access.schools) ? access.schools.map(normText).filter(Boolean) : [];
                 if (!schoolAllow.length) return true;
                 return schoolAllow.includes(school);

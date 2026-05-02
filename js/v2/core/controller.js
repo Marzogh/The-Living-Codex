@@ -55,16 +55,17 @@ export function createAppController({
       return result;
     }
 
+    const persistedCharacter = result.character || character;
     store.dispatch({ type: ActionTypes.CLEAR_ERROR });
     store.dispatch({ type: ActionTypes.SET_DIRTY, dirty: false });
     store.dispatch({
       type: ActionTypes.SET_CHARACTER,
-      character,
+      character: persistedCharacter,
       dirty: false,
       lastSavedUtc: result?.record?.saved_utc || nowIso()
     });
     if (makeActive) {
-      store.dispatch({ type: ActionTypes.SET_ACTIVE_CHARACTER_ID, id: character.meta?.id || "" });
+      store.dispatch({ type: ActionTypes.SET_ACTIVE_CHARACTER_ID, id: persistedCharacter.meta?.id || "" });
     }
 
     return result;
