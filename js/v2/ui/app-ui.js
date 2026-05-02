@@ -54,6 +54,128 @@ function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
+const ABILITY_KEYS = ["str", "dex", "con", "int", "wis", "cha"];
+const SKILL_DEFS = [
+  ["acrobatics", "dex"], ["animal_handling", "wis"], ["arcana", "int"], ["athletics", "str"], ["deception", "cha"], ["history", "int"],
+  ["insight", "wis"], ["intimidation", "cha"], ["investigation", "int"], ["medicine", "wis"], ["nature", "int"], ["perception", "wis"],
+  ["performance", "cha"], ["persuasion", "cha"], ["religion", "int"], ["sleight_of_hand", "dex"], ["stealth", "dex"], ["survival", "wis"]
+];
+
+function fmtSigned(n) {
+  const v = Number.isFinite(n) ? n : 0;
+  return v >= 0 ? `+${v}` : `${v}`;
+}
+
+function totalLevel(character) {
+  const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+  return rows.reduce((acc, row) => acc + clamp(asInt(row?.level, 0), 0, 20), 0);
+}
+
+function defaultProficiencyBonus(level) {
+  if (level <= 0) return 2;
+  return Math.min(6, 2 + Math.floor((Math.max(1, level) - 1) / 4));
+}
+
+function resolveSpellcastingClassId(character) {
+  const chosen = norm(character?.spellcasting?.class_id || "");
+  if (chosen) return chosen;
+  const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+  const primary = rows.find((x) => x?.isPrimary) || rows[0];
+  return norm(primary?.id);
+}
+
+function resolveSpellcastingAbility(character, classId) {
+  const chosen = norm(character?.spellcasting?.ability || "");
+  if (ABILITY_KEYS.includes(chosen)) return chosen;
+  const map = {
+    artificer: "int",
+    bard: "cha",
+    cleric: "wis",
+    druid: "wis",
+    paladin: "cha",
+    ranger: "wis",
+    sorcerer: "cha",
+    warlock: "cha",
+    wizard: "int"
+  };
+  return map[classId] || "int";
+}
+
+function deriveStats(character) {
+  const abilities = character?.abilities || {};
+  const abilityMods = {};
+  for (const key of ABILITY_KEYS) {
+    const score = clamp(asInt(abilities[key], 10), 1, 30);
+    abilityMods[key] = Math.floor((score - 10) / 2);
+  }
+
+  const lvl = totalLevel(character);
+  const profDefault = defaultProficiencyBonus(lvl);
+  const prof = Number.isFinite(asInt(character?.combat?.proficiency_bonus, profDefault))
+    ? asInt(character?.combat?.proficiency_bonus, profDefault)
+    : profDefault;
+
+  const savingThrows = {};
+  for (const key of ABILITY_KEYS) {
+    const row = character?.saving_throws?.[key] || {};
+    const base = abilityMods[key] + (row.proficient ? prof : 0) + asInt(row.bonus, 0);
+    const total = row.bonus_mode === "manual" ? asInt(row.manual_total, base) : base;
+    savingThrows[key] = { base, total };
+  }
+
+  const skills = {};
+  for (const [skillId, ability] of SKILL_DEFS) {
+    const row = character?.skills?.[skillId] || {};
+    const profMult = row.expertise ? 2 : row.proficient ? 1 : 0;
+    const base = (abilityMods[ability] || 0) + (profMult * prof) + asInt(row.bonus, 0);
+    const total = row.bonus_mode === "manual" ? asInt(row.manual_total, base) : base;
+    skills[skillId] = { base, total };
+  }
+
+  const passivePerceptionBase = 10 + (skills.perception?.total || 0);
+  const passivePerception = Math.max(0, asInt(character?.combat?.passive_perception, passivePerceptionBase));
+
+  const classId = resolveSpellcastingClassId(character);
+  const ability = resolveSpellcastingAbility(character, classId);
+  const spellMod = abilityMods[ability] || 0;
+  const sc = character?.spellcasting || {};
+  const saveDcBase = 8 + prof + spellMod;
+  const attackBase = prof + spellMod;
+  const spellSaveDc = sc.save_dc_mode === "manual" ? asInt(sc.save_dc_override, saveDcBase) : saveDcBase;
+  const spellAttackBonus = sc.attack_bonus_mode === "manual" ? asInt(sc.attack_bonus_override, attackBase) : attackBase;
+
+  return {
+    level: lvl,
+    abilityMods,
+    proficiency: { default: profDefault, value: prof },
+    savingThrows,
+    skills,
+    passivePerceptionBase,
+    passivePerception,
+    spellcasting: { classId, ability, spellMod, saveDcBase, spellSaveDc, attackBase, spellAttackBonus }
+  };
+}
+
+const EDIT_TABS = [
+  { id: "core", label: "Core", sections: ["sec-core", "sec-classes"] },
+  { id: "battle", label: "Battle", sections: ["sec-combat", "sec-mechanics"] },
+  { id: "spellcraft", label: "Spellcraft", sections: ["sec-spells"] },
+  { id: "gear", label: "Gear", sections: ["sec-inventory", "sec-trackers"] },
+  { id: "chronicle", label: "Chronicle", sections: ["sec-profile"] }
+];
+
+const PLAY_PANES = [
+  { id: "spells", label: "Spells" },
+  { id: "attacks", label: "Attacks" },
+  { id: "trackers", label: "Trackers" },
+  { id: "log", label: "Log" },
+  { id: "checks", label: "Checks" }
+];
+
+function tabSections(tabId) {
+  return EDIT_TABS.find((t) => t.id === tabId)?.sections || EDIT_TABS[0].sections;
+}
+
 function classCasterProgression(classId, subclassId) {
   const c = norm(classId);
   if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(c)) return "full";
@@ -202,7 +324,7 @@ function renderPalette(state, commands) {
   </div>`;
 }
 
-function renderPlayMode(character) {
+function renderPlayMode(character, uiState) {
   const hp = character?.combat?.hp || { max: 0, current: 0, temp: 0 };
   const trackers = Array.isArray(character?.trackers) ? character.trackers : [];
   const log = Array.isArray(character?.log) ? character.log : [];
@@ -220,10 +342,17 @@ function renderPlayMode(character) {
       return { lvl, max: row.max, used: row.used, avail: Math.max(0, row.max - row.used) };
     });
   const spellSource = prepared.length ? prepared : known;
-  const activeConditions = Array.isArray(character?.combat?.conditions) ? character.combat.conditions : [];
+  const activeConditionsRaw = Array.isArray(character?.combat?.conditions) ? character.combat.conditions : [];
+  const activeConditions = activeConditionsRaw.map((c, idx) => {
+    if (typeof c === "string") return { name: c, source: "", duration: "", notes: "", active: true, _idx: idx };
+    return { name: c?.name || `Condition ${idx + 1}`, source: c?.source || "", duration: c?.duration || "", notes: c?.notes || "", active: c?.active !== false, _idx: idx };
+  }).filter((c) => c.active !== false);
+  const concentration = character?.combat?.concentration || { active: false, source: "", notes: "" };
   const recentActions = Array.isArray(character?.play_state?.recent_actions) ? character.play_state.recent_actions.slice(0, 5) : [];
   const castFeedback = character?.play_state?.cast_feedback || "";
+  const rollState = character?.play_state?.dice_last_roll || null;
   const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
+  const derived = deriveStats(character);
   const byLevel = new Map();
   for (const s of spellSource) {
     const lvl = clamp(asInt(s?.level, 0), 0, 9);
@@ -232,49 +361,14 @@ function renderPlayMode(character) {
   }
   const levelsWithSpells = [...byLevel.keys()].sort((a, b) => a - b);
 
-  return `<section class="workspace play-grid play-board">
-    <article class="card play-vitals"><h2>Vitals</h2><div class="card-body quick-grid">
-      <div><strong>AC</strong><p>${esc(character?.combat?.ac ?? 10)}</p></div>
-      <div><strong>Initiative</strong><p>${esc(character?.combat?.initiative_bonus ?? 0)}</p></div>
-      <div><strong>Passive Perception</strong><p>${esc(character?.combat?.passive_perception ?? 10)}</p></div>
-      <div><strong>Inspiration</strong><p>${esc(character?.combat?.inspiration ?? 0)}</p></div>
-      <div><strong>HP</strong><p>${esc(hp.current)}/${esc(hp.max)} (+${esc(hp.temp)} temp)</p></div>
-      <div class="inline-actions">
-        <button type="button" data-play-hp="-1">-1 HP</button>
-        <button type="button" data-play-hp="1">+1 HP</button>
-      </div>
-      <div class="play-conditions">
-        <strong>Conditions</strong>
-        <ul class="condition-strip">
-          ${activeConditions.length ? activeConditions.map((c) => `<li>${esc(c)}</li>`).join("") : `<li class="is-empty">No active conditions</li>`}
-        </ul>
-      </div>
-    </div></article>
+  const activePane = uiState.activePlayPane || "spells";
+  const paneNav = `<nav class="play-pane-tabs">${PLAY_PANES.map((p) => `<button type="button" class="${activePane === p.id ? "is-active" : ""}" data-play-pane="${p.id}">${esc(p.label)}</button>`).join("")}
+      <button type="button" id="openDiceTray">Roll Dice</button>
+      <button type="button" data-toggle-utility>${uiState.playBoard?.utilityRailOpen !== false ? "Hide Utility Rail" : "Show Utility Rail"}</button>
+      <button type="button" data-toggle-band>${uiState.playBoard?.bandCompact ? "Expand Combat Band" : "Compact Combat Band"}</button>
+    </nav>`;
 
-    <article class="card"><h2>Attacks</h2><div class="card-body">
-      ${attacks.length === 0 ? `<p class="hint">No attacks added yet.</p>` : `<div class="attack-list">${attacks.slice(0, 8).map((a) => `<div class="attack-row"><strong>${esc(a.name || "Attack")}</strong><span>+${esc(a.atk_bonus ?? 0)}</span><span>${esc(a.damage_type || "")}</span></div>`).join("")}</div>`}
-    </div></article>
-
-    <article class="card"><h2>Trackers</h2><div class="card-body stack">
-      <div class="inline-actions"><button type="button" id="playTrackerAdd">Add Tracker</button><button type="button" id="playLogAdd">Add Log Entry</button></div>
-      ${trackers.length === 0 ? `<p class="hint">No trackers</p>` : trackers.map((t, idx) => `<div class="tracker-row">
-        <input data-play-tracker-label="${idx}" value="${esc(t.label || "")}" placeholder="Tracker label" />
-        <input data-play-tracker-current="${idx}" type="number" min="0" value="${esc(t.current ?? 0)}" />
-        <input data-play-tracker-max="${idx}" type="number" min="0" value="${esc(t.max ?? 0)}" />
-        <button type="button" data-play-tracker="${idx}:down">-1</button><button type="button" data-play-tracker="${idx}:up">+1</button><button type="button" data-play-tracker="${idx}:reset">Reset</button><button type="button" data-play-tracker-del="${idx}">Delete</button>
-      </div>`).join("")}
-      <div class="log-list">
-        ${log.length === 0 ? `<p class="hint">No log entries</p>` : log.slice(-6).map((entry, idx, arr) => {
-          const realIdx = log.length - arr.length + idx;
-          return `<div class="play-log-row">
-          <input data-play-log-tag="${realIdx}" value="${esc(entry.tag || "")}" placeholder="tag" />
-          <input data-play-log-message="${realIdx}" value="${esc(entry.message || "")}" placeholder="Log entry" />
-          <button type="button" data-play-log-del="${realIdx}">Delete</button>
-        </div>`; }).join("")}
-      </div>
-    </div></article>
-
-    <article class="card play-actions"><h2>Spell Console</h2><div class="card-body">
+  const spellsPane = `<article class="card play-actions"><h2>Spell Console</h2><div class="card-body">
       <div class="inline-actions">
         <button type="button" id="undoLastCast">Undo Last Cast</button>
         <button type="button" id="shortRestSlots">Short Rest</button>
@@ -291,16 +385,101 @@ function renderPlayMode(character) {
             <header><strong>Level ${lvl}</strong><small>${esc(available)}</small>${pips}</header>
             <ul class="pill-list">${(byLevel.get(lvl) || []).slice(0, 16).map((s) => {
               const canCast = lvl === 0 || Math.max(0, (row.max || 0) - (row.used || 0)) > 0;
-              return `<li><button type="button" class="spell-cast-pill" data-cast-spell="${esc(s.id || s.name || "spell")}" data-cast-name="${esc(s.name || s.id || "Spell")}" data-cast-base-level="${lvl}" ${canCast ? "" : "disabled"}>${esc(s.name || s.id || "Spell")}</button></li>`;
+              return `<li><button type="button" class="spell-cast-pill" data-cast-spell="${esc(s.id || s.name || "spell")}" data-cast-name="${esc(s.name || s.id || "Spell")}" data-cast-base-level="${lvl}" ${canCast ? "" : "disabled title=\"No slots left at this level\""}>${esc(s.name || s.id || "Spell")}</button></li>`;
             }).join("")}</ul>
           </section>`;
         }).join("")}
       </div>`}
-    </div></article>
+    </div></article>`;
 
-    <article class="card play-recent"><h2>Recent Actions</h2><div class="card-body">
-      ${recentActions.length ? `<ul class="recent-actions-list">${recentActions.map((entry) => `<li>${esc(entry)}</li>`).join("")}</ul>` : `<p class="hint">No recent actions yet.</p>`}
-    </div></article>
+  const attacksPane = `<article class="card"><h2>Arsenal</h2><div class="card-body">
+      ${attacks.length === 0 ? `<p class="hint">No attacks added yet.</p>` : `<div class="attack-list">${attacks.slice(0, 8).map((a) => `<div class="attack-row"><strong>${esc(a.name || "Attack")}</strong><span>${esc(fmtSigned(asInt(a.atk_bonus, 0)))}</span><span>${esc([a.damage, a.damage_type].filter(Boolean).join(" "))}</span></div>`).join("")}</div>`}
+    </div></article>`;
+  const checksPane = `<article class="card"><h2>Checks</h2><div class="card-body quick-grid">
+      <div><strong>DEX Save</strong><p>${esc(fmtSigned(derived.savingThrows.dex.total))}</p></div>
+      <div><strong>CON Save</strong><p>${esc(fmtSigned(derived.savingThrows.con.total))}</p></div>
+      <div><strong>Perception</strong><p>${esc(fmtSigned(derived.skills.perception.total))}</p></div>
+      <div><strong>Stealth</strong><p>${esc(fmtSigned(derived.skills.stealth.total))}</p></div>
+    </div></article>`;
+  const trackersPane = `<article class="card"><h2>Trackers</h2><div class="card-body stack">
+      <div class="inline-actions"><button type="button" id="playTrackerAdd">Add Tracker</button></div>
+      ${trackers.length === 0 ? `<p class="hint">No trackers</p>` : trackers.map((t, idx) => `<div class="tracker-row">
+        <input data-play-tracker-label="${idx}" value="${esc(t.label || "")}" placeholder="Tracker label" />
+        <input data-play-tracker-current="${idx}" type="number" min="0" value="${esc(t.current ?? 0)}" />
+        <input data-play-tracker-max="${idx}" type="number" min="0" value="${esc(t.max ?? 0)}" />
+        <button type="button" data-play-tracker="${idx}:down">-1</button><button type="button" data-play-tracker="${idx}:up">+1</button><button type="button" data-play-tracker="${idx}:reset">Reset</button><button type="button" data-play-tracker-del="${idx}">Delete</button>
+      </div>`).join("")}
+    </div></article>`;
+  const logPane = `<article class="card"><h2>Adventure Log</h2><div class="card-body stack">
+      <div class="inline-actions"><button type="button" id="playLogAdd">Add Log Entry</button></div>
+      <div class="log-list">
+        ${log.length === 0 ? `<p class="hint">No log entries</p>` : log.slice(-6).map((entry, idx, arr) => {
+          const realIdx = log.length - arr.length + idx;
+          return `<div class="play-log-row">
+          <input data-play-log-tag="${realIdx}" value="${esc(entry.tag || "")}" placeholder="tag" />
+          <input data-play-log-message="${realIdx}" value="${esc(entry.message || "")}" placeholder="Log entry" />
+          <button type="button" data-play-log-del="${realIdx}">Delete</button>
+        </div>`; }).join("")}
+      </div>
+    </div></article>`;
+
+  const paneMap = { spells: spellsPane, attacks: attacksPane, trackers: trackersPane, log: logPane, checks: checksPane };
+
+  const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round((hp.current / hp.max) * 100))) : 0;
+  return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
+    <section class="play-hud card ${uiState.playBoard?.bandCompact ? "is-compact" : ""} ${uiState.playBoard?.hudCollapsed ? "is-collapsed" : ""}">
+      <h2>Combat HUD <button type="button" class="card-toggle" id="toggleHudCollapse">${uiState.playBoard?.hudCollapsed ? "Expand" : "Collapse"}</button></h2>
+      <div class="card-body">
+      <div class="hud-grid">
+      <div class="hud-stat"><strong>AC</strong><p class="hud-value">${esc(character?.combat?.ac ?? 10)}</p></div>
+      <div class="hud-stat"><strong>Initiative</strong><p class="hud-value">${esc(character?.combat?.initiative_bonus ?? 0)}</p></div>
+      <div class="hud-stat"><strong>Speed</strong><p class="hud-value">${esc(character?.combat?.speed ?? 30)}</p></div>
+      <div class="hud-stat"><strong>Prof</strong><p class="hud-value">${esc(fmtSigned(derived.proficiency.value))}</p></div>
+      <div class="hud-stat"><strong>Passive Perception</strong><p class="hud-value">${esc(derived.passivePerception)}</p></div>
+      <div class="hud-stat"><strong>Inspiration</strong><p class="hud-value">${esc(character?.combat?.inspiration ?? 0)}</p></div>
+      <div class="hud-stat hud-hp"><strong>HP</strong><p class="hud-value">${esc(hp.current)}/${esc(hp.max)} <small>(+${esc(hp.temp)} temp)</small></p>
+        <span class="hp-bar"><i style="width:${hpPct}%"></i></span>
+      </div>
+      <div class="inline-actions hud-actions">
+        <button type="button" data-play-hp="-1">-1 HP</button>
+        <button type="button" data-play-hp="1">+1 HP</button>
+        <input type="number" id="playHpCurrent" min="0" value="${esc(hp.current)}" aria-label="Current HP" />
+        <button type="button" id="playHpSet">Set HP</button>
+        <button type="button" id="openDiceTrayHud">Roll Dice</button>
+      </div>
+      </div>
+      <div class="play-conditions">
+        <div class="inline-actions"><strong>Conditions</strong><button type="button" id="addConditionBtn">+ Condition</button><label class="check"><input type="checkbox" id="concentrationToggle" ${concentration.active ? "checked" : ""} />Concentration</label></div>
+        <ul class="condition-strip">
+          ${activeConditions.length ? activeConditions.map((c) => `<li><button type="button" class="condition-chip-btn" data-cond-edit="${c._idx}">${esc(c.name)}${c.duration ? ` (${esc(c.duration)})` : ""}</button></li>`).join("") : `<li class="is-empty">No active conditions</li>`}
+        </ul>
+        <p class="hint">${concentration.active ? `Concentrating on ${esc(concentration.source || "an effect")}` : "No active concentration."}</p>
+      </div>
+      <div class="play-math-strip">
+        <span>STR ${esc(fmtSigned(derived.abilityMods.str))}</span><span>DEX ${esc(fmtSigned(derived.abilityMods.dex))}</span><span>CON ${esc(fmtSigned(derived.abilityMods.con))}</span><span>INT ${esc(fmtSigned(derived.abilityMods.int))}</span><span>WIS ${esc(fmtSigned(derived.abilityMods.wis))}</span><span>CHA ${esc(fmtSigned(derived.abilityMods.cha))}</span>
+        <span>STR Save ${esc(fmtSigned(derived.savingThrows.str.total))}</span><span>DEX Save ${esc(fmtSigned(derived.savingThrows.dex.total))}</span><span>CON Save ${esc(fmtSigned(derived.savingThrows.con.total))}</span><span>WIS Save ${esc(fmtSigned(derived.savingThrows.wis.total))}</span>
+        <span>Spell DC ${esc(derived.spellcasting.spellSaveDc)}</span><span>Spell Atk ${esc(fmtSigned(derived.spellcasting.spellAttackBonus))}</span>
+      </div>
+      </div>
+    </section>
+
+    <section class="play-body">
+      ${paneNav}
+      <div class="play-main-grid">
+        <section class="play-turn-console">
+          ${paneMap[activePane] || spellsPane}
+        </section>
+        ${uiState.playBoard?.utilityRailOpen !== false ? `<aside class="play-utility-rail">
+          <article class="card play-recent"><h2>Recent Actions</h2><div class="card-body">
+          ${recentActions.length ? `<ul class="recent-actions-list">${recentActions.map((entry) => `<li>${esc(entry)}</li>`).join("")}</ul>` : `<p class="hint">No recent actions yet.</p>`}
+          ${rollState ? `<p class="hint">Last roll: <strong>${esc(rollState.label || "Roll")}</strong> = ${esc(rollState.total)}</p>` : ""}
+          </div></article>
+          <article class="card"><h2>Session Log</h2><div class="card-body">
+            ${log.length ? log.slice(-5).reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") : `<p class="hint">No log entries</p>`}
+          </div></article>
+        </aside>` : ""}
+      </div>
+    </section>
   </section>`;
 }
 
@@ -308,7 +487,7 @@ function cardTitle(label, isEdited) {
   return `${esc(label)}${isEdited ? ` <span class="card-change-badge">Changes not saved</span>` : ""}`;
 }
 
-function renderEditMode(character, catalog, lookupState, edited = {}) {
+function renderEditMode(character, catalog, lookupState, edited = {}, uiState = {}) {
   const classes = Array.isArray(character?.core?.classes) ? character.core.classes : [];
   const inventory = Array.isArray(character?.inventory) ? character.inventory : [];
   const spells = Array.isArray(character?.spells_known) ? character.spells_known : [];
@@ -319,24 +498,46 @@ function renderEditMode(character, catalog, lookupState, edited = {}) {
   const skills = character?.skills || {};
   const savingThrows = character?.saving_throws || {};
   const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
-  const skillDefs = [
-    ["acrobatics", "Dex"], ["animal_handling", "Wis"], ["arcana", "Int"], ["athletics", "Str"], ["deception", "Cha"], ["history", "Int"],
-    ["insight", "Wis"], ["intimidation", "Cha"], ["investigation", "Int"], ["medicine", "Wis"], ["nature", "Int"], ["perception", "Wis"],
-    ["performance", "Cha"], ["persuasion", "Cha"], ["religion", "Int"], ["sleight_of_hand", "Dex"], ["stealth", "Dex"], ["survival", "Wis"]
-  ];
+  const derived = deriveStats(character);
+  const spellcasting = character?.spellcasting || {};
+  const activeTab = uiState.activeEditTab || "core";
+  const activeSections = new Set(tabSections(activeTab));
+  const collapsed = uiState.collapsedSectionsByTab?.[activeTab] || {};
+  const sectionClass = (id) => `${activeSections.has(id) ? "" : "is-hidden"} ${collapsed[id] ? "is-collapsed" : ""}`.trim();
+  const summaryByTab = {
+    core: `Level ${derived.level} · ${esc(character?.core?.speciesId || "species")} · ${esc((classes[0]?.id || "class"))}`,
+    battle: `AC ${esc(character?.combat?.ac ?? 10)} · HP ${esc(character?.combat?.hp?.current ?? 0)}/${esc(character?.combat?.hp?.max ?? 0)} · Prof ${esc(fmtSigned(derived.proficiency.value))}`,
+    spellcraft: `Save DC ${esc(derived.spellcasting.spellSaveDc)} · Spell Attack ${esc(fmtSigned(derived.spellcasting.spellAttackBonus))}`,
+    gear: `${esc(inventory.length)} items · ${esc(trackers.length)} trackers`,
+    chronicle: `${esc(character?.meta?.name || "Adventurer")} · Chronicle entries ready`
+  };
 
-  return `<section class="workspace edit-stack">
-    <article class="card" id="sec-core"><h2>${cardTitle("Core", edited.core)}</h2><div class="card-body grid2">
+  return `<section class="workspace edit-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
+    <aside class="edit-rail card">
+      <h2>Navigator</h2>
+      <div class="card-body stack">
+        <nav class="edit-tab-strip">
+          ${EDIT_TABS.map((t) => `<button type="button" class="${activeTab === t.id ? "is-active" : ""}" data-edit-tab="${t.id}">${esc(t.label)}</button>`).join("")}
+        </nav>
+        <p class="hint">${summaryByTab[activeTab] || ""}</p>
+        <div class="edit-section-links">
+          ${tabSections(activeTab).map((sid) => `<button type="button" data-jump-sec="${sid}">${esc((sid || "").replace("sec-", "").replaceAll("-", " "))}${edited.core || edited.classes || edited.combat || edited.spells || edited.inventory || edited.trackers ? "" : ""}</button>`).join("")}
+        </div>
+        <div class="inline-actions"><button type="button" data-collapse-all>Collapse all</button><button type="button" data-expand-all>Expand all</button></div>
+      </div>
+    </aside>
+    <section class="edit-content edit-stack">
+    <article class="card ${sectionClass("sec-core")}" id="sec-core"><h2>${cardTitle("Core", edited.core)} <button type="button" class="card-toggle" data-toggle-sec="sec-core">${collapsed["sec-core"] ? "Expand" : "Collapse"}</button></h2><div class="card-body grid2">
       <label>Name<input id="charName" value="${esc(character?.meta?.name || "")}" /></label>
       <label>Ruleset<input id="charRuleset" value="${esc(character?.meta?.ruleset_id || "")}" /></label>
       <label>Species<select id="charSpecies">${optionList(catalog.species || [], character?.core?.speciesId || "", "Select species")}</select></label>
       <div class="inline-actions"><button type="button" data-open-lookup="species">Lookup Species</button></div>
       <div class="six-grid">
-        ${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<label>${k.toUpperCase()}<input type="number" min="1" max="30" data-ability="${k}" value="${esc(character?.abilities?.[k] ?? 10)}" /></label>`).join("")}
+        ${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<label>${k.toUpperCase()}<input type="number" min="1" max="30" data-ability="${k}" value="${esc(character?.abilities?.[k] ?? 10)}" /><small>Mod ${esc(fmtSigned(derived.abilityMods[k]))}</small></label>`).join("")}
       </div>
     </div></article>
 
-    <article class="card" id="sec-classes"><h2>${cardTitle("Classes", edited.classes)}</h2><div class="card-body stack">
+    <article class="card ${sectionClass("sec-classes")}" id="sec-classes"><h2>${cardTitle("Classes", edited.classes)} <button type="button" class="card-toggle" data-toggle-sec="sec-classes">${collapsed["sec-classes"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="classAdd">Add Class</button><button type="button" data-open-lookup="class">Lookup Class</button><button type="button" data-open-lookup="subclass">Lookup Subclass</button></div>
       ${classes.length === 0 ? `<p class="hint">No classes</p>` : classes.map((row, idx) => `<div class="class-row">
         <select data-class-id="${idx}">${optionList(catalog.classes || [], row.id || "", "Select class")}</select>
@@ -347,7 +548,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}) {
       </div>`).join("")}
     </div></article>
 
-    <article class="card" id="sec-combat"><h2>${cardTitle("Combat", edited.combat)}</h2><div class="card-body grid2">
+    <article class="card ${sectionClass("sec-combat")}" id="sec-combat"><h2>${cardTitle("Combat", edited.combat)} <button type="button" class="card-toggle" data-toggle-sec="sec-combat">${collapsed["sec-combat"] ? "Expand" : "Collapse"}</button></h2><div class="card-body grid2">
       <label>AC<input id="combatAc" type="number" min="0" value="${esc(character?.combat?.ac ?? 10)}" /></label>
       <label>Initiative<input id="combatInit" type="number" value="${esc(character?.combat?.initiative_bonus ?? 0)}" /></label>
       <label>HP Max<input id="hpMax" type="number" min="0" value="${esc(character?.combat?.hp?.max ?? 1)}" /></label>
@@ -355,15 +556,15 @@ function renderEditMode(character, catalog, lookupState, edited = {}) {
       <label>HP Temp<input id="hpTemp" type="number" min="0" value="${esc(character?.combat?.hp?.temp ?? 0)}" /></label>
       <label>Speed<input id="combatSpeed" type="number" min="0" value="${esc(character?.combat?.speed ?? 30)}" /></label>
       <label>Inspiration<input id="combatInspiration" type="number" min="0" max="1" value="${esc(character?.combat?.inspiration ?? 0)}" /></label>
-      <label>Proficiency Bonus<input id="combatProfBonus" type="number" value="${esc(character?.combat?.proficiency_bonus ?? 2)}" /></label>
-      <label>Passive Perception<input id="combatPassivePerception" type="number" min="0" value="${esc(character?.combat?.passive_perception ?? 10)}" /></label>
+      <label>Proficiency Bonus<input id="combatProfBonus" type="number" value="${esc(character?.combat?.proficiency_bonus ?? derived.proficiency.default)}" /><small>Default for level ${esc(derived.level)}: ${esc(fmtSigned(derived.proficiency.default))}</small></label>
+      <label>Passive Perception<input id="combatPassivePerception" type="number" min="0" value="${esc(character?.combat?.passive_perception ?? derived.passivePerceptionBase)}" /><small>Derived default: ${esc(derived.passivePerceptionBase)}</small></label>
       <label>Hit Dice Total<input id="combatHitDiceTotal" type="number" min="0" value="${esc(character?.combat?.hit_dice_total ?? 0)}" /></label>
       <label>Hit Dice Used<input id="combatHitDiceUsed" type="number" min="0" value="${esc(character?.combat?.hit_dice_used ?? 0)}" /></label>
       <label>Death Saves Success<input id="combatDeathSaveSuccess" type="number" min="0" max="3" value="${esc(character?.combat?.death_saves?.success ?? 0)}" /></label>
       <label>Death Saves Fail<input id="combatDeathSaveFail" type="number" min="0" max="3" value="${esc(character?.combat?.death_saves?.fail ?? 0)}" /></label>
     </div></article>
 
-    <article class="card" id="sec-profile"><h2>${cardTitle("Sheet Details", edited.core)}</h2><div class="card-body grid2">
+    <article class="card ${sectionClass("sec-profile")}" id="sec-profile"><h2>${cardTitle("Adventurer's Chronicle", edited.core)} <button type="button" class="card-toggle" data-toggle-sec="sec-profile">${collapsed["sec-profile"] ? "Expand" : "Collapse"}</button></h2><div class="card-body grid2">
       <label>Background<input id="profileBackground" value="${esc(profile.background || "")}" /></label>
       <label>Alignment<input id="profileAlignment" value="${esc(profile.alignment || "")}" /></label>
       <label>Player Name<input id="profilePlayerName" value="${esc(profile.player_name || "")}" /></label>
@@ -391,41 +592,72 @@ function renderEditMode(character, catalog, lookupState, edited = {}) {
       <label>PP<input id="resPp" type="number" min="0" value="${esc(resources.pp ?? 0)}" /></label>
     </div></article>
 
-    <article class="card" id="sec-mechanics"><h2>${cardTitle("Saving Throws, Skills, Attacks", edited.combat)}</h2><div class="card-body stack">
-      <h3>Saving Throws</h3>
+    <article class="card ${sectionClass("sec-mechanics")}" id="sec-mechanics"><h2>${cardTitle("Battle Ledger", edited.combat)} <button type="button" class="card-toggle" data-toggle-sec="sec-mechanics">${collapsed["sec-mechanics"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
+      <h3>Spellcraft</h3>
       <div class="grid2">
-        ${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<div class="tracker-row">
+        <label>Spellcasting Class
+          <select id="spellcastingClassId">
+            <option value="">Auto (Primary class)</option>
+            ${classes.map((row) => `<option value="${esc(row.id || "")}" ${norm(row.id) === derived.spellcasting.classId ? "selected" : ""}>${esc(row.id || "class")}</option>`).join("")}
+          </select>
+        </label>
+        <label>Spellcasting Ability
+          <select id="spellcastingAbility">
+            ${ABILITY_KEYS.map((k) => `<option value="${k}" ${k === derived.spellcasting.ability ? "selected" : ""}>${k.toUpperCase()}</option>`).join("")}
+          </select>
+        </label>
+        <label>Spell Save DC Mode
+          <select id="spellcastingSaveDcMode"><option value="auto" ${(spellcasting.save_dc_mode || "auto") === "auto" ? "selected" : ""}>Auto</option><option value="manual" ${spellcasting.save_dc_mode === "manual" ? "selected" : ""}>Manual</option></select>
+        </label>
+        <label>Spell Save DC Override<input id="spellcastingSaveDcOverride" type="number" value="${esc(spellcasting.save_dc_override ?? derived.spellcasting.saveDcBase)}" /></label>
+        <label>Spell Attack Mode
+          <select id="spellcastingAtkMode"><option value="auto" ${(spellcasting.attack_bonus_mode || "auto") === "auto" ? "selected" : ""}>Auto</option><option value="manual" ${spellcasting.attack_bonus_mode === "manual" ? "selected" : ""}>Manual</option></select>
+        </label>
+        <label>Spell Attack Override<input id="spellcastingAtkOverride" type="number" value="${esc(spellcasting.attack_bonus_override ?? derived.spellcasting.attackBase)}" /></label>
+        <p class="hint">Computed: Spell Save DC <strong>${esc(derived.spellcasting.spellSaveDc)}</strong> · Spell Attack <strong>${esc(fmtSigned(derived.spellcasting.spellAttackBonus))}</strong></p>
+      </div>
+      <h3>Saves</h3>
+      <div class="grid2">
+        ${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<div class="save-row">
           <strong>${k.toUpperCase()}</strong>
           <label class="check"><input type="checkbox" data-save-prof="${k}" ${savingThrows?.[k]?.proficient ? "checked" : ""}/>Proficient</label>
-          <input type="number" data-save-bonus="${k}" value="${esc(savingThrows?.[k]?.bonus ?? 0)}" />
+          <label class="check"><input type="checkbox" data-save-mode="${k}" ${(savingThrows?.[k]?.bonus_mode || "auto") === "manual" ? "checked" : ""}/>Manual total</label>
+          <input type="number" data-save-bonus="${k}" value="${esc(savingThrows?.[k]?.bonus ?? 0)}" placeholder="bonus" />
+          <input type="number" data-save-manual="${k}" value="${esc(savingThrows?.[k]?.manual_total ?? derived.savingThrows[k].base)}" placeholder="manual total" />
+          <span class="derived-chip">${esc(fmtSigned(derived.savingThrows[k].total))}</span>
         </div>`).join("")}
       </div>
-      <h3>Skills</h3>
+      <h3>Talents</h3>
       <div class="stack">
-        ${skillDefs.map(([id, ability]) => {
+        ${SKILL_DEFS.map(([id, ability]) => {
           const row = skills?.[id] || {};
-          return `<div class="tracker-row">
-            <strong>${esc(id.replaceAll("_", " "))} (${esc(ability)})</strong>
+          return `<div class="skill-row">
+            <strong>${esc(id.replaceAll("_", " "))} (${esc(ability.toUpperCase())})</strong>
             <label class="check"><input type="checkbox" data-skill-prof="${esc(id)}" ${row.proficient ? "checked" : ""}/>Prof</label>
             <label class="check"><input type="checkbox" data-skill-exp="${esc(id)}" ${row.expertise ? "checked" : ""}/>Expertise</label>
-            <input type="number" data-skill-bonus="${esc(id)}" value="${esc(row.bonus ?? 0)}" />
+            <label class="check"><input type="checkbox" data-skill-mode="${esc(id)}" ${(row.bonus_mode || "auto") === "manual" ? "checked" : ""}/>Manual total</label>
+            <input type="number" data-skill-bonus="${esc(id)}" value="${esc(row.bonus ?? 0)}" placeholder="bonus" />
+            <input type="number" data-skill-manual="${esc(id)}" value="${esc(row.manual_total ?? derived.skills[id].base)}" placeholder="manual total" />
+            <span class="derived-chip">${esc(fmtSigned(derived.skills[id].total))}</span>
           </div>`;
         }).join("")}
       </div>
-      <h3>Attacks & Spellcasting</h3>
+      <h3>Arsenal</h3>
       <div class="inline-actions"><button type="button" id="attackAdd">Add Attack</button></div>
       <div class="stack">
         ${attacks.length === 0 ? `<p class="hint">No attacks</p>` : attacks.map((a, idx) => `<div class="attack-edit-row">
           <input data-attack-name="${idx}" value="${esc(a.name || "")}" placeholder="Name" />
           <input data-attack-bonus="${idx}" type="number" value="${esc(a.atk_bonus ?? 0)}" placeholder="Atk bonus" />
-          <input data-attack-damage="${idx}" value="${esc(a.damage_type || "")}" placeholder="Damage/Type" />
+          <input data-attack-damage="${idx}" value="${esc(a.damage || "")}" placeholder="Damage dice" />
+          <input data-attack-damagetype="${idx}" value="${esc(a.damage_type || "")}" placeholder="Damage type" />
+          <input data-attack-range="${idx}" value="${esc(a.range || "")}" placeholder="Range/Reach" />
           <input data-attack-notes="${idx}" value="${esc(a.notes || "")}" placeholder="Notes" />
           <button type="button" data-attack-del="${idx}">Delete</button>
         </div>`).join("")}
       </div>
     </div></article>
 
-    <article class="card" id="sec-spells"><h2>${cardTitle("Spells", edited.spells)}</h2><div class="card-body stack">
+    <article class="card ${sectionClass("sec-spells")}" id="sec-spells"><h2>${cardTitle("Spells", edited.spells)} <button type="button" class="card-toggle" data-toggle-sec="sec-spells">${collapsed["sec-spells"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="spellAdd">Add Spell</button><button type="button" data-open-lookup="spell">Lookup Spells</button></div>
       ${spells.length === 0 ? `<p class="hint">No known spells</p>` : spells.map((s, idx) => `<div class="spell-row">
         <input data-spell-name="${idx}" value="${esc(s.name || "")}" placeholder="Name" />
@@ -436,7 +668,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}) {
       </div>`).join("")}
     </div></article>
 
-    <article class="card" id="sec-inventory"><h2>${cardTitle("Inventory", edited.inventory)}</h2><div class="card-body stack">
+    <article class="card ${sectionClass("sec-inventory")}" id="sec-inventory"><h2>${cardTitle("Inventory", edited.inventory)} <button type="button" class="card-toggle" data-toggle-sec="sec-inventory">${collapsed["sec-inventory"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
       <button type="button" id="invAdd">Add Item</button>
       ${inventory.length === 0 ? `<p class="hint">No inventory items</p>` : inventory.map((r, idx) => `<div class="inv-row">
         <input data-inv-name="${idx}" value="${esc(r.name || "")}" placeholder="Item" />
@@ -446,7 +678,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}) {
       </div>`).join("")}
     </div></article>
 
-    <article class="card" id="sec-trackers"><h2>${cardTitle("Trackers & Log", edited.trackers)}</h2><div class="card-body stack">
+    <article class="card ${sectionClass("sec-trackers")}" id="sec-trackers"><h2>${cardTitle("Trackers & Log", edited.trackers)} <button type="button" class="card-toggle" data-toggle-sec="sec-trackers">${collapsed["sec-trackers"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="trackerAdd">Add Tracker</button><button type="button" id="logAdd">Add Log Entry</button></div>
       ${trackers.length === 0 ? `<p class="hint">No trackers</p>` : trackers.map((t, idx) => `<div class="tracker-row">
         <input data-tracker-label="${idx}" value="${esc(t.label || "")}" placeholder="Label" />
@@ -461,6 +693,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}) {
     </div></article>
 
     ${renderLookup(lookupState)}
+    </section>
   </section>`;
 }
 
@@ -469,6 +702,10 @@ export function mountV2UI({ root, getState, actions }) {
 
   const MODE_KEY = "living-codex-v2.ui.mode";
   const POLICY_KEY = "living-codex-v2.ui.policy";
+  const DENSITY_KEY = "living-codex-v2.ui.density";
+  const EDIT_TAB_KEY = "living-codex-v2.ui.edit_tab";
+  const PLAY_PANE_KEY = "living-codex-v2.ui.play_pane";
+  const PLAY_BOARD_KEY = "living-codex-v2.ui.play_board";
   const draft = {
     name: "New Character",
     rulesetId: "dnd5e_2014",
@@ -483,11 +720,31 @@ export function mountV2UI({ root, getState, actions }) {
     showCreate: false,
     diagnosticsOpen: false,
     edited: { core: false, classes: false, combat: false, spells: false, inventory: false, trackers: false },
+    densityMode: localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable",
+    activeEditTab: localStorage.getItem(EDIT_TAB_KEY) || "core",
+    activePlayPane: localStorage.getItem(PLAY_PANE_KEY) || "spells",
+    playBoard: (() => {
+      try {
+        const raw = JSON.parse(localStorage.getItem(PLAY_BOARD_KEY) || "{}");
+        return {
+          utilityRailOpen: raw?.utilityRailOpen !== false,
+          bandCompact: raw?.bandCompact === true,
+          hudCollapsed: raw?.hudCollapsed === true,
+          activeModule: typeof raw?.activeModule === "string" ? raw.activeModule : "spells"
+        };
+      } catch {
+        return { utilityRailOpen: true, bandCompact: false, hudCollapsed: false, activeModule: "spells" };
+      }
+    })(),
+    collapsedSectionsByTab: {},
+    hudState: { pinned: true, collapsed: false },
     lastCastLevel: 0,
     lastAction: "",
+    conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", notes: "", active: true } },
+    diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
     castMenu: { open: false, spellName: "", spellKey: "", baseLevel: 0, options: [] },
     palette: { open: false, query: "", selected: 0, recents: [] },
-    lookup: { open: false, type: "spell", query: "", level: "", allowOffClassSpells: false, selected: 0, results: [], feedback: "", originSectionId: "", originScrollY: 0 }
+    lookup: { open: false, type: "spell", query: "", level: "", allowOffClassSpells: false, selected: 0, results: [], feedback: "", originSectionId: "", originScrollY: 0, cursor: 0 }
   };
 
   const sectionIds = ["sec-core", "sec-classes", "sec-combat", "sec-profile", "sec-mechanics", "sec-spells", "sec-inventory", "sec-trackers"];
@@ -543,6 +800,106 @@ export function mountV2UI({ root, getState, actions }) {
     localStorage.setItem(POLICY_KEY, uiState.policyMode);
   }
 
+  function setDensityMode(mode) {
+    uiState.densityMode = mode === "compact" ? "compact" : "comfortable";
+    localStorage.setItem(DENSITY_KEY, uiState.densityMode);
+  }
+
+  function setActiveEditTab(tabId) {
+    const id = EDIT_TABS.some((t) => t.id === tabId) ? tabId : "core";
+    uiState.activeEditTab = id;
+    localStorage.setItem(EDIT_TAB_KEY, id);
+    if (!uiState.collapsedSectionsByTab[id]) uiState.collapsedSectionsByTab[id] = {};
+  }
+
+  function setActivePlayPane(paneId) {
+    const id = PLAY_PANES.some((p) => p.id === paneId) ? paneId : "spells";
+    uiState.activePlayPane = id;
+    uiState.playBoard.activeModule = id;
+    localStorage.setItem(PLAY_PANE_KEY, id);
+    localStorage.setItem(PLAY_BOARD_KEY, JSON.stringify(uiState.playBoard));
+  }
+
+  function persistPlayBoard() {
+    localStorage.setItem(PLAY_BOARD_KEY, JSON.stringify(uiState.playBoard));
+  }
+
+  function setPlayBoard(patch) {
+    uiState.playBoard = { ...uiState.playBoard, ...(patch || {}) };
+    persistPlayBoard();
+  }
+
+  function openConditionEditor(index = -1) {
+    const state = getState();
+    const rows = Array.isArray(state.character?.combat?.conditions) ? state.character.combat.conditions : [];
+    const row = index >= 0 ? rows[index] : null;
+    const model = typeof row === "string"
+      ? { name: row, source: "", duration: "", notes: "", active: true }
+      : {
+          name: row?.name || "",
+          source: row?.source || "",
+          duration: row?.duration || "",
+          notes: row?.notes || "",
+          active: row?.active !== false
+        };
+    uiState.conditionEditor = { open: true, index, model };
+    render();
+  }
+
+  function closeConditionEditor() {
+    uiState.conditionEditor = { open: false, index: -1, model: { name: "", source: "", duration: "", notes: "", active: true } };
+    render();
+  }
+
+  function openDiceTray() {
+    uiState.diceTray.open = true;
+    render();
+  }
+
+  function closeDiceTray() {
+    uiState.diceTray.open = false;
+    uiState.diceTray.rolling = false;
+    render();
+  }
+
+  function secureDieRoll(sides) {
+    const max = Math.max(2, asInt(sides, 20));
+    const span = Math.floor(0x100000000 / max) * max;
+    const bucket = new Uint32Array(1);
+    let v = 0;
+    do {
+      crypto.getRandomValues(bucket);
+      v = bucket[0];
+    } while (v >= span);
+    return (v % max) + 1;
+  }
+
+  function performDiceRoll() {
+    const die = Math.max(2, asInt(uiState.diceTray.die, 20));
+    const count = clamp(asInt(uiState.diceTray.count, 1), 1, 20);
+    const mod = clamp(asInt(uiState.diceTray.mod, 0), -99, 99);
+    const rolls = Array.from({ length: count }, () => secureDieRoll(die));
+    const subtotal = rolls.reduce((a, b) => a + b, 0);
+    const total = subtotal + mod;
+    const label = `${count}d${die}${mod ? (mod > 0 ? ` + ${mod}` : ` - ${Math.abs(mod)}`) : ""}`;
+    actions.updateCharacter((c) => {
+      c.play_state = c.play_state || {};
+      c.play_state.dice_last_roll = {
+        die,
+        count,
+        mod,
+        rolls,
+        subtotal,
+        total,
+        label,
+        utc: new Date().toISOString()
+      };
+      c.log = Array.isArray(c.log) ? c.log : [];
+      c.log.push({ id: crypto.randomUUID(), utc: new Date().toISOString(), tag: "roll", message: `${label} => [${rolls.join(", ")}] = ${total}` });
+    });
+    recordPlayAction(`Rolled ${label}: ${total}`);
+  }
+
   function markEdited(sectionKey) {
     if (!sectionKey || !Object.prototype.hasOwnProperty.call(uiState.edited, sectionKey)) return;
     uiState.edited[sectionKey] = true;
@@ -574,6 +931,37 @@ export function mountV2UI({ root, getState, actions }) {
       { id: "lookup-class", label: "Open Class Lookup", hint: "Rules data", keywords: ["lookup", "class"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("class") },
       { id: "lookup-subclass", label: "Open Subclass Lookup", hint: "Rules data", keywords: ["lookup", "subclass"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("subclass") },
       { id: "lookup-species", label: "Open Species Lookup", hint: "Rules data", keywords: ["lookup", "species"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("species") },
+      { id: "ui.toggleDensity", label: uiState.densityMode === "compact" ? "Switch to Comfortable View" : "Switch to Compact View", hint: "Density", keywords: ["density", "compact", "comfortable"], enabled: () => true, run: () => setDensityMode(uiState.densityMode === "compact" ? "comfortable" : "compact") },
+      { id: "ui.tab.core", label: "Tab: Core", hint: "Edit tab", keywords: ["tab", "core"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => setActiveEditTab("core") },
+      { id: "ui.tab.battle", label: "Tab: Battle", hint: "Edit tab", keywords: ["tab", "battle"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => setActiveEditTab("battle") },
+      { id: "ui.tab.spellcraft", label: "Tab: Spellcraft", hint: "Edit tab", keywords: ["tab", "spells"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => setActiveEditTab("spellcraft") },
+      { id: "ui.tab.gear", label: "Tab: Gear", hint: "Edit tab", keywords: ["tab", "gear", "inventory"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => setActiveEditTab("gear") },
+      { id: "ui.tab.chronicle", label: "Tab: Chronicle", hint: "Edit tab", keywords: ["tab", "chronicle"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => setActiveEditTab("chronicle") },
+      { id: "ui.collapseAll", label: "Collapse All Sections", hint: "Edit", keywords: ["collapse", "sections"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => {
+        const tab = uiState.activeEditTab || "core";
+        uiState.collapsedSectionsByTab[tab] = Object.fromEntries(tabSections(tab).map((s) => [s, true]));
+      } },
+      { id: "ui.expandAll", label: "Expand All Sections", hint: "Edit", keywords: ["expand", "sections"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => {
+        const tab = uiState.activeEditTab || "core";
+        uiState.collapsedSectionsByTab[tab] = Object.fromEntries(tabSections(tab).map((s) => [s, false]));
+      } },
+      { id: "ui.pane.spells", label: "Play Pane: Spells", hint: "Play pane", keywords: ["pane", "spells"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
+      { id: "ui.pane.attacks", label: "Play Pane: Attacks", hint: "Play pane", keywords: ["pane", "attacks"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
+      { id: "ui.pane.trackers", label: "Play Pane: Trackers", hint: "Play pane", keywords: ["pane", "trackers"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
+      { id: "ui.pane.log", label: "Play Pane: Log", hint: "Play pane", keywords: ["pane", "log"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("log") },
+      { id: "ui.pane.checks", label: "Play Pane: Checks", hint: "Play pane", keywords: ["pane", "checks"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("checks") },
+      { id: "ui.play.focusCast", label: "Play Focus: Cast", hint: "Turn console", keywords: ["play", "cast", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
+      { id: "ui.play.focusAttack", label: "Play Focus: Attack", hint: "Turn console", keywords: ["play", "attack", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
+      { id: "ui.play.focusChecks", label: "Play Focus: Checks", hint: "Turn console", keywords: ["play", "checks", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("checks") },
+      { id: "ui.play.focusResources", label: "Play Focus: Resources", hint: "Turn console", keywords: ["play", "resources", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
+      { id: "ui.play.toggleUtilityRail", label: uiState.playBoard?.utilityRailOpen !== false ? "Hide Utility Rail" : "Show Utility Rail", hint: "Play layout", keywords: ["play", "utility", "rail"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ utilityRailOpen: !(uiState.playBoard?.utilityRailOpen !== false) }) },
+      { id: "ui.play.toggleCompactBand", label: uiState.playBoard?.bandCompact ? "Expand Combat Band" : "Compact Combat Band", hint: "Play layout", keywords: ["play", "combat", "band", "compact"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ bandCompact: !uiState.playBoard?.bandCompact }) },
+      { id: "ui.play.toggleHud", label: uiState.playBoard?.hudCollapsed ? "Expand Combat HUD" : "Collapse Combat HUD", hint: "Play layout", keywords: ["play", "hud", "collapse"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ hudCollapsed: !uiState.playBoard?.hudCollapsed }) },
+      { id: "play.openDiceTray", label: "Play: Roll Dice", hint: "Open dice tray", keywords: ["play", "dice", "roll", "d20"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openDiceTray() },
+      { id: "play.roll.d20", label: "Play: Quick Roll 1d20", hint: "Immediate roll", keywords: ["play", "quick", "d20"], enabled: () => hasCharacter && uiState.mode === "play", run: () => {
+        uiState.diceTray = { ...uiState.diceTray, die: 20, count: 1, mod: 0 };
+        performDiceRoll();
+      } },
       { id: "play.shortRest", label: "Play: Short Rest", hint: "Restore pact slots", keywords: ["play", "short", "rest", "slots"], enabled: () => hasCharacter && uiState.mode === "play", run: () => performShortRest() },
       { id: "play.longRest", label: "Play: Long Rest", hint: "Restore all slots", keywords: ["play", "long", "rest", "slots"], enabled: () => hasCharacter && uiState.mode === "play", run: () => performLongRest() },
       { id: "play.undoLastCast", label: "Play: Undo Last Cast", hint: "Reverse recent cast", keywords: ["play", "undo", "cast"], enabled: () => hasCharacter && uiState.mode === "play", run: () => performUndoLastCast() },
@@ -807,7 +1195,8 @@ export function mountV2UI({ root, getState, actions }) {
   }
 
   function jumpToSection(idx) {
-    const id = sectionIds[idx];
+    const ids = uiState.mode === "edit" ? tabSections(uiState.activeEditTab || "core") : sectionIds;
+    const id = ids[idx];
     if (!id) return;
     const el = root.querySelector(`#${id}`);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -822,6 +1211,7 @@ export function mountV2UI({ root, getState, actions }) {
     uiState.lookup.level = "";
     uiState.lookup.allowOffClassSpells = false;
     uiState.lookup.selected = 0;
+    uiState.lookup.cursor = 0;
     uiState.lookup.feedback = "";
     uiState.lookup.originSectionId = section?.id || "";
     uiState.lookup.originScrollY = window.scrollY || 0;
@@ -849,13 +1239,14 @@ export function mountV2UI({ root, getState, actions }) {
 
   function cycleSections(step) {
     if (uiState.mode !== "edit") return;
-    const tops = sectionIds
+    const ids = tabSections(uiState.activeEditTab || "core");
+    const tops = ids
       .map((id, idx) => ({ idx, el: root.querySelector(`#${id}`) }))
       .filter((x) => x.el)
       .map((x) => ({ idx: x.idx, top: x.el.getBoundingClientRect().top }));
     if (!tops.length) return;
     const current = tops.find((x) => x.top > 0) || tops[tops.length - 1];
-    const next = (current.idx + step + sectionIds.length) % sectionIds.length;
+    const next = (current.idx + step + ids.length) % ids.length;
     jumpToSection(next);
   }
 
@@ -878,6 +1269,7 @@ export function mountV2UI({ root, getState, actions }) {
         <div class="top-actions">
           <div class="top-row-state">
             <span class="status-chip ${state.app.dirty ? "dirty" : "saved"}">${state.app.dirty ? "Unsaved" : "Saved"}</span>
+            <button type="button" id="densityToggle">${uiState.densityMode === "compact" ? "Comfortable View" : "Compact View"}</button>
             <label class="dual-toggle-chip" for="policyModeToggle" title="Choose which player options appear in lookups and selectors">
               <span class="${uiState.policyMode === "all_official" ? "is-active" : ""}">All Official Player Options</span>
               <input id="policyModeToggle" type="checkbox" ${uiState.policyMode === "core_only" ? "checked" : ""} />
@@ -922,7 +1314,7 @@ export function mountV2UI({ root, getState, actions }) {
         <label>Species<select id="newSpecies">${optionList(catalog.species || [], draft.speciesId, "Optional species")}</select></label>
         <div class="six-grid">${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<label>${k.toUpperCase()}<input id="new${k.toUpperCase()}" type="number" min="1" max="30" value="${esc(draft[k])}" /></label>`).join("")}</div>
         <div class="inline-actions"><button type="button" class="btn-primary" id="createBtn">Create Character</button>${character ? `<button type="button" id="cancelCreateBtn">Cancel</button>` : ""}</div>
-      </div></section>` : `${uiState.mode === "play" ? renderPlayMode(character) : renderEditMode(character, catalog, uiState.lookup, uiState.edited)}`}
+      </div></section>` : `${uiState.mode === "play" ? renderPlayMode(character, uiState) : renderEditMode(character, catalog, uiState.lookup, uiState.edited, uiState)}`}
 
       ${renderPalette(uiState.palette, commands)}
       ${uiState.castMenu.open ? `<div class="palette-overlay" id="castOverlay">
@@ -935,6 +1327,49 @@ export function mountV2UI({ root, getState, actions }) {
           <div class="inline-actions"><button type="button" id="castMenuCancel">Cancel</button></div>
         </section>
       </div>` : ""}
+      ${uiState.conditionEditor.open ? `<div class="palette-overlay" id="conditionOverlay">
+        <section class="palette cast-menu" role="dialog" aria-modal="true">
+          <h3>${uiState.conditionEditor.index >= 0 ? "Edit Condition" : "Add Condition"}</h3>
+          <div class="stack">
+            <label>Name<input id="condName" value="${esc(uiState.conditionEditor.model.name || "")}" placeholder="e.g. Poisoned" /></label>
+            <label>Source<input id="condSource" value="${esc(uiState.conditionEditor.model.source || "")}" placeholder="e.g. Hold Person" /></label>
+            <label>Duration<input id="condDuration" value="${esc(uiState.conditionEditor.model.duration || "")}" placeholder="e.g. 3 rounds" /></label>
+            <label>Notes<textarea id="condNotes">${esc(uiState.conditionEditor.model.notes || "")}</textarea></label>
+            <label class="check"><input type="checkbox" id="condActive" ${uiState.conditionEditor.model.active !== false ? "checked" : ""}/>Active</label>
+          </div>
+          <div class="inline-actions">
+            ${uiState.conditionEditor.index >= 0 ? `<button type="button" id="condDelete">Remove</button>` : ""}
+            <button type="button" id="condCancel">Cancel</button>
+            <button type="button" class="btn-primary" id="condSave">Save</button>
+          </div>
+        </section>
+      </div>` : ""}
+      ${uiState.diceTray.open ? `<div class="palette-overlay" id="diceOverlay">
+        <section class="palette cast-menu dice-tray" role="dialog" aria-modal="true">
+          <h3>Dice Tray</h3>
+          <p class="hint">Choose dice, then roll.</p>
+          <div class="grid2">
+            <label>Dice Type
+              <select id="diceType">
+                ${[4, 6, 8, 10, 12, 20, 100].map((d) => `<option value="${d}" ${asInt(uiState.diceTray.die, 20) === d ? "selected" : ""}>d${d}</option>`).join("")}
+              </select>
+            </label>
+            <label>Dice Count<input id="diceCount" type="number" min="1" max="20" value="${esc(uiState.diceTray.count)}" /></label>
+            <label>Modifier<input id="diceMod" type="number" min="-99" max="99" value="${esc(uiState.diceTray.mod)}" /></label>
+          </div>
+          <div class="inline-actions">
+            <button type="button" id="diceQuickD20">Quick 1d20</button>
+            <button type="button" id="diceQuick2d6">Quick 2d6</button>
+            <button type="button" id="diceCancel">Close</button>
+            <button type="button" class="btn-primary" id="diceRollBtn">Roll</button>
+          </div>
+          ${character?.play_state?.dice_last_roll ? `<div class="dice-result">
+            <p><strong>${esc(character.play_state.dice_last_roll.label || "Roll")}</strong></p>
+            <p>Dice: ${esc((character.play_state.dice_last_roll.rolls || []).join(", "))}</p>
+            <p>Total: <strong>${esc(character.play_state.dice_last_roll.total ?? 0)}</strong></p>
+          </div>` : ""}
+        </section>
+      </div>` : ""}
     `;
 
     bindEvents();
@@ -945,7 +1380,11 @@ export function mountV2UI({ root, getState, actions }) {
     }
     if (uiState.lookup.open) {
       const lookup = root.querySelector("#lookupQuery");
-      if (lookup) lookup.focus();
+      if (lookup) {
+        lookup.focus();
+        const pos = clamp(asInt(uiState.lookup.cursor, lookup.value.length), 0, lookup.value.length);
+        lookup.setSelectionRange(pos, pos);
+      }
     }
   }
 
@@ -960,6 +1399,10 @@ export function mountV2UI({ root, getState, actions }) {
       render();
     });
     root.querySelector("#saveBtn")?.addEventListener("click", () => actions.saveNow());
+    root.querySelector("#densityToggle")?.addEventListener("click", () => {
+      setDensityMode(uiState.densityMode === "compact" ? "comfortable" : "compact");
+      render();
+    });
     root.querySelector("#newCharBtn")?.addEventListener("click", () => {
       uiState.showCreate = true;
       render();
@@ -999,7 +1442,66 @@ export function mountV2UI({ root, getState, actions }) {
     root.querySelector("#castOverlay")?.addEventListener("click", (e) => {
       if (e.target?.id === "castOverlay") closeCastMenu();
     });
+    root.querySelector("#conditionOverlay")?.addEventListener("click", (e) => {
+      if (e.target?.id === "conditionOverlay") closeConditionEditor();
+    });
+    root.querySelector("#diceOverlay")?.addEventListener("click", (e) => {
+      if (e.target?.id === "diceOverlay") closeDiceTray();
+    });
     root.querySelector("#castMenuCancel")?.addEventListener("click", () => closeCastMenu());
+    root.querySelector("#condCancel")?.addEventListener("click", () => closeConditionEditor());
+    root.querySelector("#condSave")?.addEventListener("click", () => {
+      const idx = uiState.conditionEditor.index;
+      const payload = {
+        name: (root.querySelector("#condName")?.value || "").trim(),
+        source: (root.querySelector("#condSource")?.value || "").trim(),
+        duration: (root.querySelector("#condDuration")?.value || "").trim(),
+        notes: (root.querySelector("#condNotes")?.value || "").trim(),
+        active: Boolean(root.querySelector("#condActive")?.checked)
+      };
+      if (!payload.name) return;
+      actions.updateCharacter((c) => {
+        c.combat = c.combat || {};
+        c.combat.conditions = Array.isArray(c.combat.conditions) ? c.combat.conditions : [];
+        if (idx >= 0 && c.combat.conditions[idx]) c.combat.conditions[idx] = payload;
+        else c.combat.conditions.push(payload);
+      });
+      recordPlayAction(`${idx >= 0 ? "Updated" : "Added"} condition: ${payload.name}`);
+      closeConditionEditor();
+    });
+    root.querySelector("#condDelete")?.addEventListener("click", () => {
+      const idx = uiState.conditionEditor.index;
+      if (idx < 0) return;
+      actions.updateCharacter((c) => {
+        c.combat = c.combat || {};
+        c.combat.conditions = Array.isArray(c.combat.conditions) ? c.combat.conditions : [];
+        if (idx >= 0 && idx < c.combat.conditions.length) c.combat.conditions.splice(idx, 1);
+      });
+      recordPlayAction("Removed condition");
+      closeConditionEditor();
+    });
+    root.querySelector("#diceCancel")?.addEventListener("click", () => closeDiceTray());
+    root.querySelector("#diceQuickD20")?.addEventListener("click", () => {
+      uiState.diceTray.die = 20;
+      uiState.diceTray.count = 1;
+      uiState.diceTray.mod = 0;
+      performDiceRoll();
+      render();
+    });
+    root.querySelector("#diceQuick2d6")?.addEventListener("click", () => {
+      uiState.diceTray.die = 6;
+      uiState.diceTray.count = 2;
+      uiState.diceTray.mod = 0;
+      performDiceRoll();
+      render();
+    });
+    root.querySelector("#diceRollBtn")?.addEventListener("click", () => {
+      uiState.diceTray.die = asInt(root.querySelector("#diceType")?.value, uiState.diceTray.die || 20);
+      uiState.diceTray.count = clamp(asInt(root.querySelector("#diceCount")?.value, uiState.diceTray.count || 1), 1, 20);
+      uiState.diceTray.mod = clamp(asInt(root.querySelector("#diceMod")?.value, uiState.diceTray.mod || 0), -99, 99);
+      performDiceRoll();
+      render();
+    });
     root.querySelectorAll("[data-cast-at]").forEach((el) => {
       el.addEventListener("click", (e) => {
         const lvl = asInt(e.currentTarget.getAttribute("data-cast-at"), 0);
@@ -1030,6 +1532,7 @@ export function mountV2UI({ root, getState, actions }) {
     });
     root.querySelector("#lookupQuery")?.addEventListener("input", (e) => {
       uiState.lookup.query = e.target.value;
+      uiState.lookup.cursor = e.target.selectionStart ?? uiState.lookup.query.length;
       refreshLookup();
       render();
     });
@@ -1054,10 +1557,75 @@ export function mountV2UI({ root, getState, actions }) {
     root.querySelectorAll("[data-open-lookup]").forEach((el) => {
       el.addEventListener("click", (e) => openLookup(e.currentTarget.getAttribute("data-open-lookup")));
     });
+    root.querySelectorAll("[data-edit-tab]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        setActiveEditTab(e.currentTarget.getAttribute("data-edit-tab"));
+        render();
+      });
+    });
+    root.querySelectorAll("[data-jump-sec]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        const sec = e.currentTarget.getAttribute("data-jump-sec");
+        const target = sec ? root.querySelector(`#${sec}`) : null;
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    root.querySelectorAll("[data-toggle-sec]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        const sec = e.currentTarget.getAttribute("data-toggle-sec");
+        const tab = uiState.activeEditTab || "core";
+        if (!uiState.collapsedSectionsByTab[tab]) uiState.collapsedSectionsByTab[tab] = {};
+        uiState.collapsedSectionsByTab[tab][sec] = !uiState.collapsedSectionsByTab[tab][sec];
+        render();
+      });
+    });
+    root.querySelector("[data-collapse-all]")?.addEventListener("click", () => {
+      const tab = uiState.activeEditTab || "core";
+      uiState.collapsedSectionsByTab[tab] = Object.fromEntries(tabSections(tab).map((s) => [s, true]));
+      render();
+    });
+    root.querySelector("[data-expand-all]")?.addEventListener("click", () => {
+      const tab = uiState.activeEditTab || "core";
+      uiState.collapsedSectionsByTab[tab] = Object.fromEntries(tabSections(tab).map((s) => [s, false]));
+      render();
+    });
 
     if (!character) return;
 
     if (uiState.mode === "play") {
+      root.querySelector("#toggleHudCollapse")?.addEventListener("click", () => {
+        setPlayBoard({ hudCollapsed: !uiState.playBoard?.hudCollapsed });
+        render();
+      });
+      root.querySelector("#openDiceTray")?.addEventListener("click", () => openDiceTray());
+      root.querySelector("#openDiceTrayHud")?.addEventListener("click", () => openDiceTray());
+      root.querySelectorAll("[data-toggle-utility]").forEach((el) => el.addEventListener("click", () => {
+        setPlayBoard({ utilityRailOpen: !(uiState.playBoard?.utilityRailOpen !== false) });
+        render();
+      }));
+      root.querySelectorAll("[data-toggle-band]").forEach((el) => el.addEventListener("click", () => {
+        setPlayBoard({ bandCompact: !uiState.playBoard?.bandCompact });
+        render();
+      }));
+      root.querySelectorAll("[data-play-pane]").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          setActivePlayPane(e.currentTarget.getAttribute("data-play-pane"));
+          render();
+        });
+      });
+      root.querySelector("#addConditionBtn")?.addEventListener("click", () => openConditionEditor(-1));
+      root.querySelectorAll("[data-cond-edit]").forEach((el) => {
+        el.addEventListener("click", (e) => openConditionEditor(asInt(e.currentTarget.getAttribute("data-cond-edit"), -1)));
+      });
+      root.querySelector("#concentrationToggle")?.addEventListener("change", (e) => {
+        actions.updateCharacter((c) => {
+          c.combat = c.combat || {};
+          c.combat.concentration = c.combat.concentration || { active: false, source: "", notes: "" };
+          c.combat.concentration.active = Boolean(e.target.checked);
+          if (!c.combat.concentration.active) c.combat.concentration.source = "";
+        });
+        recordPlayAction(e.target.checked ? "Concentration enabled" : "Concentration cleared");
+      });
       root.querySelector("#undoLastCast")?.addEventListener("click", () => performUndoLastCast());
       root.querySelector("#shortRestSlots")?.addEventListener("click", () => performShortRest());
       root.querySelector("#longRestSlots")?.addEventListener("click", () => performLongRest());
@@ -1071,6 +1639,15 @@ export function mountV2UI({ root, getState, actions }) {
           });
           recordPlayAction(delta > 0 ? `HP +${delta}` : `HP ${delta}`);
         });
+      });
+      root.querySelector("#playHpSet")?.addEventListener("click", () => {
+        const val = Math.max(0, asInt(root.querySelector("#playHpCurrent")?.value, 0));
+        actions.updateCharacter((c) => {
+          c.combat = c.combat || { hp: { max: 1, current: 1, temp: 0 } };
+          c.combat.hp = c.combat.hp || { max: 1, current: 1, temp: 0 };
+          c.combat.hp.current = Math.min(c.combat.hp.max || 0, val);
+        });
+        recordPlayAction(`HP set to ${val}`);
       });
       root.querySelectorAll("[data-cast-spell]").forEach((el) => {
         el.addEventListener("click", (e) => {
@@ -1191,6 +1768,12 @@ export function mountV2UI({ root, getState, actions }) {
     root.querySelector("#combatHitDiceUsed")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.hit_dice_used = Math.max(0, asInt(e.target.value, 0)); }));
     root.querySelector("#combatDeathSaveSuccess")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 }; c.combat.death_saves.success = Math.max(0, Math.min(3, asInt(e.target.value, 0))); }));
     root.querySelector("#combatDeathSaveFail")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.combat.death_saves = c.combat.death_saves || { success: 0, fail: 0 }; c.combat.death_saves.fail = Math.max(0, Math.min(3, asInt(e.target.value, 0))); }));
+    root.querySelector("#spellcastingClassId")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.class_id = e.target.value; }));
+    root.querySelector("#spellcastingAbility")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.ability = e.target.value; }));
+    root.querySelector("#spellcastingSaveDcMode")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.save_dc_mode = e.target.value === "manual" ? "manual" : "auto"; }));
+    root.querySelector("#spellcastingSaveDcOverride")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.save_dc_override = asInt(e.target.value, 0); }));
+    root.querySelector("#spellcastingAtkMode")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.attack_bonus_mode = e.target.value === "manual" ? "manual" : "auto"; }));
+    root.querySelector("#spellcastingAtkOverride")?.addEventListener("input", (e) => actions.updateCharacter((c) => { c.spellcasting = c.spellcasting || {}; c.spellcasting.attack_bonus_override = asInt(e.target.value, 0); }));
 
     root.querySelector("#profileBackground")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.background = e.target.value; }));
     root.querySelector("#profileAlignment")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.profile = c.profile || {}; c.profile.alignment = e.target.value; }));
@@ -1221,7 +1804,7 @@ export function mountV2UI({ root, getState, actions }) {
       const key = e.target.getAttribute("data-save-prof");
       actions.updateCharacter((c) => {
         c.saving_throws = c.saving_throws || {};
-        c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0 };
+        c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
         c.saving_throws[key].proficient = Boolean(e.target.checked);
       });
     }));
@@ -1229,15 +1812,31 @@ export function mountV2UI({ root, getState, actions }) {
       const key = e.target.getAttribute("data-save-bonus");
       actions.updateCharacter((c) => {
         c.saving_throws = c.saving_throws || {};
-        c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0 };
+        c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
         c.saving_throws[key].bonus = asInt(e.target.value, 0);
+      });
+    }));
+    root.querySelectorAll("[data-save-mode]").forEach((el) => el.addEventListener("change", (e) => {
+      const key = e.target.getAttribute("data-save-mode");
+      actions.updateCharacter((c) => {
+        c.saving_throws = c.saving_throws || {};
+        c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+        c.saving_throws[key].bonus_mode = e.target.checked ? "manual" : "auto";
+      });
+    }));
+    root.querySelectorAll("[data-save-manual]").forEach((el) => el.addEventListener("input", (e) => {
+      const key = e.target.getAttribute("data-save-manual");
+      actions.updateCharacter((c) => {
+        c.saving_throws = c.saving_throws || {};
+        c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+        c.saving_throws[key].manual_total = asInt(e.target.value, 0);
       });
     }));
     root.querySelectorAll("[data-skill-prof]").forEach((el) => el.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-skill-prof");
       actions.updateCharacter((c) => {
         c.skills = c.skills || {};
-        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0 };
+        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
         c.skills[key].proficient = Boolean(e.target.checked);
       });
     }));
@@ -1245,7 +1844,7 @@ export function mountV2UI({ root, getState, actions }) {
       const key = e.target.getAttribute("data-skill-exp");
       actions.updateCharacter((c) => {
         c.skills = c.skills || {};
-        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0 };
+        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
         c.skills[key].expertise = Boolean(e.target.checked);
       });
     }));
@@ -1253,13 +1852,29 @@ export function mountV2UI({ root, getState, actions }) {
       const key = e.target.getAttribute("data-skill-bonus");
       actions.updateCharacter((c) => {
         c.skills = c.skills || {};
-        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0 };
+        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
         c.skills[key].bonus = asInt(e.target.value, 0);
+      });
+    }));
+    root.querySelectorAll("[data-skill-mode]").forEach((el) => el.addEventListener("change", (e) => {
+      const key = e.target.getAttribute("data-skill-mode");
+      actions.updateCharacter((c) => {
+        c.skills = c.skills || {};
+        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+        c.skills[key].bonus_mode = e.target.checked ? "manual" : "auto";
+      });
+    }));
+    root.querySelectorAll("[data-skill-manual]").forEach((el) => el.addEventListener("input", (e) => {
+      const key = e.target.getAttribute("data-skill-manual");
+      actions.updateCharacter((c) => {
+        c.skills = c.skills || {};
+        c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+        c.skills[key].manual_total = asInt(e.target.value, 0);
       });
     }));
     root.querySelector("#attackAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
       c.attacks = Array.isArray(c.attacks) ? c.attacks : [];
-      c.attacks.push({ id: crypto.randomUUID(), name: "", atk_bonus: 0, damage_type: "", notes: "" });
+      c.attacks.push({ id: crypto.randomUUID(), name: "", atk_bonus: 0, damage: "", damage_type: "", range: "", notes: "" });
     }));
     root.querySelectorAll("[data-attack-name]").forEach((el) => el.addEventListener("change", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-name"), -1);
@@ -1271,7 +1886,15 @@ export function mountV2UI({ root, getState, actions }) {
     }));
     root.querySelectorAll("[data-attack-damage]").forEach((el) => el.addEventListener("change", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-damage"), -1);
+      actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].damage = e.target.value; });
+    }));
+    root.querySelectorAll("[data-attack-damagetype]").forEach((el) => el.addEventListener("change", (e) => {
+      const i = asInt(e.target.getAttribute("data-attack-damagetype"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].damage_type = e.target.value; });
+    }));
+    root.querySelectorAll("[data-attack-range]").forEach((el) => el.addEventListener("change", (e) => {
+      const i = asInt(e.target.getAttribute("data-attack-range"), -1);
+      actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].range = e.target.value; });
     }));
     root.querySelectorAll("[data-attack-notes]").forEach((el) => el.addEventListener("change", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-notes"), -1);
@@ -1403,7 +2026,75 @@ export function mountV2UI({ root, getState, actions }) {
       }
     }
 
+    if (uiState.diceTray.open) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeDiceTray();
+        return;
+      }
+      if (e.key === "Enter" && !targetTyping) {
+        e.preventDefault();
+        performDiceRoll();
+        render();
+        return;
+      }
+    }
+
     if (targetTyping) return;
+
+    if (uiState.mode === "play" && e.altKey && /[1-5]/.test(e.key)) {
+      e.preventDefault();
+      const idx = asInt(e.key, 1) - 1;
+      const pane = PLAY_PANES[idx]?.id;
+      if (pane) {
+        setActivePlayPane(pane);
+        render();
+      }
+      return;
+    }
+
+    if (uiState.mode === "play") {
+      if (e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        setActivePlayPane("spells");
+        render();
+        return;
+      }
+      if (e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setActivePlayPane("attacks");
+        render();
+        return;
+      }
+      if (e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setActivePlayPane("checks");
+        render();
+        return;
+      }
+      if (e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        setActivePlayPane("trackers");
+        render();
+        return;
+      }
+      if (e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        openDiceTray();
+        return;
+      }
+    }
+
+    if (uiState.mode === "edit" && e.altKey && /[1-5]/.test(e.key)) {
+      e.preventDefault();
+      const idx = asInt(e.key, 1) - 1;
+      const tab = EDIT_TABS[idx]?.id;
+      if (tab) {
+        setActiveEditTab(tab);
+        render();
+      }
+      return;
+    }
 
     if (cmd && /[1-6]/.test(e.key)) {
       e.preventDefault();

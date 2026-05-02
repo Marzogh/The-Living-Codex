@@ -37,6 +37,15 @@ export function createDefaultCharacterV2({
     combat: {
       ac: 10,
       initiative_bonus: 0,
+      speed: 30,
+      inspiration: 0,
+      proficiency_bonus: 2,
+      passive_perception: 10,
+      hit_dice_total: 0,
+      hit_dice_used: 0,
+      concentration: { active: false, source: "", notes: "" },
+      conditions: [],
+      death_saves: { success: 0, fail: 0 },
       hp: {
         max: 1,
         current: 1,
@@ -77,6 +86,49 @@ export function createDefaultCharacterV2({
     },
     trackers: [],
     inventory: [],
+    profile: {
+      background: "",
+      alignment: "",
+      player_name: "",
+      experience_points: 0,
+      age: "",
+      height: "",
+      weight: "",
+      eyes: "",
+      skin: "",
+      hair: "",
+      personality_traits: "",
+      ideals: "",
+      bonds: "",
+      flaws: "",
+      other_proficiencies_languages: "",
+      features_traits: "",
+      backstory: "",
+      allies_organizations: "",
+      additional_features: "",
+      treasure: ""
+    },
+    resources: {
+      cp: 0, sp: 0, ep: 0, gp: 0, pp: 0
+    },
+    saving_throws: {
+      str: { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 },
+      dex: { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 },
+      con: { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 },
+      int: { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 },
+      wis: { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 },
+      cha: { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 }
+    },
+    skills: {},
+    attacks: [],
+    spellcasting: {
+      class_id: classId || "",
+      ability: "",
+      save_dc_mode: "auto",
+      save_dc_override: 0,
+      attack_bonus_mode: "auto",
+      attack_bonus_override: 0
+    },
     spells_known: [],
     spells_prepared: [],
     spell_slots: {
