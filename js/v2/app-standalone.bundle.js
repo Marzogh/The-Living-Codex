@@ -5125,6 +5125,108 @@
       spellcasting: { classId, ability, spellMod, saveDcBase, spellSaveDc, attackBase, spellAttackBonus }
     };
   }
+  function collectBonusActions(character) {
+    const out = { features: [], spells: [] };
+    const classes = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+    const known = Array.isArray(character?.spells_known) ? character.spells_known : [];
+    const prepared = Array.isArray(character?.spells_prepared) ? character.spells_prepared : [];
+    const spellSource = prepared.length ? prepared : known;
+    const starsDruid = classes.some((row) => norm(row?.id) === "druid" && norm(row?.subclassId || "").includes("stars"));
+    if (starsDruid) {
+      out.features.push({
+        id: "stars_starry_form",
+        title: "Starry Form",
+        detail: "Bonus action to activate by expending one Wild Shape use."
+      });
+      out.features.push({
+        id: "stars_archer",
+        title: "Archer Constellation Shot",
+        detail: "While Archer is active, bonus action each turn to fire the radiant arrow."
+      });
+    }
+    const seenSpell = /* @__PURE__ */ new Set();
+    for (const spell of spellSource) {
+      const casting = (spell?.casting_time || "").toString().toLowerCase();
+      if (!casting.includes("bonus action")) continue;
+      const name = (spell?.name || spell?.id || "").toString().trim();
+      if (!name) continue;
+      const key = norm(name);
+      if (seenSpell.has(key)) continue;
+      seenSpell.add(key);
+      out.spells.push({
+        id: spell?.id || name,
+        title: name,
+        detail: `Casting time: ${spell?.casting_time || "Bonus Action"}`
+      });
+    }
+    out.spells.sort((a, b) => a.title.localeCompare(b.title));
+    return out;
+  }
+  function collectClassActionFeatures(character) {
+    const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+    const out = { action: [], bonus: [], reaction: [], passive: [] };
+    const ability = character?.abilities || {};
+    const chaMod = Math.floor((clamp(asInt(ability.cha, 10), 1, 30) - 10) / 2);
+    const push = (kind, id, title, detail, resource = null) => {
+      if (!kind || !title) return;
+      const bucket = out[kind] || out.passive;
+      if (bucket.some((x) => x.id === id || x.title === title)) return;
+      bucket.push({ id: id || norm(title), title, detail, resource });
+    };
+    for (const row of rows) {
+      const cls = norm(row?.id);
+      const sub = norm(row?.subclassId);
+      const lvl = clamp(asInt(row?.level, 0), 0, 20);
+      if (!cls || lvl <= 0) continue;
+      if (cls === "artificer" && lvl >= 2) push("action", "infuse_item", "Infuse Item", "Action during downtime/loadout to apply infusions.");
+      if (cls === "barbarian" && lvl >= 1) {
+        const max = lvl >= 20 ? 99 : lvl >= 17 ? 6 : lvl >= 12 ? 5 : lvl >= 6 ? 4 : lvl >= 3 ? 3 : 2;
+        push("bonus", "rage", "Rage", "Bonus action to enter a rage.", { max, rest: "long" });
+      }
+      if (cls === "bard" && lvl >= 1) push("bonus", "bardic_inspiration", "Bardic Inspiration", "Bonus action to grant an inspiration die.", { max: Math.max(1, chaMod), rest: "long" });
+      if (cls === "bard" && lvl >= 14 && sub.includes("valor")) push("bonus", "battle_magic", "Battle Magic", "After casting a bard spell, you can make one weapon attack as a bonus action.");
+      if (cls === "cleric" && lvl >= 2) push("action", "channel_divinity", "Channel Divinity", "Action to use Channel Divinity options.", { max: lvl >= 18 ? 3 : lvl >= 6 ? 2 : 1, rest: "short" });
+      if (cls === "druid" && lvl >= 2) push("action", "wild_shape", "Wild Shape", "Action to transform using Wild Shape.", { max: lvl >= 20 ? 99 : 2, rest: "short" });
+      if (cls === "druid" && lvl >= 18) push("bonus", "beast_spells", "Beast Spells", "While in Wild Shape, you can cast many spells (action economy follows each spell).");
+      if (cls === "fighter" && lvl >= 1) push("bonus", "second_wind", "Second Wind", "Bonus action to regain hit points.", { max: 1, rest: "short" });
+      if (cls === "fighter" && lvl >= 2) push("action", "action_surge", "Action Surge", "Special action boost on your turn.", { max: lvl >= 17 ? 2 : 1, rest: "short" });
+      if (cls === "fighter" && lvl >= 3 && sub.includes("samurai")) push("bonus", "fighting_spirit", "Fighting Spirit", "Bonus action to gain advantage and temporary hit points.", { max: 3, rest: "long" });
+      if (cls === "fighter" && lvl >= 3 && sub.includes("cavalier")) push("bonus", "unwavering_mark", "Warding Maneuver / Mark Follow-up", "Subclass can produce bonus-action follow-up attacks in specific conditions.");
+      if (cls === "monk" && lvl >= 2) {
+        push("bonus", "flurry_of_blows", "Flurry of Blows", "Bonus action after Attack; spend 1 ki.", { max: lvl, rest: "short", pool: "ki" });
+        push("bonus", "patient_defense", "Patient Defense", "Bonus action; spend 1 ki to Dodge.", { max: lvl, rest: "short", pool: "ki" });
+        push("bonus", "step_of_the_wind", "Step of the Wind", "Bonus action; spend 1 ki to Dash/Disengage.", { max: lvl, rest: "short", pool: "ki" });
+      }
+      if (cls === "paladin" && lvl >= 1) push("action", "lay_on_hands", "Lay on Hands", "Action to heal using your pool.", { max: lvl * 5, rest: "long" });
+      if (cls === "ranger" && lvl >= 1) push("bonus", "two_weapon_fighting", "Two-Weapon Fighting (if dual wielding)", "Bonus action off-hand attack when eligible.");
+      if (cls === "ranger" && lvl >= 3 && sub.includes("beast_master")) push("bonus", "beast_command", "Companion Command", "Use bonus action to command companion attacks (Primal Companion style).");
+      if (cls === "ranger" && lvl >= 3 && sub.includes("horizon_walker")) push("bonus", "planar_warrior", "Planar Warrior", "Bonus action to empower one weapon attack this turn.");
+      if (cls === "rogue" && lvl >= 2) push("bonus", "cunning_action", "Cunning Action", "Bonus action Dash, Disengage, or Hide.");
+      if (cls === "rogue" && lvl >= 3 && sub.includes("mastermind")) push("bonus", "master_of_tactics", "Master of Tactics", "Bonus action Help at range (subclass feature).");
+      if (cls === "rogue" && lvl >= 3 && sub.includes("thief")) push("bonus", "fast_hands", "Fast Hands", "Bonus action Sleight of Hand / thieves' tools / Use Object options.");
+      if (cls === "rogue" && lvl >= 13 && sub.includes("arcane_trickster")) push("bonus", "versatile_trickster", "Versatile Trickster", "Bonus action to have Mage Hand distract target for advantage setup.");
+      if (cls === "sorcerer" && lvl >= 3) push("bonus", "quickened_spell", "Quickened Spell", "Cast select spells as a bonus action via Metamagic.");
+      if (cls === "sorcerer" && lvl >= 6 && sub.includes("storm")) push("bonus", "heart_of_the_storm", "Storm Sorcery Mobility", "Subclass enables bonus-action repositioning after leveled spellcasting.");
+      if (cls === "warlock" && lvl >= 1) push("bonus", "hex_setup", "Hex / Hex-like effects", "Many warlock staples use bonus action setup.");
+      if (cls === "warlock" && lvl >= 1 && sub.includes("hexblade")) push("bonus", "hexblades_curse", "Hexblade's Curse", "Bonus action to curse one creature.");
+      if (cls === "wizard" && lvl >= 18) push("action", "spell_mastery", "Spell Mastery (at-will choices)", "Frequent action economy casting options.");
+      if (cls === "druid" && sub.includes("stars") && lvl >= 2) {
+        push("bonus", "starry_form", "Starry Form", "Bonus action to activate by expending one Wild Shape use.");
+        push("bonus", "archer_constellation_shot", "Archer Constellation Shot", "While Archer is active, bonus action each turn to fire radiant arrow.");
+      }
+    }
+    const species = norm(character?.core?.speciesId || "");
+    if (species === "dragonborn") {
+      push("action", "dragonborn_breath", "Breath Weapon", "Action to exhale destructive energy (species trait).");
+    }
+    if (species === "goblin") {
+      push("bonus", "nimble_escape", "Nimble Escape", "Bonus action Disengage or Hide (species trait).");
+    }
+    if (species === "aasimar") {
+      push("action", "celestial_revelation", "Celestial Revelation", "Action to unleash celestial form (species trait, level-dependent by source).");
+    }
+    return out;
+  }
   function lookupLabel(rows, id) {
     const key = norm(id);
     if (!key) return "";
@@ -5156,6 +5258,7 @@
   ];
   var PLAY_PANES = [
     { id: "spells", label: "Spells" },
+    { id: "bonus", label: "Bonus Actions" },
     { id: "attacks", label: "Attacks" },
     { id: "trackers", label: "Trackers" },
     { id: "log", label: "Log" }
@@ -5330,6 +5433,27 @@
     const rollState = character?.play_state?.dice_last_roll || null;
     const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
     const derived = deriveStats(character);
+    const bonusActions = collectBonusActions(character);
+    const classActions = collectClassActionFeatures(character);
+    const resolveFeatureUsage = (feature) => {
+      const max = Math.max(0, asInt(feature?.resource?.max, 0));
+      if (max <= 0) return { max: 0, current: 0, trackerIdx: -1 };
+      const titleKey = norm(feature?.title || "");
+      const idKey = norm(feature?.id || "");
+      const trackerIdx = trackers.findIndex((t) => {
+        const l = norm(t?.label || "");
+        return l && (l.includes(titleKey) || idKey && l.includes(idKey.replaceAll("_", " ")));
+      });
+      if (trackerIdx >= 0) {
+        const t = trackers[trackerIdx] || {};
+        const tMax = Math.max(0, asInt(t.max, max));
+        const cur2 = clamp(asInt(t.current, tMax), 0, tMax);
+        return { max: tMax, current: cur2, trackerIdx };
+      }
+      const uses = character?.play_state?.feature_uses || {};
+      const cur = clamp(asInt(uses[idKey], max), 0, max);
+      return { max, current: cur, trackerIdx: -1 };
+    };
     const byLevel = /* @__PURE__ */ new Map();
     for (const s of spellSource) {
       const lvl = clamp(asInt(s?.level, 0), 0, 9);
@@ -5402,7 +5526,39 @@
     }).join("")}
       </div>
     </div></article>`;
-    const paneMap = { spells: spellsPane, attacks: attacksPane, trackers: trackersPane, log: logPane };
+    const bonusPane = `<article class="card bonus-actions-card"><h2>Class Powers & Bonus Actions</h2><div class="card-body stack">
+      ${classActions.bonus.length ? `<section><h3>Bonus Action Features</h3><ul class="bonus-actions-list">
+        ${classActions.bonus.map((row) => {
+      const usage = resolveFeatureUsage(row);
+      const hasResource = usage.max > 0;
+      return `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small>
+            ${hasResource ? `<div class="feature-usage"><span class="derived-chip">${esc(usage.current)}/${esc(usage.max)}</span>
+              <button type="button" data-feature-use="${esc(row.id)}">Use</button>
+              <button type="button" data-feature-refund="${esc(row.id)}">Restore</button>
+            </div>` : `<div class="feature-usage"><button type="button" data-feature-tap="${esc(row.id)}">Mark Used</button></div>`}
+          </li>`;
+    }).join("")}
+      </ul></section>` : `<p class="hint">No class bonus-action features detected at current levels.</p>`}
+      ${bonusActions.spells.length ? `<section><h3>Bonus Action Spells</h3><ul class="bonus-actions-list">
+        ${bonusActions.spells.map((row) => `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small></li>`).join("")}
+      </ul></section>` : ""}
+      ${classActions.action.length ? `<section><h3>Action Features</h3><ul class="bonus-actions-list">
+        ${classActions.action.map((row) => {
+      const usage = resolveFeatureUsage(row);
+      const hasResource = usage.max > 0;
+      return `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small>
+            ${hasResource ? `<div class="feature-usage"><span class="derived-chip">${esc(usage.current)}/${esc(usage.max)}</span>
+              <button type="button" data-feature-use="${esc(row.id)}">Use</button>
+              <button type="button" data-feature-refund="${esc(row.id)}">Restore</button>
+            </div>` : `<div class="feature-usage"><button type="button" data-feature-tap="${esc(row.id)}">Mark Used</button></div>`}
+          </li>`;
+    }).join("")}
+      </ul></section>` : ""}
+      ${classActions.reaction.length ? `<section><h3>Reaction Features</h3><ul class="bonus-actions-list">
+        ${classActions.reaction.map((row) => `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small></li>`).join("")}
+      </ul></section>` : ""}
+    </div></article>`;
+    const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, trackers: trackersPane, log: logPane };
     const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round(hp.current / hp.max * 100))) : 0;
     return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
     <section class="play-hud card ${uiState.playBoard?.bandCompact ? "is-compact" : ""} ${uiState.playBoard?.hudCollapsed ? "is-collapsed" : ""}">
@@ -6189,12 +6345,14 @@
           uiState.collapsedSectionsByTab[tab] = Object.fromEntries(tabSections(tab).map((s) => [s, false]));
         } },
         { id: "ui.pane.spells", label: "Play Pane: Spells", hint: "Play pane", keywords: ["pane", "spells"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
+        { id: "ui.pane.bonus", label: "Play Pane: Bonus Actions", hint: "Play pane", keywords: ["pane", "bonus", "actions", "class"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("bonus") },
         { id: "ui.pane.attacks", label: "Play Pane: Attacks", hint: "Play pane", keywords: ["pane", "attacks"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
         { id: "ui.pane.trackers", label: "Play Pane: Trackers", hint: "Play pane", keywords: ["pane", "trackers"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
         { id: "ui.pane.log", label: "Play Pane: Log", hint: "Play pane", keywords: ["pane", "log"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("log") },
         { id: "ui.play.openChecksDrawer", label: "Play: Open Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openChecksDrawer() },
         { id: "ui.play.closeChecksDrawer", label: "Play: Close Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer", "close"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.checksDrawerOpen, run: () => closeChecksDrawer() },
         { id: "ui.play.focusCast", label: "Play Focus: Cast", hint: "Turn console", keywords: ["play", "cast", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
+        { id: "ui.play.focusBonus", label: "Play Focus: Bonus Actions", hint: "Turn console", keywords: ["play", "bonus", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("bonus") },
         { id: "ui.play.focusAttack", label: "Play Focus: Attack", hint: "Turn console", keywords: ["play", "attack", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
         { id: "ui.play.focusChecks", label: "Play Focus: Checks", hint: "Checks and saves", keywords: ["play", "checks", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openChecksDrawer() },
         { id: "ui.play.focusResources", label: "Play Focus: Resources", hint: "Turn console", keywords: ["play", "resources", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
@@ -6228,6 +6386,57 @@
         c.play_state.cast_feedback = message;
       });
     }
+    function adjustFeatureUse(featureId, delta = -1) {
+      const state = getState();
+      const actionsByKind = collectClassActionFeatures(state.character || {});
+      const all = [...actionsByKind.bonus, ...actionsByKind.action, ...actionsByKind.reaction, ...actionsByKind.passive];
+      const feature = all.find((f) => norm(f.id) === norm(featureId));
+      if (!feature?.resource?.max) return;
+      const max = Math.max(0, asInt(feature.resource.max, 0));
+      const titleKey = norm(feature.title || "");
+      const trackerIdx = (state.character?.trackers || []).findIndex((t) => {
+        const l = norm(t?.label || "");
+        return l && l.includes(titleKey);
+      });
+      actions.updateCharacter((c) => {
+        c.play_state = c.play_state || {};
+        c.play_state.feature_uses = c.play_state.feature_uses || {};
+        if (trackerIdx >= 0 && c.trackers?.[trackerIdx]) {
+          const t = c.trackers[trackerIdx];
+          const tMax = Math.max(0, asInt(t.max, max));
+          t.current = clamp(asInt(t.current, tMax) + asInt(delta, 0), 0, tMax);
+          return;
+        }
+        const key = norm(feature.id);
+        const cur = clamp(asInt(c.play_state.feature_uses[key], max), 0, max);
+        c.play_state.feature_uses[key] = clamp(cur + asInt(delta, 0), 0, max);
+      });
+      recordPlayAction(`${delta < 0 ? "Used" : "Restored"} feature: ${feature.title}`);
+    }
+    function markFeatureUsed(featureId) {
+      const state = getState();
+      const actionsByKind = collectClassActionFeatures(state.character || {});
+      const all = [...actionsByKind.bonus, ...actionsByKind.action, ...actionsByKind.reaction, ...actionsByKind.passive];
+      const feature = all.find((f) => norm(f.id) === norm(featureId));
+      if (!feature) return;
+      recordPlayAction(`Used feature: ${feature.title}`);
+    }
+    function resetFeatureUses(restKind = "long") {
+      actions.updateCharacter((c) => {
+        const actionsByKind = collectClassActionFeatures(c || {});
+        const all = [...actionsByKind.bonus, ...actionsByKind.action, ...actionsByKind.reaction, ...actionsByKind.passive];
+        c.play_state = c.play_state || {};
+        c.play_state.feature_uses = c.play_state.feature_uses || {};
+        for (const feature of all) {
+          const max = Math.max(0, asInt(feature?.resource?.max, 0));
+          const reset = feature?.resource?.rest || "";
+          if (!max) continue;
+          if (restKind === "long" || restKind === "short" && reset === "short") {
+            c.play_state.feature_uses[norm(feature.id)] = max;
+          }
+        }
+      });
+    }
     function performUndoLastCast() {
       const lvl = clamp(asInt(uiState.lastCastLevel, 0), 0, 9);
       if (lvl <= 0) {
@@ -6255,6 +6464,7 @@
           used: 0
         };
       });
+      resetFeatureUses("short");
       recordPlayAction("Short rest: pact slots restored");
       setCastFeedback("Short rest applied: pact slots restored.");
     }
@@ -6274,6 +6484,7 @@
           used: 0
         };
       });
+      resetFeatureUses("long");
       recordPlayAction("Long rest: all spell slots restored");
       setCastFeedback("Long rest applied: all spell slots restored.");
     }
@@ -6480,31 +6691,31 @@
       const commands = visibleCommands();
       applyAppearance(uiState.appearanceOpen ? uiState.appearanceDraft : resolveAppearance(character));
       root2.innerHTML = `
-      <header class="shell-topbar">
+      <header class="shell-topbar ${uiState.mode === "play" && character?.ui?.portrait?.data_url ? "has-play-portrait" : ""}">
+        ${uiState.mode === "play" && character?.ui?.portrait?.data_url ? `<img class="play-profile-portrait" src="${esc(character.ui.portrait.data_url)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
         <div class="brand-block">
           <h1>${character ? esc(character?.meta?.name || "Unnamed") : "No active character"}</h1>
           <p class="brand-meta">${character ? esc(characterSubtitle(character, catalog2)) : "The Living Codex"} </p>
         </div>
         <div class="top-actions">
-          <div class="top-row-state">
-            <button type="button" id="densityToggle">${uiState.densityMode === "compact" ? "Comfortable View" : "Compact View"}</button>
-            <div class="policy-status-stack">
+          <div class="top-controls-grid">
+            <div class="toggle-stack">
               <label class="dual-toggle-chip" for="policyModeToggle" title="Choose which player options appear in lookups and selectors">
                 <span class="${uiState.policyMode === "all_official" ? "is-active" : ""}">All Official Player Options</span>
                 <input id="policyModeToggle" type="checkbox" ${uiState.policyMode === "core_only" ? "checked" : ""} />
                 <span class="policy-switch" aria-hidden="true"></span>
                 <span class="${uiState.policyMode === "core_only" ? "is-active" : ""}">Core Options Only (PHB)</span>
               </label>
-              <span class="status-chip ${state.app.dirty ? "dirty" : "saved"}" title="${esc(runtime.message || "No recent action")}">${state.app.dirty ? "Unsaved" : "Saved"}</span>
+              <label class="dual-toggle-chip ${character ? "" : "is-disabled"}" for="modeToggle">
+                <span class="${uiState.mode === "edit" ? "is-active" : ""}">Edit</span>
+                <input id="modeToggle" type="checkbox" ${uiState.mode === "play" ? "checked" : ""} ${character ? "" : "disabled"} />
+                <span class="policy-switch" aria-hidden="true"></span>
+                <span class="${uiState.mode === "play" ? "is-active" : ""}">Play</span>
+              </label>
             </div>
-            <label class="dual-toggle-chip ${character ? "" : "is-disabled"}" for="modeToggle">
-              <span class="${uiState.mode === "edit" ? "is-active" : ""}">Edit</span>
-              <input id="modeToggle" type="checkbox" ${uiState.mode === "play" ? "checked" : ""} ${character ? "" : "disabled"} />
-              <span class="policy-switch" aria-hidden="true"></span>
-              <span class="${uiState.mode === "play" ? "is-active" : ""}">Play</span>
-            </label>
           </div>
           <div class="top-row-actions">
+            <span class="status-chip ${state.app.dirty ? "dirty" : "saved"}" title="${esc(runtime.message || "No recent action")}">${state.app.dirty ? "Unsaved" : "Saved"}</span>
             <div class="tools-menu-wrap">
               <button type="button" id="toolsMenuBtn" title="Tools" aria-label="Tools">\u2699</button>
               ${uiState.toolsMenuOpen ? `<div class="tools-menu" id="toolsMenu">
@@ -7007,6 +7218,24 @@
             const id = e.currentTarget.getAttribute("data-roll-skill") || "";
             const mod = asInt(deriveStats(getState().character || {}).skills?.[id]?.total, 0);
             performModifierRoll("skill", id, titleizeId(id), mod);
+          });
+        });
+        root2.querySelectorAll("[data-feature-use]").forEach((el) => {
+          el.addEventListener("click", (e) => {
+            const id = e.currentTarget.getAttribute("data-feature-use") || "";
+            adjustFeatureUse(id, -1);
+          });
+        });
+        root2.querySelectorAll("[data-feature-refund]").forEach((el) => {
+          el.addEventListener("click", (e) => {
+            const id = e.currentTarget.getAttribute("data-feature-refund") || "";
+            adjustFeatureUse(id, 1);
+          });
+        });
+        root2.querySelectorAll("[data-feature-tap]").forEach((el) => {
+          el.addEventListener("click", (e) => {
+            const id = e.currentTarget.getAttribute("data-feature-tap") || "";
+            markFeatureUsed(id);
           });
         });
         root2.querySelector("#addConditionBtn")?.addEventListener("click", () => openConditionEditor(-1));
@@ -7689,7 +7918,7 @@
         }
       }
       if (targetTyping) return;
-      if (uiState.mode === "play" && e.altKey && /[1-4]/.test(e.key)) {
+      if (uiState.mode === "play" && e.altKey && /[1-5]/.test(e.key)) {
         e.preventDefault();
         const idx = asInt(e.key, 1) - 1;
         const pane = PLAY_PANES[idx]?.id;
@@ -7709,6 +7938,12 @@
         if (e.key.toLowerCase() === "a") {
           e.preventDefault();
           setActivePlayPane("attacks");
+          render();
+          return;
+        }
+        if (e.key.toLowerCase() === "b") {
+          e.preventDefault();
+          setActivePlayPane("bonus");
           render();
           return;
         }
