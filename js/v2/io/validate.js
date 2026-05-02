@@ -522,6 +522,91 @@ function normalizeCurrency(character, report) {
   }
 }
 
+function normalizeSheetExtensions(character, report) {
+  ensureObject(character, "profile", report, "profile");
+  ensureObject(character, "resources", report, "resources");
+  ensureObject(character, "saving_throws", report, "saving_throws");
+  ensureObject(character, "skills", report, "skills");
+  ensureObject(character, "spellcasting", report, "spellcasting");
+  ensureArray(character, "attacks", report, "attacks");
+
+  const c = character.combat;
+  c.speed = Math.max(0, toInt(c.speed, 30));
+  c.inspiration = Math.max(0, Math.min(1, toInt(c.inspiration, 0)));
+  c.proficiency_bonus = toInt(c.proficiency_bonus, 2);
+  c.passive_perception = Math.max(0, toInt(c.passive_perception, 10));
+  c.hit_dice_total = Math.max(0, toInt(c.hit_dice_total, 0));
+  c.hit_dice_used = Math.max(0, toInt(c.hit_dice_used, 0));
+  ensureObject(c, "death_saves", report, "combat.death_saves");
+  ensureObject(c, "concentration", report, "combat.concentration");
+  ensureArray(c, "conditions", report, "combat.conditions");
+  c.concentration.active = toBool(c.concentration.active);
+  c.concentration.source = asString(c.concentration.source || "");
+  c.concentration.notes = asString(c.concentration.notes || "");
+  c.conditions = c.conditions.map((row) => {
+    if (typeof row === "string") {
+      return { name: row, source: "", duration: "", notes: "", active: true };
+    }
+    const x = isObj(row) ? row : {};
+    return {
+      name: asString(x.name || "").trim(),
+      source: asString(x.source || ""),
+      duration: asString(x.duration || ""),
+      notes: asString(x.notes || ""),
+      active: x.active === undefined ? true : toBool(x.active)
+    };
+  }).filter((x) => x.name);
+  c.death_saves.success = Math.max(0, Math.min(3, toInt(c.death_saves.success, 0)));
+  c.death_saves.fail = Math.max(0, Math.min(3, toInt(c.death_saves.fail, 0)));
+
+  for (const key of ["cp", "sp", "ep", "gp", "pp"]) {
+    character.resources[key] = Math.max(0, toInt(character.resources[key], 0));
+  }
+
+  const saveKeys = ["str", "dex", "con", "int", "wis", "cha"];
+  for (const key of saveKeys) {
+    const row = isObj(character.saving_throws[key]) ? character.saving_throws[key] : {};
+    row.proficient = toBool(row.proficient);
+    row.bonus = toInt(row.bonus, 0);
+    row.manual_total = toInt(row.manual_total, 0);
+    row.bonus_mode = asString(row.bonus_mode) === "manual" ? "manual" : "auto";
+    character.saving_throws[key] = row;
+  }
+
+  for (const [key, rowRaw] of Object.entries(character.skills)) {
+    const row = isObj(rowRaw) ? rowRaw : {};
+    row.proficient = toBool(row.proficient);
+    row.expertise = toBool(row.expertise);
+    row.bonus = toInt(row.bonus, 0);
+    row.manual_total = toInt(row.manual_total, 0);
+    row.bonus_mode = asString(row.bonus_mode) === "manual" ? "manual" : "auto";
+    character.skills[key] = row;
+  }
+
+  const sc = character.spellcasting;
+  sc.class_id = asString(sc.class_id).trim().toLowerCase();
+  sc.ability = asString(sc.ability).trim().toLowerCase();
+  if (!["str", "dex", "con", "int", "wis", "cha", ""].includes(sc.ability)) sc.ability = "";
+  sc.save_dc_mode = asString(sc.save_dc_mode) === "manual" ? "manual" : "auto";
+  sc.attack_bonus_mode = asString(sc.attack_bonus_mode) === "manual" ? "manual" : "auto";
+  sc.save_dc_override = toInt(sc.save_dc_override, 0);
+  sc.attack_bonus_override = toInt(sc.attack_bonus_override, 0);
+
+  character.attacks = character.attacks.map((row, idx) => {
+    const r = isObj(row) ? row : {};
+    if (!asString(r.id)) r.id = crypto.randomUUID();
+    return {
+      id: asString(r.id),
+      name: asString(r.name || `Attack ${idx + 1}`),
+      atk_bonus: toInt(r.atk_bonus, 0),
+      damage: asString(r.damage || ""),
+      damage_type: asString(r.damage_type || ""),
+      range: asString(r.range || ""),
+      notes: asString(r.notes || "")
+    };
+  });
+}
+
 /**
  * Validate and normalize imported character payload.
  * Returns normalized payload + fix report.
@@ -551,6 +636,7 @@ export function validateAndFixImportPayload(character) {
   normalizeSpellSlots(out, report);
   clampAbilityScores(out, report);
   normalizeCurrency(out, report);
+  normalizeSheetExtensions(out, report);
   normalizeTrackers(out, report);
   normalizeSpells(out, report);
   ensureArray(out, "inventory", report, "inventory");
