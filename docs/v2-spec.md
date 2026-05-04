@@ -212,6 +212,13 @@ Avoid:
 
 ## CSV file structures (for manual editing)
 
+Runtime source of truth:
+
+- `js/v2/io/headers.js`
+- `contracts/v2/inventory.schema.csv`
+- `contracts/v2/spells.schema.csv`
+- `contracts/v2/log.schema.csv`
+
 CSV schemas are defined in:
 
 - `contracts/v2/inventory.schema.csv`
@@ -220,11 +227,19 @@ CSV schemas are defined in:
 
 ### `inventory.csv`
 
-Expected columns:
+Expected columns (exact order):
 
 - `id`
 - `name`
+- `category`
 - `qty`
+- `weight_each`
+- `weight_unit`
+- `value`
+- `value_currency`
+- `attunement`
+- `container`
+- `equipped`
 - `notes`
 
 Tips:
@@ -234,7 +249,7 @@ Tips:
 
 ### `spells_known.csv` and `spells_prepared.csv`
 
-Expected columns:
+Expected columns (exact order):
 
 - `id`
 - `name`
@@ -247,6 +262,8 @@ Expected columns:
 - `range`
 - `components`
 - `duration`
+- `spell_id`
+- `page`
 - `notes`
 
 Tips:
@@ -257,18 +274,19 @@ Tips:
 
 ### `log.csv`
 
-Expected columns:
+Expected columns (exact order):
 
-- `id`
-- `utc`
-- `tag`
-- `message`
+- `timestamp_utc`
+- `type`
+- `label`
+- `data_json`
 
 Tips:
 
-- `utc` should be an ISO timestamp when possible
-- `tag` is short context (`note`, `roll`, `initiative`, etc.)
-- `message` is free text
+- `timestamp_utc` should be an ISO timestamp when possible
+- `type` is machine-friendly (for example: `note`, `roll`, `initiative`)
+- `label` is human-readable summary text
+- `data_json` is optional structured JSON payload as a string
 
 ---
 
