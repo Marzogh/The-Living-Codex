@@ -5261,7 +5261,8 @@
     { id: "bonus", label: "Bonus Actions" },
     { id: "attacks", label: "Attacks" },
     { id: "trackers", label: "Trackers" },
-    { id: "log", label: "Log" }
+    { id: "log", label: "Log" },
+    { id: "notes", label: "Notes" }
   ];
   function tabSections(tabId) {
     return EDIT_TABS.find((t) => t.id === tabId)?.sections || EDIT_TABS[0].sections;
@@ -5410,6 +5411,7 @@
     const hp = character?.combat?.hp || { max: 0, current: 0, temp: 0 };
     const trackers = Array.isArray(character?.trackers) ? character.trackers : [];
     const log = Array.isArray(character?.log) ? character.log : [];
+    const sessionNotes = (character?.play_state?.session_notes ?? "").toString();
     const known = Array.isArray(character?.spells_known) ? character.spells_known : [];
     const prepared = Array.isArray(character?.spells_prepared) ? character.spells_prepared : [];
     const slots = computeEffectiveSlots(character).levels;
@@ -5430,7 +5432,30 @@
     const concentration = character?.combat?.concentration || { active: false, source: "", notes: "" };
     const recentActions = Array.isArray(character?.play_state?.recent_actions) ? character.play_state.recent_actions.slice(0, 5) : [];
     const castFeedback = character?.play_state?.cast_feedback || "";
-    const rollState = character?.play_state?.dice_last_roll || null;
+    const diceRollState = character?.play_state?.dice_last_roll || null;
+    const checkRollState = character?.play_state?.last_check_roll || null;
+    const rollState = (() => {
+      if (!diceRollState && !checkRollState) return null;
+      if (!diceRollState) {
+        return {
+          label: checkRollState?.label || "Check",
+          total: checkRollState?.total ?? 0
+        };
+      }
+      if (!checkRollState) return diceRollState;
+      const diceAt = Date.parse(diceRollState?.utc || "");
+      const checkAt = Date.parse(checkRollState?.utc || "");
+      if (!Number.isFinite(diceAt) && !Number.isFinite(checkAt)) return diceRollState;
+      if (!Number.isFinite(diceAt)) return { label: checkRollState?.label || "Check", total: checkRollState?.total ?? 0 };
+      if (!Number.isFinite(checkAt)) return diceRollState;
+      if (checkAt >= diceAt) {
+        return {
+          label: checkRollState?.label || "Check",
+          total: checkRollState?.total ?? 0
+        };
+      }
+      return diceRollState;
+    })();
     const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
     const derived = deriveStats(character);
     const bonusActions = collectBonusActions(character);
@@ -5471,7 +5496,7 @@
       label: titleizeId(id),
       mod: asInt(derived?.skills?.[id]?.total, 0)
     }));
-    const lastCheckRoll = character?.play_state?.last_check_roll || null;
+    const lastCheckRoll = checkRollState;
     const activePane = uiState.activePlayPane || "spells";
     const paneNav = `<nav class="play-pane-tabs">${PLAY_PANES.map((p) => `<button type="button" class="${activePane === p.id ? "is-active" : ""}" data-play-pane="${p.id}">${esc(p.label)}</button>`).join("")}
       <button type="button" data-open-checks-drawer>Checks</button>
@@ -5516,15 +5541,22 @@
     const logPane = `<article class="card"><h2>Adventure Log</h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="playLogAdd">Add Log Entry</button></div>
       <div class="log-list">
-        ${log.length === 0 ? `<p class="hint">No log entries</p>` : log.slice(-6).map((entry, idx, arr) => {
-      const realIdx = log.length - arr.length + idx;
+        ${log.length === 0 ? `<p class="hint">No log entries</p>` : log.map((_, idx) => {
+      const realIdx = log.length - 1 - idx;
+      const row = log[realIdx];
       return `<div class="play-log-row">
-          <input data-play-log-tag="${realIdx}" value="${esc(entry.tag || "")}" placeholder="tag" />
-          <input data-play-log-message="${realIdx}" value="${esc(entry.message || "")}" placeholder="Log entry" />
+          <input data-play-log-tag="${realIdx}" value="${esc(row.tag || "")}" placeholder="tag" />
+          <input data-play-log-message="${realIdx}" value="${esc(row.message || "")}" placeholder="Log entry" />
           <button type="button" data-play-log-del="${realIdx}">Delete</button>
         </div>`;
     }).join("")}
       </div>
+    </div></article>`;
+    const notesPane = `<article class="card"><h2>Session Notes</h2><div class="card-body stack">
+      <section class="session-notes-block">
+        <textarea id="playSessionNotes" rows="20" placeholder="Write long-form notes for this session...">${esc(sessionNotes)}</textarea>
+        <div class="inline-actions"><button type="button" id="playSessionNotesSave">Save Notes</button></div>
+      </section>
     </div></article>`;
     const bonusPane = `<article class="card bonus-actions-card"><h2>Class Powers & Bonus Actions</h2><div class="card-body stack">
       ${classActions.bonus.length ? `<section><h3>Bonus Action Features</h3><ul class="bonus-actions-list">
@@ -5558,7 +5590,7 @@
         ${classActions.reaction.map((row) => `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small></li>`).join("")}
       </ul></section>` : ""}
     </div></article>`;
-    const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, trackers: trackersPane, log: logPane };
+    const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, trackers: trackersPane, log: logPane, notes: notesPane };
     const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round(hp.current / hp.max * 100))) : 0;
     return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
     <section class="play-hud card ${uiState.playBoard?.bandCompact ? "is-compact" : ""} ${uiState.playBoard?.hudCollapsed ? "is-collapsed" : ""}">
@@ -5627,7 +5659,7 @@
           ${rollState ? `<p class="hint">Last roll: <strong>${esc(rollState.label || "Roll")}</strong> = ${esc(rollState.total)}</p>` : ""}
           </div></article>
           <article class="card"><h2>Session Log</h2><div class="card-body">
-            ${log.length ? log.slice(-5).reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") : `<p class="hint">No log entries</p>`}
+            ${log.length ? log.slice().reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") : `<p class="hint">No log entries</p>`}
           </div></article>
         </aside>` : ""}
       </div>
@@ -5866,7 +5898,7 @@
         <button type="button" data-tracker-del="${idx}">Delete</button>
       </div>`).join("")}
       <div class="log-list">
-        ${log.slice(-8).reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") || `<p class="hint">No log entries</p>`}
+        ${log.slice().reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") || `<p class="hint">No log entries</p>`}
       </div>
     </div></article>
 
@@ -6350,6 +6382,7 @@
         { id: "ui.pane.attacks", label: "Play Pane: Attacks", hint: "Play pane", keywords: ["pane", "attacks"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
         { id: "ui.pane.trackers", label: "Play Pane: Trackers", hint: "Play pane", keywords: ["pane", "trackers"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
         { id: "ui.pane.log", label: "Play Pane: Log", hint: "Play pane", keywords: ["pane", "log"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("log") },
+        { id: "ui.pane.notes", label: "Play Pane: Notes", hint: "Play pane", keywords: ["pane", "notes", "session"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("notes") },
         { id: "ui.play.openChecksDrawer", label: "Play: Open Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openChecksDrawer() },
         { id: "ui.play.closeChecksDrawer", label: "Play: Close Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer", "close"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.checksDrawerOpen, run: () => closeChecksDrawer() },
         { id: "ui.play.focusCast", label: "Play Focus: Cast", hint: "Turn console", keywords: ["play", "cast", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
@@ -6691,9 +6724,10 @@
       refreshLookup();
       const commands = visibleCommands();
       applyAppearance(uiState.appearanceOpen ? uiState.appearanceDraft : resolveAppearance(character));
+      const hasPortrait = Boolean(character?.ui?.portrait?.data_url);
       root2.innerHTML = `
-      <header class="shell-topbar ${uiState.mode === "play" && character?.ui?.portrait?.data_url ? "has-play-portrait" : ""}">
-        ${uiState.mode === "play" && character?.ui?.portrait?.data_url ? `<img class="play-profile-portrait" src="${esc(character.ui.portrait.data_url)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
+      <header class="shell-topbar ${hasPortrait ? "has-play-portrait" : ""}">
+        ${hasPortrait ? `<img class="play-profile-portrait" src="${esc(character.ui.portrait.data_url)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
         <div class="brand-block">
           <h1>${character ? esc(character?.meta?.name || "Unnamed") : "No active character"}</h1>
           <p class="brand-meta">${character ? esc(characterSubtitle(character, catalog2)) : "The Living Codex"} </p>
@@ -6911,7 +6945,13 @@
         setPolicyMode(e.target.checked ? "core_only" : "all_official");
         render();
       });
-      root2.querySelector("#importBtn")?.addEventListener("click", () => actions.importZip());
+      root2.querySelector("#importBtn")?.addEventListener("click", async () => {
+        await actions.importZip();
+        if (getState().character) {
+          uiState.showCreate = false;
+          render();
+        }
+      });
       root2.querySelector("#exportBtn")?.addEventListener("click", () => actions.exportZip());
       root2.querySelector("#modeToggle")?.addEventListener("change", (e) => {
         setMode(e.target.checked ? "play" : "edit");
@@ -7312,6 +7352,38 @@
           c.log = Array.isArray(c.log) ? c.log : [];
           c.log.push({ id: crypto.randomUUID(), utc: (/* @__PURE__ */ new Date()).toISOString(), tag: "note", message: "" });
         }));
+        const saveSessionNotes = () => {
+          const text = root2.querySelector("#playSessionNotes")?.value || "";
+          actions.updateCharacter((c) => {
+            c.play_state = c.play_state || {};
+            c.play_state.session_notes = text;
+          });
+          recordPlayAction("Updated session notes");
+        };
+        const pinSessionNotesToBottom = () => {
+          const notesEl = root2.querySelector("#playSessionNotes");
+          if (!notesEl) return;
+          notesEl.scrollTop = notesEl.scrollHeight;
+        };
+        root2.querySelector("#playSessionNotesSave")?.addEventListener("click", () => saveSessionNotes());
+        root2.querySelector("#playSessionNotes")?.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            saveSessionNotes();
+          }
+          setTimeout(pinSessionNotesToBottom, 0);
+        });
+        root2.querySelector("#playSessionNotes")?.addEventListener("input", () => {
+          pinSessionNotesToBottom();
+        });
+        setTimeout(() => {
+          pinSessionNotesToBottom();
+          const notesEl = root2.querySelector("#playSessionNotes");
+          if (notesEl && document.activeElement === notesEl) {
+            const end = notesEl.value.length;
+            notesEl.setSelectionRange(end, end);
+          }
+        });
         root2.querySelectorAll("[data-play-tracker-label]").forEach((el) => el.addEventListener("change", (e) => {
           const i = asInt(e.target.getAttribute("data-play-tracker-label"), -1);
           actions.updateCharacter((c) => {
@@ -7998,6 +8070,47 @@
       root2.addEventListener("click", (e) => {
         const target = e.target && e.target.nodeType === 1 ? e.target : e.target?.parentElement;
         if (!target) return;
+        const importBtn = typeof target.closest === "function" ? target.closest("#importBtn") : null;
+        if (importBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          Promise.resolve(actions.importZip()).then(() => {
+            if (getState().character) {
+              uiState.showCreate = false;
+              render();
+            }
+          });
+          return;
+        }
+        const newCharBtn = typeof target.closest === "function" ? target.closest("#newCharBtn") : null;
+        if (newCharBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          uiState.showCreate = true;
+          render();
+          return;
+        }
+        const cancelCreateBtn = typeof target.closest === "function" ? target.closest("#cancelCreateBtn") : null;
+        if (cancelCreateBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          uiState.showCreate = false;
+          render();
+          return;
+        }
+        const createBtn = typeof target.closest === "function" ? target.closest("#createBtn") : null;
+        if (createBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          draft.name = root2.querySelector("#newName")?.value || draft.name;
+          draft.rulesetId = root2.querySelector("#newRuleset")?.value || draft.rulesetId;
+          draft.classId = root2.querySelector("#newClass")?.value || "";
+          draft.speciesId = root2.querySelector("#newSpecies")?.value || "";
+          for (const k of ["str", "dex", "con", "int", "wis", "cha"]) draft[k] = asInt(root2.querySelector(`#new${k.toUpperCase()}`)?.value, 10);
+          actions.newCharacter(draft);
+          uiState.showCreate = false;
+          return;
+        }
         const btn = typeof target.closest === "function" ? target.closest("#toolsMenuBtn") : null;
         if (btn) {
           e.preventDefault();
@@ -8035,6 +8148,22 @@
         }
       });
       root2.__lcxToolsDelegationBound = true;
+    }
+    if (!root2.__lcxChangeDelegationBound) {
+      root2.addEventListener("change", (e) => {
+        const target = e.target && e.target.nodeType === 1 ? e.target : e.target?.parentElement;
+        if (!target) return;
+        if (target.id === "modeToggle") {
+          setMode(target.checked ? "play" : "edit");
+          render();
+          return;
+        }
+        if (target.id === "policyModeToggle") {
+          setPolicyMode(target.checked ? "core_only" : "all_official");
+          render();
+        }
+      });
+      root2.__lcxChangeDelegationBound = true;
     }
     document.addEventListener("click", (e) => {
       if (!uiState.toolsMenuOpen) return;
@@ -9649,7 +9778,10686 @@
   var species_min_default = [{ id: "aarakocra", name: "Aarakocra", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "aasimar", name: "Aasimar", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "bugbear", name: "Bugbear", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "centaur", name: "Centaur", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "changeling", name: "Changeling", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "deep_gnome", name: "Deep Gnome", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "dragonborn", name: "Dragonborn", source: "PHB", page: 32, languages: ["common", "draconic"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "elf_drow", name: "Drow", source: "PHB", page: 24, languages: ["common", "elvish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "duergar", name: "Duergar", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "eladrin", name: "Eladrin", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "fairy", name: "Fairy", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "firbolg", name: "Firbolg", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "gnome_forest", name: "Forest Gnome", source: "PHB", page: 37, languages: ["common", "gnomish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "genasi_air", name: "Genasi (Air)", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "genasi_earth", name: "Genasi (Earth)", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "genasi_fire", name: "Genasi (Fire)", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "genasi_water", name: "Genasi (Water)", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "githyanki", name: "Githyanki", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "githzerai", name: "Githzerai", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "goblin", name: "Goblin", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "goliath", name: "Goliath", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "half_elf", name: "Half-Elf", source: "PHB", page: 39, languages: ["common", "elvish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "half_orc", name: "Half-Orc", source: "PHB", page: 41, languages: ["common", "orc"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "harengon", name: "Harengon", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "elf_high", name: "High Elf", source: "PHB", page: 23, languages: ["common", "elvish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "dwarf_hill", name: "Hill Dwarf", source: "PHB", page: 20, languages: ["common", "dwarvish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "hobgoblin", name: "Hobgoblin", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "human", name: "Human", source: "PHB", page: 29, languages: ["common"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "kenku", name: "Kenku", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "kobold", name: "Kobold", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "halfling_lightfoot", name: "Lightfoot Halfling", source: "PHB", page: 28, languages: ["common", "halfling"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "lizardfolk", name: "Lizardfolk", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "minotaur", name: "Minotaur", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "dwarf_mountain", name: "Mountain Dwarf", source: "PHB", page: 20, languages: ["common", "dwarvish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "orc", name: "Orc", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "gnome_rock", name: "Rock Gnome", source: "PHB", page: 37, languages: ["common", "gnomish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "satyr", name: "Satyr", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "sea_elf", name: "Sea Elf", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "shadar_kai", name: "Shadar-kai", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "shifter", name: "Shifter", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "halfling_stout", name: "Stout Halfling", source: "PHB", page: 28, languages: ["common", "halfling"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "tabaxi", name: "Tabaxi", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "tiefling", name: "Tiefling", source: "PHB", page: 43, languages: ["common", "infernal"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "tortle", name: "Tortle", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "triton", name: "Triton", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }, { id: "elf_wood", name: "Wood Elf", source: "PHB", page: 24, languages: ["common", "elvish"], availability: { default: "allowed", content_group: "core", official: true, era: "5e_2014" } }, { id: "yuan_ti", name: "Yuan-ti", source: "MOTM", availability: { default: "requires_dm_approval", content_group: "expanded", official: true, era: "5e_2014" } }];
 
   // data/dnd5e_2014/spells.min.json
-  var spells_min_default = [{ id: "spell_acid_splash", name: "Acid Splash", level: 0, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["artificer", "sorcerer", "wizard"], source: "PHB", page: "211", summary_basic: "Hurl acid at one or two creatures, dealing acid damage.", summary_expert: "" }, { id: "spell_alarm", name: "Alarm", level: 0, school: "Transmutation", ritual: true, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 5 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 reaction, which you take Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B when you take acid, cold, \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_animal_friendship", name: "Animal Friendship", level: 0, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 5 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_armor_of_agathys", name: "Armor Of Agathys", level: 0, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 5 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_beast_bond", name: "Beast Bond", level: 0, school: "Necromancy", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 reaction, which you take Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B when you take acid, cold, \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F fire, lightning, or thunder \uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_blade_ward", name: "Blade Ward", level: 0, school: "Abjuration", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["bard", "sorcerer", "warlock", "wizard"], source: "PHB", page: "218", summary_basic: "Gain resistance to weapon damage until your next turn.", summary_expert: "" }, { id: "spell_booming_blade", name: "Booming Blade", level: 0, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (5-foot radius) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_chill_touch", name: "Chill Touch", level: 0, school: "Necromancy", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["sorcerer", "warlock", "wizard"], source: "PHB", page: "221", summary_basic: "A ghostly hand deals necrotic damage and hinders undead healing.", summary_expert: "" }, { id: "spell_dancing_lights", name: "Dancing Lights", level: 0, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (5-foot radius) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "bard", "sorcerer", "wizard"], source: "PHB", page: "230", summary_basic: "Create floating lights that illuminate or distract.", summary_expert: "" }, { id: "spell_druidcraft", name: "Druidcraft", level: 0, school: "Transmutation", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["druid"], source: "PHB", page: "236", summary_basic: "Predict weather, create small natural effects, or light candles.", summary_expert: "" }, { id: "spell_eldritch_blast", name: "Eldritch Blast", level: 0, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["warlock"], source: "PHB", page: "237", summary_basic: "A beam of magical force that deals force damage.", summary_expert: "" }, { id: "spell_elemental_bane", name: "Elemental Bane", level: 0, school: "", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_ents", name: "Ents", level: 0, school: "", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 reaction, which you take 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE01D \uE30B \uE30F when a humanoid you can \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B see within d 6 i 0 es feet of you \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F COM V P , O S, N M ENTS Conce D n U tra R tio A n T , u I p O to N 1", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_fire_bolt", name: "Fire Bolt", level: 0, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["sorcerer", "wizard"], source: "PHB", page: "242", summary_basic: "Ranged spell attack dealing fire damage; ignites objects.", summary_expert: "" }, { id: "spell_friends", name: "Friends", level: 0, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "sorcerer", "warlock", "wizard"], source: "PHB", page: "244", summary_basic: "Gain advantage on social checks; target becomes hostile after.", summary_expert: "" }, { id: "spell_frostbite", name: "Frostbite", level: 0, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_green_flame_blade", name: "Green-Flame Blade", level: 0, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_guidance", name: "Guidance", level: 0, school: "Divination", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["cleric", "druid"], source: "PHB", page: "248", summary_basic: "Touch a creature to add a bonus to one ability check.", summary_expert: "" }, { id: "spell_infestation", name: "Infestation", level: 0, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_light", name: "Light", level: 0, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric", "sorcerer", "wizard"], source: "PHB", page: "255", summary_basic: "Make an object glow with light.", summary_expert: "" }, { id: "spell_mage_hand", name: "Mage Hand", level: 0, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["bard", "sorcerer", "warlock", "wizard"], source: "PHB", page: "256", summary_basic: "Create a spectral hand that can manipulate objects.", summary_expert: "" }, { id: "spell_mending", name: "Mending", level: 0, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 15 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "bard", "cleric", "druid", "sorcerer", "wizard"], source: "PHB", page: "259", summary_basic: "Repair small breaks or tears in objects.", summary_expert: "" }, { id: "spell_message", name: "Message", level: 0, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "sorcerer", "wizard"], source: "PHB", page: "259", summary_basic: "Whisper a message that only one creature can hear.", summary_expert: "" }, { id: "spell_mind_sliver", name: "Mind Sliver", level: 0, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_minor_illusion", name: "Minor Illusion", level: 0, school: "Illusion", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["bard", "sorcerer", "warlock", "wizard"], source: "PHB", page: "260", summary_basic: "Create a simple sound or visual illusion.", summary_expert: "" }, { id: "spell_poison_spray", name: "Poison Spray", level: 0, school: "Enchantment", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "sorcerer", "warlock", "wizard"], source: "PHB", page: "266", summary_basic: "Release toxic gas that damages a nearby creature.", summary_expert: "" }, { id: "spell_prestidigitation", name: "Prestidigitation", level: 0, school: "Transmutation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 minute Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "bard", "sorcerer", "warlock", "wizard"], source: "PHB", page: "267", summary_basic: "Perform minor magical effects like cleaning or flavoring food.", summary_expert: "" }, { id: "spell_produce_flame", name: "Produce Flame", level: 0, school: "Transmutation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "PHB", page: "269", summary_basic: "Create a flame in your hand or throw it at a foe.", summary_expert: "" }, { id: "spell_ray_of_frost", name: "Ray of Frost", level: 0, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["sorcerer", "wizard"], source: "PHB", page: "271", summary_basic: "A freezing ray damages and slows a creature.", summary_expert: "" }, { id: "spell_resistance", name: "Resistance", level: 0, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "druid"], source: "PHB", page: "272", summary_basic: "Touch a creature to add a bonus to one saving throw.", summary_expert: "" }, { id: "spell_sacred_flame", name: "Sacred Flame", level: 0, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["cleric"], source: "PHB", page: "272", summary_basic: "Radiant flame damages a creature that fails a save.", summary_expert: "" }, { id: "spell_scag", name: "Scag", level: 0, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 5 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_shillelagh", name: "Shillelagh", level: 0, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "PHB", page: "275", summary_basic: "Imbue a club or staff with magical power.", summary_expert: "" }, { id: "spell_spare_the_dying", name: "Spare the Dying", level: 0, school: "Necromancy", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["cleric"], source: "PHB", page: "277", summary_basic: "Stabilise a dying creature.", summary_expert: "" }, { id: "spell_sword_burst", name: "Sword Burst", level: 0, school: "Transmutation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (5-foot radius) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_thaumaturgy", name: "Thaumaturgy", level: 0, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "PHB", page: "282", summary_basic: "Manifest minor divine effects like booming voice or tremors.", summary_expert: "" }, { id: "spell_thorn_whip", name: "Thorn Whip", level: 0, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 5 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "druid"], source: "PHB", page: "282", summary_basic: "Create a vine whip that pulls creatures closer.", summary_expert: "" }, { id: "spell_true_strike", name: "True Strike", level: 0, school: "Divination", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["bard", "sorcerer", "warlock", "wizard"], source: "PHB", page: "284", summary_basic: "Gain advantage on your next attack against a target.", summary_expert: "" }, { id: "spell_vicious_mockery", name: "Vicious Mockery", level: 0, school: "Enchantment", ritual: false, concentration: false, casting_time: "", range: "", components: "", duration: "", classes: ["bard"], source: "PHB", page: "285", summary_basic: "Insult a creature to deal psychic damage and impose disadvantage.", summary_expert: "" }, { id: "spell_arms_of_hadar", name: "Arms Of Hadar", level: 1, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self (30-foot line) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_augury", name: "Augury", level: 1, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_barkskin", name: "Barkskin", level: 1, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 90 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_burning_hands", name: "Burning Hands", level: 1, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_ceremony", name: "Ceremony", level: 1, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_charm_person", name: "Charm Person", level: 1, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self (15-foot cone) \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_chromatic_orb", name: "Chromatic Orb", level: 1, school: "Transmutation", ritual: true, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_command", name: "Command", level: 1, school: "Divination", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["cleric", "paladin", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_comprehend_languages", name: "Comprehend Languages", level: 1, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_create_or_destroy_water", name: "Create Or Destroy Water", level: 1, school: "Abjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self (15-foot cone) \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_cure_wounds", name: "Cure Wounds", level: 1, school: "Divination", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_detect_magic", name: "Detect Magic", level: 1, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["cleric", "paladin", "ranger", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_divine_favor", name: "Divine Favor", level: 1, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["cleric", "paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_entangle", name: "Entangle", level: 1, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_expeditious_retreat", name: "Expeditious Retreat", level: 1, school: "Enchantment", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_faerie_fire", name: "Faerie Fire", level: 1, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_feather_fall", name: "Feather Fall", level: 1, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_fog_cloud", name: "Fog Cloud", level: 1, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_grease", name: "Grease", level: 1, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 reaction 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_hail_of_thorns", name: "Hail Of Thorns", level: 1, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_heroism", name: "Heroism", level: 1, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 reaction 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_ice_knife", name: "Ice Knife", level: 1, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_identify", name: "Identify", level: 1, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_illusory_script", name: "Illusory Script", level: 1, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 reaction 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_longstrider", name: "Longstrider", level: 1, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 bonus action 90 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["ranger", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mage_armor", name: "Mage Armor", level: 1, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_protection_from_evil_and_good", name: "Protection From Evil And Good", level: 1, school: "Divination", ritual: true, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_ray_of_sickness", name: "Ray Of Sickness", level: 1, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 minute Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (30-foot line) \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_sanctuary", name: "Sanctuary", level: 1, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE01D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_searing_smite", name: "Searing Smite", level: 1, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_shield", name: "Shield", level: 1, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 reaction Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_snare", name: "Snare", level: 1, school: "Transmutation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_speak_with_animals", name: "Speak With Animals", level: 1, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric", "paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_tashas_caustic_brew", name: "Tasha'S Caustic Brew", level: 1, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 reaction Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_thunderwave", name: "Thunderwave", level: 1, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["druid", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_unseen_servant", name: "Unseen Servant", level: 1, school: "Divination", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE314 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_alter_self", name: "Alter Self", level: 2, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 reaction Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_animate_dead", name: "Animate Dead", level: 2, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_arcane_lock", name: "Arcane Lock", level: 2, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_blindness", name: "Blindness", level: 2, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["bard", "cleric", "druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_blur", name: "Blur", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_branding_smite", name: "Branding Smite", level: 2, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_call_lightning", name: "Call Lightning", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_calm_emotions", name: "Calm Emotions", level: 2, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_catnap", name: "Catnap", level: 2, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_cloud_of_daggers", name: "Cloud Of Daggers", level: 2, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_crown_of_madness", name: "Crown Of Madness", level: 2, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_darkvision", name: "Darkvision", level: 2, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_detect_thoughts", name: "Detect Thoughts", level: 2, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_earthbind", name: "Earthbind", level: 2, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_enhance_ability", name: "Enhance Ability", level: 2, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "paladin", "ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_enlarge", name: "Enlarge", level: 2, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_flaming_sphere", name: "Flaming Sphere", level: 2, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_gentle_repose", name: "Gentle Repose", level: 2, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_gust_of_wind", name: "Gust Of Wind", level: 2, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_heat_metal", name: "Heat Metal", level: 2, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (60-foot line) \uE30F \uE30B \uE027 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_hold_person", name: "Hold Person", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_invisibility", name: "Invisibility", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_lesser_restoration", name: "Lesser Restoration", level: 2, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "druid", "paladin", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_levitate", name: "Levitate", level: 2, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_locate_animals_or_plants", name: "Locate Animals Or Plants", level: 2, school: "Transmutation", ritual: true, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_maximilians_earthen_grasp", name: "Maximilian'S Earthen Grasp", level: 2, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_melfs_acid_arrow", name: "Melf'S Acid Arrow", level: 2, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 minute 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mirror_image", name: "Mirror Image", level: 2, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_misty_step", name: "Misty Step", level: 2, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_moonbeam", name: "Moonbeam", level: 2, school: "Enchantment", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_nystuls_magic_aura", name: "Nystul'S Magic Aura", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_pass_without_trace", name: "Pass Without Trace", level: 2, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_phantasmal_force", name: "Phantasmal Force", level: 2, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 minute 30 feet \uE30F \uE30B 1 minute 30 feet \uE30F \uE30B 1 action 60 feet \uE30F \uE30B \uE30B \uE314 \uE30F \uE30B \uE314 \uE30F \uE30B \uE314 \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_prayer_of_healing", name: "Prayer Of Healing", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_protection_from_poison", name: "Protection From Poison", level: 2, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 minute 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 minute 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE14C \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["artificer", "cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_pyrotechnics", name: "Pyrotechnics", level: 2, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_ray_of_enfeeblement", name: "Ray Of Enfeeblement", level: 2, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_rimes_binding_ice", name: "Rime'S Binding Ice", level: 2, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 bonus action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_see_invisibility", name: "See Invisibility", level: 2, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["artificer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_shadow_blade", name: "Shadow Blade", level: 2, school: "Transmutation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_shatter", name: "Shatter", level: 2, school: "Illusion", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["bard", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_silence", name: "Silence", level: 2, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["druid", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_spiritual_weapon", name: "Spiritual Weapon", level: 2, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_suggestion", name: "Suggestion", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Sight \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_tashas_mind_whip", name: "Tasha'S Mind Whip", level: 2, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_warding_bond", name: "Warding Bond", level: 2, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_warding_wind", name: "Warding Wind", level: 2, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_zone_of_truth", name: "Zone Of Truth", level: 2, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_aura_of_vitality", name: "Aura Of Vitality", level: 3, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 minute 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_bestow_curse", name: "Bestow Curse", level: 3, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (30-foot radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_blight", name: "Blight", level: 3, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_clairvoyance", name: "Clairvoyance", level: 3, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes 1 mile \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_compo", name: "Compo", level: 3, school: "Illusion", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Self h ( e 1 m 0- i f s o p o h t e - r r e a ) dius \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B COMPO V NENTS Conce D n U tra R tio A n T , u I p O to N 1 hour \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F COM V P , O S, N M ENTS DU 8 R h A o T ur IO s N \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F COM V P , O S, N M ENTS Concen D tra U tio R n A , u T p t I o O 1 N 0 minutes \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B F c d W A u a o s a t n i i m r n s H t d s g a h e i o g g a e e m e h s d w , p , e a u a i e r s t r n l h a w l L d t i s n e i e l C o o v l r l n h t a e a , a o n l s y r s f g o i a s : e 4 u d m W t h v h o a a a h r l s n s e e o a r t v n n a e v e e y g s i l n o i e o w s g u t r o i a t l c n h l h n i a i n r I c g s n o g e h t t w e c t e t h o r r s l , l e . i i p s y g a o s s e t y u p u n c r e c c h e l e a l i , y c n ou \uE30F \uE30B \uE30F \uE30B \uE30B \uE30B \uE077 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F A A i r e n e n s t 1 m m d o 0 a s a e l - l i i f x n f c o r i y s y s o s o t s t t e u a t - a n l r l b a t c e e i d e a o a i d v n u a e a r s o r i i t y m u s n f m a o d r r o e a t b a n h i . d l e e a d d b u o o r m a v t e e i o y o n o f . u f T o a h r n c e d e s s p p e r ll ings \uE30F \uE30B \uE30F \uE30B \uE30B \uE30B \uE077 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F A Y o f s c o e o o t b o h e m u it t e w p c o r c r f l i u v e t e fl b h i t a e s e e i e t i n b l c . e y e T l r t e a r h h e n p e e a g h i l i e m e , m i n a n a a o n c g g m d l e e u l e a d o a n p i f s n o p t a g s n e n s f a t o o o r h b r s u a j t n a t e h t d c i e s a s t , , n d s a s o u p m c r o l r a a e t e t r l t l i a g s o h t e , n a u a r t . r n t I e y h t d , o a s o u e n r e c a s m a o 2 n s m 0- e \uE30F \uE30B \uE30F \uE30B \uE30B \uE30B \uE077 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F target one additional creature for each slot level 9 creatures of Medium size or smaller can fit temperature appropriate to the thing depicted. You above 3rd. The creatures must be within 30 feet inside the dome with you. The spell fails if its can't create sufficient heat or cold to cause damage, a of each other when you target them. \uE30B \uE30B \uE30B a c d r r o e e m a a t e i u n w r c e l h u s e . d n C e y r s e o a a u l t a c u r a r g s e e t s r t a h c n r is d e a s o p t b u e j r l e l e c c t o a s r n w m m i o t o h r v e in e t t t h h h a e r n o 9 ugh \uE30B \uE30B \uE30B s a a o c t u r r o n e g a d l t o l u o d r u y e d t , e o e ' r n s a o s t u s e m g n h e c t h ll o ) t . d h e a a t l m th ig u h n t d s e ic r k d e a n m a a c g r e e a o t r u d r e e a ( f l e ik n e \uE30B \uE30B \uE30B \uE30F \uE30B it freely. All other creatures and objects are \uE30F \uE30B As long as you are within", components: "", duration: ". The spell \uE30B number of hit points equal to twice the necrotic \uE30B using a spell slot of 4th level or higher, you can \uE30B \uE30B", classes: ["bard", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_compulsion", name: "Compulsion", level: 3, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 bonus action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_conjure_barrage", name: "Conjure Barrage", level: 3, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 150 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_conjure_woodland_beings", name: "Conjure Woodland Beings", level: 3, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE29D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_crusaders_mantle", name: "Crusader'S Mantle", level: 3, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 10 minutes 1 mile \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes 1 mile \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_daylight", name: "Daylight", level: 3, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dispel_magic", name: "Dispel Magic", level: 3, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "paladin", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_enemies_abound", name: "Enemies Abound", level: 3, school: "Abjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 reaction 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_erupting_earth", name: "Erupting Earth", level: 3, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 reaction 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_fear", name: "Fear", level: 3, school: "Divination", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 10 minutes 1 mile \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_fireball", name: "Fireball", level: 3, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 bonus action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (100-foot line) \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_gaseous_form", name: "Gaseous Form", level: 3, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (30-foot cone) \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_glyph_of_warding", name: "Glyph Of Warding", level: 3, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_haste", name: "Haste", level: 3, school: "Necromancy", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "paladin", "ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_hypnotic_pattern", name: "Hypnotic Pattern", level: 3, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_intellect_fortress", name: "Intellect Fortress", level: 3, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 hour Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["bard", "sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_leomunds_tiny_hut", name: "Leomund'S Tiny Hut", level: 3, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Unlimited \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_lightning_bolt", name: "Lightning Bolt", level: 3, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_magic_circle", name: "Magic Circle", level: 3, school: "Abjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_major_image", name: "Major Image", level: 3, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (100-foot line) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mass_healing_word", name: "Mass Healing Word", level: 3, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (30-foot radius) \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_meld_into_stone", name: "Meld Into Stone", level: 3, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_plant_growth", name: "Plant Growth", level: 3, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (100-foot line) \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["druid", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_protection_from_energy", name: "Protection From Energy", level: 3, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 hour Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["artificer", "cleric", "ranger", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_remove_curse", name: "Remove Curse", level: 3, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 minute 10 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action or 8 hours 150 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_sending", name: "Sending", level: 3, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["cleric", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_sleet_storm", name: "Sleet Storm", level: 3, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (100-foot line) \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_slow", name: "Slow", level: 3, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Unlimited \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_spirit_shroud", name: "Spirit Shroud", level: 3, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self (15-foot-radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_summon_fey", name: "Summon Fey", level: 3, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_summon_lesser_demons", name: "Summon Lesser Demons", level: 3, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_thunder_step", name: "Thunder Step", level: 3, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_tidal_wave", name: "Tidal Wave", level: 3, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_vampiric_touch", name: "Vampiric Touch", level: 3, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (15-foot-radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_wall_of_water", name: "Wall Of Water", level: 3, school: "Conjuration", ritual: true, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_water_breathing", name: "Water Breathing", level: 3, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE14C \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["artificer", "druid", "ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_animate_objects", name: "Animate Objects", level: 4, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_aura_of_life", name: "Aura Of Life", level: 4, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_aura_of_purity", name: "Aura Of Purity", level: 4, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_banishment", name: "Banishment", level: 4, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_confusion", name: "Confusion", level: 4, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "paladin", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_conjure_minor_elementals", name: "Conjure Minor Elementals", level: 4, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_control_water", name: "Control Water", level: 4, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 minute 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE027 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["druid", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_death_ward", name: "Death Ward", level: 4, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dimension_door", name: "Dimension Door", level: 4, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_divination", name: "Divination", level: 4, school: "Evocation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dominate_beast", name: "Dominate Beast", level: 4, school: "Abjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "ranger", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_evards_black_tentacles", name: "Evard'S Black Tentacles", level: 4, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_fabricate", name: "Fabricate", level: 4, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_find_greater_steed", name: "Find Greater Steed", level: 4, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_freedom_of_movement", name: "Freedom Of Movement", level: 4, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_greater_invisibility", name: "Greater Invisibility", level: 4, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 bonus action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_guardian_of_faith", name: "Guardian Of Faith", level: 4, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 10 minutes 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_hallucinatory_terrain", name: "Hallucinatory Terrain", level: 4, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_leomunds_secret_chest", name: "Leomund'S Secret Chest", level: 4, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 bonus action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_locate_creature", name: "Locate Creature", level: 4, school: "Illusion", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 300 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mordenkainens_faithful_hound", name: "Mordenkainen'S Faithful Hound", level: 4, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mordenkainens_private_sanctum", name: "Mordenkainen'S Private Sanctum", level: 4, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 10 minutes 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_phantasmal_killer", name: "Phantasmal Killer", level: 4, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 10 minutes 300 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_polymorph", name: "Polymorph", level: 4, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 300 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric", "druid", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_staggering_smite", name: "Staggering Smite", level: 4, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_stone_shape", name: "Stone Shape", level: 4, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_summon_aberration", name: "Summon Aberration", level: 4, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_summon_construct", name: "Summon Construct", level: 4, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_summon_draconic_spirit", name: "Summon Draconic Spirit", level: 4, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (30-foot cone) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_summon_elemental", name: "Summon Elemental", level: 4, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_wall_of_fire", name: "Wall Of Fire", level: 4, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_arcane_gate", name: "Arcane Gate", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_banishing_smite", name: "Banishing Smite", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_bigbys_hand", name: "Bigby'S Hand", level: 5, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_blade_barrier", name: "Blade Barrier", level: 5, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_circle_of_death", name: "Circle Of Death", level: 5, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute 10 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE01D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_cloudkill", name: "Cloudkill", level: 5, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (10-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_cone_of_cold", name: "Cone Of Cold", level: 5, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 8 hours Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["druid", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_conjure_elemental", name: "Conjure Elemental", level: 5, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_contagion", name: "Contagion", level: 5, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "druid", "paladin", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_control_winds", name: "Control Winds", level: 5, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dawn", name: "Dawn", level: 5, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 300 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dispel_evil_and_good", name: "Dispel Evil And Good", level: 5, school: "Necromancy", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dominate_person", name: "Dominate Person", level: 5, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 8 hours Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dream", name: "Dream", level: 5, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute Special \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_far_step", name: "Far Step", level: 5, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_flame_strike", name: "Flame Strike", level: 5, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_geas", name: "Geas", level: 5, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Special \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Special \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_greater_restoration", name: "Greater Restoration", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 minute 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_hold_monster", name: "Hold Monster", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_holy_weapon", name: "Holy Weapon", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 minute 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["paladin"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_immolation", name: "Immolation", level: 5, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 bonus action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_infernal_calling", name: "Infernal Calling", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 24 hours Touch \uE30F \uE30B \uE01D \uE30B \uE30F 24 hours Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_insect_plague", name: "Insect Plague", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 24 hours Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_legend_lore", name: "Legend Lore", level: 5, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_maelstrom", name: "Maelstrom", level: 5, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 minute 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_modify_memory", name: "Modify Memory", level: 5, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 10 minutes Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_negative_energy_flood", name: "Negative Energy Flood", level: 5, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 minute 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 10 minutes Self \uE30F \uE30B \uE01D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_planar_binding", name: "Planar Binding", level: 5, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_rarys_telepathic_bond", name: "Rary'S Telepathic Bond", level: 5, school: "Enchantment", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_scrying", name: "Scrying", level: 5, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 hour 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "druid", "paladin", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_seeming", name: "Seeming", level: 5, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 150 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["ranger"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_skill_empowerment", name: "Skill Empowerment", level: 5, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 10 minutes Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_synaptic_static", name: "Synaptic Static", level: 5, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_telekinesis", name: "Telekinesis", level: 5, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_teleportation_circle", name: "Teleportation Circle", level: 5, school: "Transmutation", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["bard", "cleric", "ranger", "warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_transmute_rock", name: "Transmute Rock", level: 5, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer", "druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_wall_of_force", name: "Wall Of Force", level: 5, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["artificer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_wall_of_light", name: "Wall Of Light", level: 5, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["sorcerer", "warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_create_homunculus", name: "Create Homunculus", level: 6, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Self \uE30F \uE30B \uE208 \uE30B \uE30F 10 minutes Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_disintegrate", name: "Disintegrate", level: 6, school: "Conjuration", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 500 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_divine_word", name: "Divine Word", level: 6, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 5 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (60-foot line) \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dream_of_the_blue_veil", name: "Dream Of The Blue Veil", level: 6, school: "Divination", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes 20 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_druid_grove", name: "Druid Grove", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE027 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_guards_and_wards", name: "Guards And Wards", level: 6, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute Self \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["bard", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_harm", name: "Harm", level: 6, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute Self \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_heal", name: "Heal", level: 6, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Touch \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_investiture_of_flame", name: "Investiture Of Flame", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (10-foot radius) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["sorcerer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_investiture_of_ice", name: "Investiture Of Ice", level: 6, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Touch \uE30F \uE30B \uE208 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_investiture_of_wind", name: "Investiture Of Wind", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mass_suggestion", name: "Mass Suggestion", level: 6, school: "Necromancy", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mental_prison", name: "Mental Prison", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mirage_arcane", name: "Mirage Arcane", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_move_earth", name: "Move Earth", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_nondetection", name: "Nondetection", level: 6, school: "Illusion", ritual: true, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_otilukes_freezing_sphere", name: "Otiluke'S Freezing Sphere", level: 6, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_ottos_irresistible_dance", name: "Otto'S Irresistible Dance", level: 6, school: "Abjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_planar_ally", name: "Planar Ally", level: 6, school: "Necromancy", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_programmed_illusion", name: "Programmed Illusion", level: 6, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 300 feet \uE30F \uE30B 1 action 30 feet \uE30F \uE30B 1 action 120 feet \uE30F \uE30B \uE30B \uE208 \uE30F \uE30B \uE208 \uE30F \uE30B \uE208 \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_scatter", name: "Scatter", level: 6, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_soul_cage", name: "Soul Cage", level: 6, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 reaction, which you take 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B when a humanoid you can \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_sunbeam", name: "Sunbeam", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_wall_of_ice", name: "Wall Of Ice", level: 6, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 bonus action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_abi_dalzims_horrid_wilting", name: "Abi-Dalzim'S Horrid Wilting", level: 7, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 10 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_animal_shapes", name: "Animal Shapes", level: 7, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_delayed_blast_fireball", name: "Delayed Blast Fireball", level: 7, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_ents_du", name: "Ents Du", level: 7, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 CAS 1 T m IN in G u t T e IME R 30 A 0 N fe G e E t \uE30F \uE30F \uE30B \uE314 \uE30B \uE30B \uE30F CAS 1 T m IN in G u t T e IME R 30 A 0 N fe G e E t \uE30F \uE30F \uE30B \uE314 \uE30B \uE30B \uE30F 1 action 60 feet \uE30F \uE30F \uE30B \uE314 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F", components: "", duration: "\uE30B \uE30F COM V P , O S, N M ENTS DU 24 R h A o T u I r O s N \uE30F \uE30F \uE30B \uE30B \uE30B \uE30F COM V P , O S, N M ENTS DU 24 R h A o T u I r O s N", classes: ["bard", "cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_finger_of_death", name: "Finger Of Death", level: 7, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 10 minutes 20 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_fire_storm", name: "Fire Storm", level: 7, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 bonus action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_forcecage", name: "Forcecage", level: 7, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 10 minutes 20 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_nathairs_mischief", name: "Nathair'S Mischief", level: 7, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 6 1 bonus action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Self (60-foot cone) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_plane_shift", name: "Plane Shift", level: 7, school: "Necromancy", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 100 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 100 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_power_word_pain", name: "Power Word Pain", level: 7, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_prismatic_spray", name: "Prismatic Spray", level: 7, school: "Conjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self (60 foot cone) \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_project_image", name: "Project Image", level: 7, school: "Enchantment", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (60 foot cone) \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (60 foot cone) \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_regenerate", name: "Regenerate", level: 7, school: "Illusion", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 10 minutes Sight \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_resurrection", name: "Resurrection", level: 7, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 500 miles \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 500 miles \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_symbol", name: "Symbol", level: 7, school: "Transmutation", ritual: false, concentration: true, casting_time: "of the spell. The duplicate is a lasts until it drops to 0 hit points, at which point divination of spells. \uE30B creature,", range: "\uE30F \uE30B \uE30B \uE30F 7 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "druid", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_teleport", name: "Teleport", level: 7, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_temple_of_the_gods", name: "Temple Of The Gods", level: 7, school: "Abjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 7 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_antimagic_field", name: "Antimagic Field", level: 8, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (10-foot-radius \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (10-foot-radius \uE30F \uE30B \uE208 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B sphere) \uE30F \uE30B sphere) \uE30F \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F V, S, M Instantaneous \uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_antipathy", name: "Antipathy", level: 8, school: "Enchantment", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_astral_projection", name: "Astral Projection", level: 8, school: "Evocation", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Unlimited \uE30F \uE30B \uE208 \uE30B \uE30F 1 hour 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_blade_of_disaster", name: "Blade Of Disaster", level: 8, school: "Enchantment", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_control_weather", name: "Control Weather", level: 8, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action Self (10-foot-radius \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (10-foot-radius \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Self (5-mile radius) \uE30F \uE30B \uE042 \uE30B \uE30F sphere) \uE30F \uE30B sphere) \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F \uE30B \uE30F", components: "", duration: "\uE30B \uE30F", classes: ["cleric", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_dominate_monster", name: "Dominate Monster", level: 8, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 10 minutes Self (5-mile radius) \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_earthquake", name: "Earthquake", level: 8, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 hour 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Self (5-mile radius) \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Self (5-mile radius) \uE30F \uE30B \uE027 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_feeblemind", name: "Feeblemind", level: 8, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_holy_aura", name: "Holy Aura", level: 8, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 10 minutes Self (5-mile radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_maze", name: "Maze", level: 8, school: "Illusion", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mighty_fortress", name: "Mighty Fortress", level: 8, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 1 mile \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 1 mile \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_power_word_stun", name: "Power Word Stun", level: 8, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 150 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard", "sorcerer", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_sunburst", name: "Sunburst", level: 8, school: "Evocation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 500 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_foresight", name: "Foresight", level: 9, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 hour 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 hour 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_gate", name: "Gate", level: 9, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 hour 10 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour 10 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F", components: "", duration: "\uE30F \uE30B", classes: ["cleric", "warlock"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_imprisonment", name: "Imprisonment", level: 9, school: "Necromancy", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 hour 10 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE01D \uE30B \uE30F", components: "", duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F", classes: ["warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_mass_polymorph", name: "Mass Polymorph", level: 9, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 minute 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_power_word_heal", name: "Power Word Heal", level: 9, school: "Conjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["cleric"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_power_word_kill", name: "Power Word Kill", level: 9, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 1 mile \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_prismatic_wall", name: "Prismatic Wall", level: 9, school: "Abjuration", ritual: false, concentration: false, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_psychic_scream", name: "Psychic Scream", level: 9, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_raulothims_psychic_lance", name: "Raulothim'S Psychic Lance", level: 9, school: "Abjuration", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_shapechange", name: "Shapechange", level: 9, school: "Divination", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["druid", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_true_polymorph", name: "True Polymorph", level: 9, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 90 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["bard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_true_resurrection", name: "True Resurrection", level: 9, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Sight \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Sight \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B", components: "", duration: "\uE30F \uE30B", classes: ["druid"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_weird", name: "Weird", level: 9, school: "Transmutation", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }, { id: "spell_wish", name: "Wish", level: 9, school: "Enchantment", ritual: false, concentration: true, casting_time: "", range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B", components: "", duration: "\uE30B \uE30F", classes: ["sorcerer", "warlock", "wizard"], source: "", page: "", summary_basic: "", summary_expert: "" }];
+  var spells_min_default = [
+    {
+      id: "spell_acid_splash",
+      name: "Acid Splash",
+      level: 0,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "211",
+      summary_basic: "Hurl acid at one or two creatures, dealing acid damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_alarm",
+      name: "Alarm",
+      level: 0,
+      school: "Transmutation",
+      ritual: true,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 5 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 reaction, which you take Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B when you take acid, cold, \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "ranger",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Sets an alarm which pings you if you're within a mile when something passes through the marked area.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_animal_friendship",
+      name: "Animal Friendship",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 5 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Charms a beast with <3 Int for the day. Upcast to charm 1 more beast/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_armor_of_agathys",
+      name: "Armor Of Agathys",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 5 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "+5 temporary HP, and 5 cold damage to melee attackers while you have the temporary HP. Upcasting increases both temporary HP and cold damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_beast_bond",
+      name: "Beast Bond",
+      level: 0,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 reaction, which you take Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B when you take acid, cold, \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F fire, lightning, or thunder \uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blade_ward",
+      name: "Blade Ward",
+      level: 0,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "218",
+      summary_basic: "Gain resistance to weapon damage until your next turn.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_booming_blade",
+      name: "Booming Blade",
+      level: 0,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (5-foot radius) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_chill_touch",
+      name: "Chill Touch",
+      level: 0,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "221",
+      summary_basic: "A ghostly hand deals necrotic damage and hinders undead healing.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_control_flames",
+      name: "Control Flames",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "S",
+      duration: "Instantaneous; 1 hour",
+      classes: [],
+      source: "XGE",
+      page: "152",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_create_bonfire",
+      name: "Create Bonfire",
+      level: 0,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "152",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dancing_lights",
+      name: "Dancing Lights",
+      level: 0,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (5-foot radius) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "230",
+      summary_basic: "Create floating lights that illuminate or distract.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_druidcraft",
+      name: "Druidcraft",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "236",
+      summary_basic: "Predict weather, create small natural effects, or light candles.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_eldritch_blast",
+      name: "Eldritch Blast",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "warlock"
+      ],
+      source: "PHB",
+      page: "237",
+      summary_basic: "A beam of magical force that deals force damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_elemental_bane",
+      name: "Elemental Bane",
+      level: 0,
+      school: "",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_encode_thoughts",
+      name: "Encode Thoughts",
+      level: 0,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "S",
+      duration: "8 hour",
+      classes: [],
+      source: "GGR",
+      page: "47",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ents",
+      name: "Ents",
+      level: 0,
+      school: "",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 reaction, which you take 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE01D \uE30B \uE30F when a humanoid you can \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B see within d 6 i 0 es feet of you \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F COM V P , O S, N M ENTS Conce D n U tra R tio A n T , u I p O to N 1",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fire_bolt",
+      name: "Fire Bolt",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "242",
+      summary_basic: "Ranged spell attack dealing fire damage; ignites objects.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_friends",
+      name: "Friends",
+      level: 0,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "244",
+      summary_basic: "Gain advantage on social checks; target becomes hostile after.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_frostbite",
+      name: "Frostbite",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_green_flame_blade",
+      name: "Green-Flame Blade",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_guidance",
+      name: "Guidance",
+      level: 0,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "artificer",
+        "cleric",
+        "druid"
+      ],
+      source: "PHB",
+      page: "248",
+      summary_basic: "Touch a creature to add a bonus to one ability check.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gust",
+      name: "Gust",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "157",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_infestation",
+      name: "Infestation",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_light",
+      name: "Light",
+      level: 0,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "255",
+      summary_basic: "Make an object glow with light.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_lightning_lure",
+      name: "Lightning Lure",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "15 feet",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "TCE",
+      page: "107",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mage_hand",
+      name: "Mage Hand",
+      level: 0,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "256",
+      summary_basic: "Create a spectral hand that can manipulate objects.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_magic_stone",
+      name: "Magic Stone",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 bonus",
+      range: "touch",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "160",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mending",
+      name: "Mending",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 15 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "259",
+      summary_basic: "Repair small breaks or tears in objects.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_message",
+      name: "Message",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "259",
+      summary_basic: "Whisper a message that only one creature can hear.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mind_sliver",
+      name: "Mind Sliver",
+      level: 0,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_minor_illusion",
+      name: "Minor Illusion",
+      level: 0,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "260",
+      summary_basic: "Create a simple sound or visual illusion.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mold_earth",
+      name: "Mold Earth",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "S",
+      duration: "Instantaneous; 1 hour",
+      classes: [],
+      source: "XGE",
+      page: "162",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_poison_spray",
+      name: "Poison Spray",
+      level: 0,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "266",
+      summary_basic: "Release toxic gas that damages a nearby creature.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_prestidigitation",
+      name: "Prestidigitation",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 minute Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "267",
+      summary_basic: "Perform minor magical effects like cleaning or flavoring food.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_primal_savagery",
+      name: "Primal Savagery",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "163",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_produce_flame",
+      name: "Produce Flame",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "269",
+      summary_basic: "Create a flame in your hand or throw it at a foe.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ray_of_frost",
+      name: "Ray of Frost",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "271",
+      summary_basic: "A freezing ray damages and slows a creature.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_resistance",
+      name: "Resistance",
+      level: 0,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "cleric",
+        "druid"
+      ],
+      source: "PHB",
+      page: "272",
+      summary_basic: "Touch a creature to add a bonus to one saving throw.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sacred_flame",
+      name: "Sacred Flame",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "272",
+      summary_basic: "Radiant flame damages a creature that fails a save.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sapping_sting",
+      name: "Sapping Sting",
+      level: 0,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "EGW",
+      page: "189",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_scag",
+      name: "Scag",
+      level: 0,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 5 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shape_water",
+      name: "Shape Water",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "S",
+      duration: "Instantaneous; 1 hour",
+      classes: [],
+      source: "XGE",
+      page: "164",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shillelagh",
+      name: "Shillelagh",
+      level: 0,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "275",
+      summary_basic: "Imbue a club or staff with magical power.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shocking_grasp",
+      name: "Shocking Grasp",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "275",
+      summary_basic: "Target takes 1d8 lightning damage, and can't take reactions. Damage increases at higher caster levels.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spare_the_dying",
+      name: "Spare the Dying",
+      level: 0,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "artificer",
+        "cleric"
+      ],
+      source: "PHB",
+      page: "277",
+      summary_basic: "Stabilise a dying creature.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sword_burst",
+      name: "Sword Burst",
+      level: 0,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (5-foot radius) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_thaumaturgy",
+      name: "Thaumaturgy",
+      level: 0,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "282",
+      summary_basic: "Manifest minor divine effects like booming voice or tremors.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_thorn_whip",
+      name: "Thorn Whip",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 0 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 5 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "druid"
+      ],
+      source: "PHB",
+      page: "282",
+      summary_basic: "Create a vine whip that pulls creatures closer.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_thunderclap",
+      name: "Thunderclap",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "5 feet",
+      components: "S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "168",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_toll_the_dead",
+      name: "Toll the Dead",
+      level: 0,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "169",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_true_strike",
+      name: "True Strike",
+      level: 0,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "284",
+      summary_basic: "Gain advantage on your next attack against a target.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_vicious_mockery",
+      name: "Vicious Mockery",
+      level: 0,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "",
+      components: "",
+      duration: "",
+      classes: [
+        "bard"
+      ],
+      source: "PHB",
+      page: "285",
+      summary_basic: "Insult a creature to deal psychic damage and impose disadvantage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_word_of_radiance",
+      name: "Word of Radiance",
+      level: 0,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "5 feet",
+      components: "V, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "171",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_absorb_elements",
+      name: "Absorb Elements",
+      level: 1,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 reaction (which you take when you take acid, cold, fire, lightning, or thunder damage)",
+      range: "self",
+      components: "S",
+      duration: "1 round",
+      classes: [],
+      source: "XGE",
+      page: "150",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_arms_of_hadar",
+      name: "Arms Of Hadar",
+      level: 1,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self (30-foot line) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creatures within 10' of caster must save or take 2d6 necrotic damage. Upcasting increases damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_augury",
+      name: "Augury",
+      level: 1,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Receive a fortune reading on something you plan to do in <30 minutes.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_bane",
+      name: "Bane",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "cleric"
+      ],
+      source: "PHB",
+      page: "216",
+      summary_basic: "Up to three creatures must make a Cha  save or suffer a 1d4 penalty each time they attack or save. Upcasting increases the number of targets by 1/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_barkskin",
+      name: "Barkskin",
+      level: 1,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 90 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target's AC set to 16 minimum.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_bless",
+      name: "Bless",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "219",
+      summary_basic: "Target adds 1d4 to all attack rolls and saves. Upcasting increases the number of targets by 1/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_burning_hands",
+      name: "Burning Hands",
+      level: 1,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "15' cone of 3d6 fire damage, Dex save halves. Upcasting increases damage by 1d6/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_catapult",
+      name: "Catapult",
+      level: 1,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "150",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_cause_fear",
+      name: "Cause Fear",
+      level: 1,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "151",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ceremony",
+      name: "Ceremony",
+      level: 1,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_chaos_bolt",
+      name: "Chaos Bolt",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "151",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_charm_person",
+      name: "Charm Person",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self (15-foot cone) \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Wis save or target is charmed, and thinks of you as a friendly acquaintance, realizing magic was used on it when the duration ends. Upcasting increases the number of targets by 1/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_chromatic_orb",
+      name: "Chromatic Orb",
+      level: 1,
+      school: "Transmutation",
+      ritual: true,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Deals 3d8 damage of acid, cold, fire, lightning, poison or thunder type, your choice. Upcasting increases damage by 1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_color_spray",
+      name: "Color Spray",
+      level: 1,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "15 feet",
+      components: "V, S, M",
+      duration: "1 round",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "222",
+      summary_basic: "Blinds 6d10 hit points worth of creatures in 15' cone. Upcasting increases total hit points of creatures by 2d10/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_command",
+      name: "Command",
+      level: 1,
+      school: "Divination",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "cleric",
+        "paladin",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Issue a one word command that is not harmful to the target. Wisdom save counters. Upcasting adds one target/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_compelled_duel",
+      name: "Compelled Duel",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "30 feet",
+      components: "V",
+      duration: "1 minute",
+      classes: [
+        "paladin"
+      ],
+      source: "PHB",
+      page: "224",
+      summary_basic: "Target must make Wis save or be compelled to fight you and stay near, so long as you stay in a one-on-one with it.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_comprehend_languages",
+      name: "Comprehend Languages",
+      level: 1,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Allows you to understand any spoken or written language for an hour.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_create_or_destroy_water",
+      name: "Create Or Destroy Water",
+      level: 1,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self (15-foot cone) \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates or destroys 10gal of water, can be used to create 30' rain or disperse 30' fog. Upcast for +10gal/+5' area/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_cure_wounds",
+      name: "Cure Wounds",
+      level: 1,
+      school: "Divination",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Heals 1d8 + (spellcasting ability modifier) damage. Upcasting heals an additional 1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_detect_evil_and_good",
+      name: "Detect Evil and Good",
+      level: 1,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "10 minute",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "231",
+      summary_basic: "Recognizes aberration, celestial, fey, fiend, or undead, as well as magical consecration/desecration, within 30'.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_detect_magic",
+      name: "Detect Magic",
+      level: 1,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Senses magical objects or creatures within 30', and school of magic.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_detect_poison_and_disease",
+      name: "Detect Poison and Disease",
+      level: 1,
+      school: "Divination",
+      ritual: true,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "231",
+      summary_basic: "Senses poison, poisonous creatures, and disease within 30', and identifies type of poison, poisonous creature, or disease.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_disguise_self",
+      name: "Disguise Self",
+      level: 1,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "233",
+      summary_basic: "Makes you and your armor look like another person; purely illusory.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dissonant_whispers",
+      name: "Dissonant Whispers",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "bard"
+      ],
+      source: "PHB",
+      page: "234",
+      summary_basic: "3d6 psychic damage, and target must use reaction to flee you. Wis save for half damage, no effect.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_distort_value",
+      name: "Distort Value",
+      level: 1,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "touch",
+      components: "V",
+      duration: "8 hour",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "AI",
+      page: "75",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_divine_favor",
+      name: "Divine Favor",
+      level: 1,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Weapon deals +1d4 radiant damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_earth_tremor",
+      name: "Earth Tremor",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "10 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "155",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ensnaring_strike",
+      name: "Ensnaring Strike",
+      level: 1,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V",
+      duration: "1 minute",
+      classes: [
+        "ranger"
+      ],
+      source: "PHB",
+      page: "237",
+      summary_basic: "When you next hit an opponent with your weapon, target is restrained by vines, and takes 1d6 piercing damage at the start of each turn. Str save prevents, and can spend an action to try again. Upcasting adds +1d6 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_entangle",
+      name: "Entangle",
+      level: 1,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "20' square of difficult terrain. Creatures in area must make Str save or be restrained, spending an action to try again.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_expeditious_retreat",
+      name: "Expeditious Retreat",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Can take the Dash action as a bonus action while spell is active.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_faerie_fire",
+      name: "Faerie Fire",
+      level: 1,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Objects and people in a 20' cube are lit up, counteracting invisibility for the duration. Dex save prevents.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_false_life",
+      name: "False Life",
+      level: 1,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "239",
+      summary_basic: "Gives you 1d4 + 4 temporary hit points for duration. Upcasting adds +5 hit points/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_feather_fall",
+      name: "Feather Fall",
+      level: 1,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Up to five falling creatures have their descent velocity capped at 60'/round. If they hit the ground while the spell is ongoing, they take no fall damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_find_familiar",
+      name: "Find Familiar",
+      level: 1,
+      school: "Conjuration",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 hour",
+      range: "10 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "240",
+      summary_basic: "Summons a creature to act as your familiar. Can sense via familiar, telepathically communicate, resummon if dead, or use as a proxy for touch-range spells.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fog_cloud",
+      name: "Fog Cloud",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "20' fog heavily obscures area. Upcasting adds +20' radius/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_frost_fingers",
+      name: "Frost Fingers",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "15 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "wizard"
+      ],
+      source: "IDRotF",
+      page: "318",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gift_of_alacrity",
+      name: "Gift of Alacrity",
+      level: 1,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "touch",
+      components: "V, S",
+      duration: "8 hour",
+      classes: [],
+      source: "EGW",
+      page: "186",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_goodberry",
+      name: "Goodberry",
+      level: 1,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "246",
+      summary_basic: "Creates ten magic berries that each heal 1 hit point and provide a day's nourishment.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_grease",
+      name: "Grease",
+      level: 1,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 reaction 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "10' square of area is covered in grease, making those in the area, ending their turn on the area, or entering the area, fall prone; Dex save prevents.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_guiding_bolt",
+      name: "Guiding Bolt",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "1 round",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "248",
+      summary_basic: "Ranged attack dealing 4d6 radiant damage and giving advantage on the next attack roll. Upcasting is +1d6/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hail_of_thorns",
+      name: "Hail Of Thorns",
+      level: 1,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Around next creature struck with ranged weapon attack, deal 1d10 pierce to target and all within 5', Dex save halves. Upcasting +1d10/level (cap 6d10).",
+      summary_expert: ""
+    },
+    {
+      id: "spell_healing_word",
+      name: "Healing Word",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 bonus",
+      range: "60 feet",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "bard",
+        "cleric",
+        "druid"
+      ],
+      source: "PHB",
+      page: "250",
+      summary_basic: "Creature regain 1d4 + (spellcasting ability mod) HP. Upcasting adds +1d4 healing/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hellish_rebuke",
+      name: "Hellish Rebuke",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 reaction (which you take in response to being damaged by a creature within 60 feet of you that you can see)",
+      range: "60 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "warlock"
+      ],
+      source: "PHB",
+      page: "250",
+      summary_basic: "Person that damaged you takes 2d10 fire damage, Dex save halves. Upcasting adds +1d10 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_heroism",
+      name: "Heroism",
+      level: 1,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 reaction 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creature gains immunity to being frightened and gains temporary hit points equal to your spellcasting ability modifier at the start of its turn. Upcasting adds +1 target/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hex",
+      name: "Hex",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "warlock"
+      ],
+      source: "PHB",
+      page: "251",
+      summary_basic: "You deal an extra 1d6 necrotic damage to the target whenever you hit it with an attack, and the target suffers disadvantage to checks with one ability score (your choice). Upcasting increases duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hunters_mark",
+      name: "Hunter's Mark",
+      level: 1,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "90 feet",
+      components: "V",
+      duration: "1 hour",
+      classes: [
+        "ranger"
+      ],
+      source: "PHB",
+      page: "251",
+      summary_basic: "Marks target, granting +1d6 damage and advantage to Perception and Survival checks to find it. Upcasting increases duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ice_knife",
+      name: "Ice Knife",
+      level: 1,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_identify",
+      name: "Identify",
+      level: 1,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Identifies what a magical item does, what magic created an object, and what spells are currently affecting a touched creature.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_illusory_script",
+      name: "Illusory Script",
+      level: 1,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 reaction 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Only designated creatures and those with truesight can read your hidden message, with a false or gibberish text appearing for all others.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_inflict_wounds",
+      name: "Inflict Wounds",
+      level: 1,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "253",
+      summary_basic: "Deals 3d10 necrotic damage. Upcasting adds +1d10/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_jims_magic_missile",
+      name: "Jim's Magic Missile",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "wizard"
+      ],
+      source: "AI",
+      page: "76",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_jump",
+      name: "Jump",
+      level: 1,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "artificer",
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "254",
+      summary_basic: "Triples target's jump distance.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_longstrider",
+      name: "Longstrider",
+      level: 1,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 bonus action 90 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "druid",
+        "ranger",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target's speed increases by +10'. Upcasting adds +1 creature/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mage_armor",
+      name: "Mage Armor",
+      level: 1,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target's AC becomes 13 + Dex. Only works on those not wearing armor.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_magic_missile",
+      name: "Magic Missile",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "257",
+      summary_basic: "Three darts, each of which deal 1d4 + 1 damage. Upcasting adds 1 dart/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_magnify_gravity",
+      name: "Magnify Gravity",
+      level: 1,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "1 round",
+      classes: [],
+      source: "EGW",
+      page: "188",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_protection_from_evil_and_good",
+      name: "Protection From Evil And Good",
+      level: 1,
+      school: "Divination",
+      ritual: true,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "paladin",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target creature is protected against aberrations, celestials, elementals, fey, fiends, and undead. Against such creature, the target gains a bunch of benefits against them.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_purify_food_and_drink",
+      name: "Purify Food and Drink",
+      level: 1,
+      school: "Transmutation",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 action",
+      range: "10 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "artificer",
+        "cleric",
+        "druid",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "270",
+      summary_basic: "All nonmagical food and drink within 5' is purified and free of poison and disease.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ray_of_sickness",
+      name: "Ray Of Sickness",
+      level: 1,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 minute Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (30-foot line) \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target takes 2d8 poison damage and is poisoned for a turn. Con save clears poison, but not damage. Upcasting increases damage by 1d8 per level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sanctuary",
+      name: "Sanctuary",
+      level: 1,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE01D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "artificer",
+        "cleric",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Any creature wishing to attack the chosen creature must make a Wis save; on a fail, they must target someone else. Spell ends if warded creature attacks or casts an offensive spell.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_searing_smite",
+      name: "Searing Smite",
+      level: 1,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Adds 1d6 fire damage to next melee weapon attack. Target struck makes Con save at end of each turn, failure inflicts additional 1d6 fire damage, save ends. Upcasting increases initial damage +1d6/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shield",
+      name: "Shield",
+      level: 1,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 reaction Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "In response to an attack or magic missile, +5 AC and immunity to magic missile until your next turn.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shield_of_faith",
+      name: "Shield of Faith",
+      level: 1,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "275",
+      summary_basic: "Grants +2 AC to target for duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_silent_image",
+      name: "Silent Image",
+      level: 1,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "276",
+      summary_basic: "Creates a visual illusion that you can move and make look as if it's moving naturally.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_silvery_barbs",
+      name: "Silvery Barbs",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 reaction (which you take when a creature you can see within 60 feet of yourself succeeds on an attack roll, an ability check, or a saving throw)",
+      range: "60 feet",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "SCC",
+      page: "38",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sleep",
+      name: "Sleep",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "276",
+      summary_basic: "5d8 hit points of creatures are put to sleep. Upcasting adds +2d8 HP of targets/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_snare",
+      name: "Snare",
+      level: 1,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "artificer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_speak_with_animals",
+      name: "Speak With Animals",
+      level: 1,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "You can speak and verbally communicate with beasts for the duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tashas_caustic_brew",
+      name: "Tasha'S Caustic Brew",
+      level: 1,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 reaction Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tashas_hideous_laughter",
+      name: "Tasha's Hideous Laughter",
+      level: 1,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "280",
+      summary_basic: "Target falls prone and is incapacitated, unable to stand. Wis save prevents. Each turn and when damaged, target can make fresh Wis save.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tensers_floating_disk",
+      name: "Tenser's Floating Disk",
+      level: 1,
+      school: "Conjuration",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "282",
+      summary_basic: "3' diameter floating disk carries up to 500lbs and follows you at a distance of 20'.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_thunderous_smite",
+      name: "Thunderous Smite",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V",
+      duration: "1 minute",
+      classes: [
+        "paladin"
+      ],
+      source: "PHB",
+      page: "282",
+      summary_basic: "Next attack deals 2d6 thunder damage to the target and pushes it 10' away, knocking it prone. Str save prevents effect but not damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_thunderwave",
+      name: "Thunderwave",
+      level: 1,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "bard",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Those within 15' take 2d8 thunder damage and are pushed 10' away. Con save halves damage and prevents push. Upcasting increases damage by +1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_unseen_servant",
+      name: "Unseen Servant",
+      level: 1,
+      school: "Divination",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 1 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self (15-foot cube) \uE30F \uE30B \uE314 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates an invisible servant incapable of attacking that performs simple tasks at your command. You can give new commands as a bonus action.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_witch_bolt",
+      name: "Witch Bolt",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "289",
+      summary_basic: "Deals 1d12 lightning damage, and you can spend your action to deal another 1d12 lightning damage each round. Upcasting increases initial damage by +1d12/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wrathful_smite",
+      name: "Wrathful Smite",
+      level: 1,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V",
+      duration: "1 minute",
+      classes: [
+        "paladin"
+      ],
+      source: "PHB",
+      page: "289",
+      summary_basic: "Next melee weapon attack deals 1d6 psychic damage and is frightened until the spell ends, Wis save prevents effect. As an action, creature can take Wis save to end the effect.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_zephyr_strike",
+      name: "Zephyr Strike",
+      level: 1,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "171",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_aganazzars_scorcher",
+      name: "Aganazzar's Scorcher",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "150",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_aid",
+      name: "Aid",
+      level: 2,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "8 hour",
+      classes: [
+        "artificer",
+        "cleric",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "211",
+      summary_basic: "+5 max and current HP for 8h. If upcast, +5HP per spell level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_air_bubble",
+      name: "Air Bubble",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "S",
+      duration: "24 hour",
+      classes: [
+        "artificer",
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "AAG",
+      page: "22",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_alter_self",
+      name: "Alter Self",
+      level: 2,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 reaction Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Choose between aquatic adaptation, change appearance, and natural weapons. Can change between while active.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_animal_messenger",
+      name: "Animal Messenger",
+      level: 2,
+      school: "Enchantment",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "24 hour",
+      classes: [
+        "bard",
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "212",
+      summary_basic: "Tiny beast seeks out a chosen location/target, speaks up to 25 words. Upcast for longer distances/duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_animate_dead",
+      name: "Animate Dead",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Raises a zombie or skeleton, which obeys your orders for 24h unless spell is recast. Upcast to increase the number of undead by 2/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_arcane_lock",
+      name: "Arcane Lock",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Magically locks something, making it difficult to break or pick. A spoken password suppresses the effect.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_beast_sense",
+      name: "Beast Sense",
+      level: 2,
+      school: "Divination",
+      ritual: true,
+      concentration: true,
+      casting_time: "1 action",
+      range: "touch",
+      components: "S",
+      duration: "1 hour",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "217",
+      summary_basic: "Sense through a touched beast's eyes.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blindness",
+      name: "Blindness",
+      level: 2,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "cleric",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blindness_deafness",
+      name: "Blindness/Deafness",
+      level: 2,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "cleric",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "219",
+      summary_basic: "Target makes Con save or is blinded/deafened (your choice). Upcasting increases number of targets by 1/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blur",
+      name: "Blur",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Blur self, inflicting disadvantage on attacks against you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_borrowed_knowledge",
+      name: "Borrowed Knowledge",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "cleric",
+        "warlock",
+        "wizard"
+      ],
+      source: "SCC",
+      page: "37",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_branding_smite",
+      name: "Branding Smite",
+      level: 2,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "paladin",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Next attack deals 2d6 radiant damage, target becomes visible and illuminated and can't become invisible. Upcasting increases damage by 1d6/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_call_lightning",
+      name: "Call Lightning",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Storm cloud appears, letting you strike target 5' zone of your choice in 60' cylinder for 3d10 lightning damage every round. Upcasting increases damage by 1d10/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_calm_emotions",
+      name: "Calm Emotions",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "paladin",
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Cha save (can choose to fail) or suppress charm/frighten. Alternately, Cha save or become indifferent to previously-hostile creatures until attacked or harmed.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_catnap",
+      name: "Catnap",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_cloud_of_daggers",
+      name: "Cloud Of Daggers",
+      level: 2,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a 5' cube of daggers which deal 4d4 slashing damage to those who pass through. Upcasting increases damage by 2d4/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_continual_flame",
+      name: "Continual Flame",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Until dispel",
+      classes: [
+        "artificer",
+        "cleric",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "227",
+      summary_basic: "Creates a light that can't be quenched.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_cordon_of_arrows",
+      name: "Cordon of Arrows",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "5 feet",
+      components: "V, S, M",
+      duration: "8 hour",
+      classes: [
+        "ranger"
+      ],
+      source: "PHB",
+      page: "228",
+      summary_basic: "Plant four arrows within 5' of you; they attack anyone who comes within 30' of them, dealing 1d6 piercing damage (Dex save prevents) and destroying themselves. Upcasting increases number of arrows by 2/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_crown_of_madness",
+      name: "Crown Of Madness",
+      level: 2,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target attacks who you command it to as an action, as long as it continues to fail Wis saves and it can. Otherwise it is free to act.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_darkness",
+      name: "Darkness",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, M",
+      duration: "10 minute",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "230",
+      summary_basic: "Magical darkness covers a 15' radius sphere. Dispels 2nd level or lower magical lights.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_darkvision",
+      name: "Darkvision",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Touched creature gains 60' of darkvision for 8 hours.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_detect_thoughts",
+      name: "Detect Thoughts",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Detect surface thoughts of one creature at a time within 30'. Can plunge deeper for insight into reasoning, emotional state, and important things, but this lets it resist with a successful Wis save ending the spell. Continued probing means Int v. Int checks that end the spell if it wins. Can detect invisible within 30'. No effect on creatures with <3 Int or no language.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dragons_breath",
+      name: "Dragon's Breath",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "154",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dust_devil",
+      name: "Dust Devil",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "154",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_earthbind",
+      name: "Earthbind",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_enhance_ability",
+      name: "Enhance Ability",
+      level: 2,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger",
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creature gains advantage on chosen Ability checks, and additional benefits for Str/Dex/Con. Upcasting lets you target +1 creature/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_enlarge",
+      name: "Enlarge",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_enlarge_reduce",
+      name: "Enlarge/Reduce",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "237",
+      summary_basic: "Increases/decreases size category by one step, grants advantage/disadvantage on Strength rolls, and add/reduces damage by 1d4.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_enthrall",
+      name: "Enthrall",
+      level: 2,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "warlock"
+      ],
+      source: "PHB",
+      page: "238",
+      summary_basic: "Creatures you choose within range must make a Wis save or suffer disadvantage on Perception checks to perceive anyone but you. Target has advantage on Wis save if they're fighting you or your companions.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_find_steed",
+      name: "Find Steed",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "10 minute",
+      range: "30 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "paladin"
+      ],
+      source: "PHB",
+      page: "240",
+      summary_basic: "Summons a loyal steed, which can understand one language and you may speak to it telepathically within 1 mile.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_find_traps",
+      name: "Find Traps",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "cleric",
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "241",
+      summary_basic: "Detects the presence and general nature of traps within range and line of sight.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_flame_blade",
+      name: "Flame Blade",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "242",
+      summary_basic: "Fire blade held in hand acts as weapon dealing 3d6 fire damage. Upcasting adds +1d6/two levels.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_flaming_sphere",
+      name: "Flaming Sphere",
+      level: 2,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "5' diameter sphere deals 2d6 damage to those within 5' of it, Dex save halves. Sphere can be moved up to 30' as a bonus action. Upcasting adds +1d6 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_flock_of_familiars",
+      name: "Flock of Familiars",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 minute",
+      range: "touch",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "LLK",
+      page: "57",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fortunes_favor",
+      name: "Fortune's Favor",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "EGW",
+      page: "186",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gentle_repose",
+      name: "Gentle Repose",
+      level: 2,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Corpse doesn't decay/age for duration - including for purposes of raise dead- and can't become undead.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gift_of_gab",
+      name: "Gift of Gab",
+      level: 2,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 reaction (which you take when you speak to another creature)",
+      range: "self",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "AI",
+      page: "76",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gust_of_wind",
+      name: "Gust Of Wind",
+      level: 2,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "60' long, 10' wind gust of wind is pushed 15' unless it passes a Str save, and has movement speed halved towards user.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_healing_spirit",
+      name: "Healing Spirit",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "60 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "157",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_heat_metal",
+      name: "Heat Metal",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (60-foot line) \uE30F \uE30B \uE027 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Metal object becomes red-hot, dealing 2d8 fire damage to those in contact with it. As a bonus action, deal damage again. Holding the object inflicts disadvantage to attack rolls and ability checks until your next turn. Upcasting adds +1d8 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hold_person",
+      name: "Hold Person",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Paralyzes humanoid target, Wis save ends, try again each turn. Upcasting adds +1 target/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_immovable_object",
+      name: "Immovable Object",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "EGW",
+      page: "187",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_invisibility",
+      name: "Invisibility",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target turns invisible, ends if they attack or cast spell. Upcasting adds +1 target/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_jims_glowing_coin",
+      name: "Jim's Glowing Coin",
+      level: 2,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "S, M",
+      duration: "1 minute",
+      classes: [
+        "wizard"
+      ],
+      source: "AI",
+      page: "76",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_kinetic_jaunt",
+      name: "Kinetic Jaunt",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "S",
+      duration: "1 minute",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "SCC",
+      page: "37",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_knock",
+      name: "Knock",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "254",
+      summary_basic: "Unlocks object, creates loud sound audible up to 300' away.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_lesser_restoration",
+      name: "Lesser Restoration",
+      level: 2,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "End one disease or condition (blinded, deafened, paralyzed, poisoned) afflicting the touched creature.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_levitate",
+      name: "Levitate",
+      level: 2,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Lift up to 500lbs 20' into the air. Move it up/down 20' on your turn. Con save prevents.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_locate_animals_or_plants",
+      name: "Locate Animals Or Plants",
+      level: 2,
+      school: "Transmutation",
+      ritual: true,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Learn the direction or distance of the nearest specimen of a species of beast or plant within 5 miles.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_locate_object",
+      name: "Locate Object",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "256",
+      summary_basic: "Sense the direction of an object within 1000' of you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_magic_mouth",
+      name: "Magic Mouth",
+      level: 2,
+      school: "Illusion",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "Until dispel",
+      classes: [
+        "artificer",
+        "bard",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "257",
+      summary_basic: "On trigger, object speaks a message of 25 words or less. Can repeat, or end after a single speech.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_magic_weapon",
+      name: "Magic Weapon",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "touch",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "paladin",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "257",
+      summary_basic: "Weapon gains +1 bonus to attack and damage rolls. Upcasting allows you to increase bonus.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_maximilians_earthen_grasp",
+      name: "Maximilian'S Earthen Grasp",
+      level: 2,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_melfs_acid_arrow",
+      name: "Melf'S Acid Arrow",
+      level: 2,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 minute 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Attack deals 4d4 acid damage and 2d4 acid damage on the end of target's next turn. Miss halves initial damage and has no lasting damage. Upcasting adds +1d4 damage (both initial and later)/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mind_spike",
+      name: "Mind Spike",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "S",
+      duration: "1 hour",
+      classes: [],
+      source: "XGE",
+      page: "162",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mirror_image",
+      name: "Mirror Image",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates three illusory duplicates; if a duplicate is hit by an attack (but not other effects/damage), it is destroyed.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_misty_step",
+      name: "Misty Step",
+      level: 2,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "paladin",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Teleport 30'.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_moonbeam",
+      name: "Moonbeam",
+      level: 2,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a 5' radius, 40' tall cylinder of pale light. Those inside take 2d10 radiant damage, Con save halves. Shapechangers make their save with disadvantage, and if they fail, are forced into original form. Upcasting adds +1d10 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_nystuls_magic_aura",
+      name: "Nystul'S Magic Aura",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Divination spells on target receive false information.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_pass_without_trace",
+      name: "Pass Without Trace",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE29D \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE29D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "+10 bonus to Stealth for you and allies within 30'.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_phantasmal_force",
+      name: "Phantasmal Force",
+      level: 2,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 minute 30 feet \uE30F \uE30B 1 minute 30 feet \uE30F \uE30B 1 action 60 feet \uE30F \uE30B \uE30B \uE314 \uE30F \uE30B \uE314 \uE30F \uE30B \uE314 \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates an illusory object in a single target's mind. Int save prevents, and an action and Int (Investigation) check can reveal it. Otherwise, the target becomes irrationally convinced of the illusion's reality, and can take 1d6 psychic damage from it if it would harm it.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_prayer_of_healing",
+      name: "Prayer Of Healing",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Up to 6 creatures regain 2d8 + your spellcasting ability modifier health. Upcasting adds +1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_protection_from_poison",
+      name: "Protection From Poison",
+      level: 2,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 minute 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 minute 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE14C \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "artificer",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Neutralizes one poison in the target, and gives advantage on saves against poisons and resistance to poison damage for the duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_pyrotechnics",
+      name: "Pyrotechnics",
+      level: 2,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ray_of_enfeeblement",
+      name: "Ray Of Enfeeblement",
+      level: 2,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "On a successful hit, the target deals only half damage with weapon attacks that use Strength until the spell ends. At the end of its turn, it can make a Con save to try to end the spell.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_rimes_binding_ice",
+      name: "Rime'S Binding Ice",
+      level: 2,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 bonus action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_rope_trick",
+      name: "Rope Trick",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "272",
+      summary_basic: "Rope rises into the air, and at the top of its length is an invisible entrance to an extradimensional space you can rest in for the duration. Rope can be pulled up into the portal.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_scorching_ray",
+      name: "Scorching Ray",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "273",
+      summary_basic: "Three rays deal 2d6 fire damage each, against one or more targets. Upcasting adds 1 ray/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_see_invisibility",
+      name: "See Invisibility",
+      level: 2,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Lets you see invisible creatures and objects, and things in the Ethereal Plane.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shadow_blade",
+      name: "Shadow Blade",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shatter",
+      name: "Shatter",
+      level: 2,
+      school: "Illusion",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "All creatures in a 10' radius sphere take 3d8 thunder damage, Con save halves. Inorganic creatures have disadvantage on the save. Upcasting adds +1d8 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_silence",
+      name: "Silence",
+      level: 2,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "ranger",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "No sound can be created within or pass through a 20' radius sphere. Creatures inside are immune to thunder damage and deafened. Spells with verbal components cannot be cast.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_skywrite",
+      name: "Skywrite",
+      level: 2,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "1 action",
+      range: "sight",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [],
+      source: "XGE",
+      page: "165",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_snillocs_snowball_swarm",
+      name: "Snilloc's Snowball Swarm",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "165",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spider_climb",
+      name: "Spider Climb",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "277",
+      summary_basic: "Target can walk on vertical surfaces or upside down on ceilings at normal move speed.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spike_growth",
+      name: "Spike Growth",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "277",
+      summary_basic: "20' radius of grown sprouts camouflaged spikes and thorns. It becomes difficult terrain and inflicts 2d4 piercing damage per 5' someone travels within.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spiritual_weapon",
+      name: "Spiritual Weapon",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Floating weapon deals 1d8 + spellcasting ability modifier force damage. Upcasting adds +1d8 damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spray_of_cards",
+      name: "Spray of Cards",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "15 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "BMT",
+      page: "50",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_suggestion",
+      name: "Suggestion",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Sight \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target must take some apparently-reasonable action you suggest, Wis save prevents.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_beast",
+      name: "Summon Beast",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "TCE",
+      page: "109",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tashas_mind_whip",
+      name: "Tasha'S Mind Whip",
+      level: 2,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_vortex_warp",
+      name: "Vortex Warp",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "SCC",
+      page: "38",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_warding_bond",
+      name: "Warding Bond",
+      level: 2,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 bonus action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target gains +1 AC and +1 to saves, and resistance to all damage. You take damage when the creature does. Ends if you are separated by more than 60' or reduced to 0 hit points.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_warding_wind",
+      name: "Warding Wind",
+      level: 2,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_warp_sense",
+      name: "Warp Sense",
+      level: 2,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "SatO",
+      page: "12",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_web",
+      name: "Web",
+      level: 2,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "287",
+      summary_basic: "Thick webbing fills 20' cube, restraining creatures inside. Dex save prevents. A creature restrained can make a Str save as an action to break free.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wither_and_bloom",
+      name: "Wither and Bloom",
+      level: 2,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "SCC",
+      page: "38",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wristpocket",
+      name: "Wristpocket",
+      level: 2,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "S",
+      duration: "1 hour",
+      classes: [],
+      source: "EGW",
+      page: "190",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_zone_of_truth",
+      name: "Zone Of Truth",
+      level: 2,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "paladin",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creatures inside the zone must make a Cha save; if they fail, they cannot speak a deliberate lie within the area, and you know if they succeeded/failed.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_antagonize",
+      name: "Antagonize",
+      level: 3,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "BMT",
+      page: "50",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ashardalons_stride",
+      name: "Ashardalon's Stride",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "FTD",
+      page: "19",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_aura_of_vitality",
+      name: "Aura Of Vitality",
+      level: 3,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 minute 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "30' aura where you can heal one creature 2d6 damage as a bonus action.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_beacon_of_hope",
+      name: "Beacon of Hope",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "217",
+      summary_basic: "Allies gain advantage on Wis and death saves, and gains maximum possible HP from any healing.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_bestow_curse",
+      name: "Bestow Curse",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (30-foot radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "paladin",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Curses touched target, inflicting one of: disadvantage on ability scores; disadvantage attacks against you; forcing Wis saves to act; or taking additional necrotic damage from your attacks. Upcasting increases duration and can remove concentration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blight",
+      name: "Blight",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "8d8 necrotic damage to target, Con save halves. Upcasting increases damage by 1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blinding_smite",
+      name: "Blinding Smite",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V",
+      duration: "1 minute",
+      classes: [
+        "paladin"
+      ],
+      source: "PHB",
+      page: "219",
+      summary_basic: "Bonus 3d8 radiant damage to attack, target makes Con save or is blinded for duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blink",
+      name: "Blink",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "219",
+      summary_basic: "At the end of each turn, 50% chance of entering the Ethereal plane, returning within 10' at the start of your next turn.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_clairvoyance",
+      name: "Clairvoyance",
+      level: 3,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes 1 mile \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates an invisible sensor within a mile, which you can see or hear through for 10 minutes.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_compo",
+      name: "Compo",
+      level: 3,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Self h ( e 1 m 0- i f s o p o h t e - r r e a ) dius \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B COMPO V NENTS Conce D n U tra R tio A n T , u I p O to N 1 hour \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F COM V P , O S, N M ENTS DU 8 R h A o T ur IO s N \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F COM V P , O S, N M ENTS Concen D tra U tio R n A , u T p t I o O 1 N 0 minutes \uE30F \uE30B \uE30B \uE30B \uE30F \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B F c d W A u a o s a t n i i m r n s H t d s g a h e i o g g a e e m e h s d w , p , e a u a i e r s t r n l h a w l L d t i s n e i e l C o o v l r l n h t a e a , a o n l s y r s f g o i a s : e 4 u d m W t h v h o a a a h r l s n s e e o a r t v n n a e v e e y g s i l n o i e o w s g u t r o i a t l c n h l h n i a i n r I c g s n o g e h t t w e c t e t h o r r s l , l e . i i p s y g a o s s e t y u p u n c r e c c h e l e a l i , y c n ou \uE30F \uE30B \uE30F \uE30B \uE30B \uE30B \uE077 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F A A i r e n e n s t 1 m m d o 0 a s a e l - l i i f x n f c o r i y s y s o s o t s t t e u a t - a n l r l b a t c e e i d e a o a i d v n u a e a r s o r i i t y m u s n f m a o d r r o e a t b a n h i . d l e e a d d b u o o r m a v t e e i o y o n o f . u f T o a h r n c e d e s s p p e r ll ings \uE30F \uE30B \uE30F \uE30B \uE30B \uE30B \uE077 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F A Y o f s c o e o o t b o h e m u it t e w p c o r c r f l i u v e t e fl b h i t a e s e e i e t i n b l c . e y e T l r t e a r h h e n p e e a g h i l i e m e , m i n a n a a o n c g g m d l e e u l e a d o a n p i f s n o p t a g s n e n s f a t o o o r h b r s u a j t n a t e h t d c i e s a s t , , n d s a s o u p m c r o l r a a e t e t r l t l i a g s o h t e , n a u a r t . r n t I e y h t d , o a s o u e n r e c a s m a o 2 n s m 0- e \uE30F \uE30B \uE30F \uE30B \uE30B \uE30B \uE077 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F target one additional creature for each slot level 9 creatures of Medium size or smaller can fit temperature appropriate to the thing depicted. You above 3rd. The creatures must be within 30 feet inside the dome with you. The spell fails if its can't create sufficient heat or cold to cause damage, a of each other when you target them. \uE30B \uE30B \uE30B a c d r r o e e m a a t e i u n w r c e l h u s e . d n C e y r s e o a a u l t a c u r a r g s e e t s r t a h c n r is d e a s o p t b u e j r l e l e c c t o a s r n w m m i o t o h r v e in e t t t h h h a e r n o 9 ugh \uE30B \uE30B \uE30B s a a o c t u r r o n e g a d l t o l u o d r u y e d t , e o e ' r n s a o s t u s e m g n h e c t h ll o ) t . d h e a a t l m th ig u h n t d s e ic r k d e a n m a a c g r e e a o t r u d r e e a ( f l e ik n e \uE30B \uE30B \uE30B \uE30F \uE30B it freely. All other creatures and objects are \uE30F \uE30B As long as you are within",
+      components: "",
+      duration: ". The spell \uE30B number of hit points equal to twice the necrotic \uE30B using a spell slot of 4th level or higher, you can \uE30B \uE30B",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_compulsion",
+      name: "Compulsion",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 bonus action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Affected creatures must move horizontal from you, with a Wis save resisting.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_animals",
+      name: "Conjure Animals",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "225",
+      summary_basic: "Summons CR2 or less beasts that obey verbal commands. Upcasting allows you to summon more animals.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_barrage",
+      name: "Conjure Barrage",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 150 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Duplicate thrown weapon/ammunition, with copies dealing 3d8 damage in a 60' cone, Dex save halves. Same damage type as thrown weapon/ammunition.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_woodland_beings",
+      name: "Conjure Woodland Beings",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE29D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Summons CR2 or less fey that obey verbal commands. Upcasting lets you summon more fey creatures.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_counterspell",
+      name: "Counterspell",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 reaction (which you take when you see a creature within 60 feet of you casting a spell)",
+      range: "60 feet",
+      components: "S",
+      duration: "Instantaneous",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "228",
+      summary_basic: "A creature casting a spell of 3rd level or lower automatically fails; if it is 4th or higher, make a DC 10 + [target spell level] Ability check instead. Upcast to raise the spell level for autosuccess.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_create_food_and_water",
+      name: "Create Food and Water",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "artificer",
+        "cleric",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "229",
+      summary_basic: "Creates 45lbs of food and 30gal of water. Food lasts 24h unless eaten, water doesn't spoil.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_crusaders_mantle",
+      name: "Crusader'S Mantle",
+      level: 3,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 10 minutes 1 mile \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes 1 mile \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "30' aura adds 1d4 radiant damage to all weapon attacks for duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_daylight",
+      name: "Daylight",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger",
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a 60' radius sphere of bright light, with an additional 60' of dim light. Dispels 3rd level or lower magical darkness.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dispel_magic",
+      name: "Dispel Magic",
+      level: 3,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Cancels any spell of 3rd level or below on target creature, object, or magical effect. DC 10 + spell level check to dispel higher level. Upcasting auto-cancels higher level spells.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_elemental_weapon",
+      name: "Elemental Weapon",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "237",
+      summary_basic: "Weapon has +1 to attack rolls and deals +1d4 acid/cold/fire/lightning/thunder (your choice) damage. Upcasting increases damage and bonus.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_enemies_abound",
+      name: "Enemies Abound",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 reaction 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_erupting_earth",
+      name: "Erupting Earth",
+      level: 3,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 reaction 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fast_friends",
+      name: "Fast Friends",
+      level: 3,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "AI",
+      page: "75",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fear",
+      name: "Fear",
+      level: 3,
+      school: "Divination",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 10 minutes 1 mile \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Each creature in 30' cone drops what it's holding and becomes frightened. Wis saving throw prevents. Can flee, and can make a new Wis saving throw when it can no longer see you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_feign_death",
+      name: "Feign Death",
+      level: 3,
+      school: "Necromancy",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "240",
+      summary_basic: "Willing creature appears dead for one hour.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fireball",
+      name: "Fireball",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 bonus action 60 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (100-foot line) \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "20' radius sphere deals 8d6 fire damage, Dex save halves. Upcasting adds +1d6 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_flame_arrows",
+      name: "Flame Arrows",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [],
+      source: "XGE",
+      page: "156",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fly",
+      name: "Fly",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "243",
+      summary_basic: "Target gains 60' flying speed. Upcasting adds +1 target/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_galders_tower",
+      name: "Galder's Tower",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "10 minute",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "24 hour",
+      classes: [
+        "wizard"
+      ],
+      source: "LLK",
+      page: "57",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gaseous_form",
+      name: "Gaseous Form",
+      level: 3,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (30-foot cone) \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Turns touched target into gas, granting 10' flying speed, resistance to nonmagical damage, advantage on Str/Dex/Con saves, and pass through narrow openings. Ends when they hit 0 hit points.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_glyph_of_warding",
+      name: "Glyph Of Warding",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Places a hidden glyph on a surface or inside an openable object, which either erupts in 5d8 acid/cold/fire/lightning/thunder damage (your choice) that can be halved by a successful Dex save, or a 3rd level or lower spell. Upcasting grants +1d8 damage/level, or allows +1 spell level/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_haste",
+      name: "Haste",
+      level: 3,
+      school: "Necromancy",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "druid",
+        "paladin",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target has doubled move speed, extra action, +2 AC, and advantage on Dex saves.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hunger_of_hadar",
+      name: "Hunger of Hadar",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "warlock"
+      ],
+      source: "PHB",
+      page: "251",
+      summary_basic: "20' radius sphere creates total darkness, cacophonous whispering, deals 2d6 cold damage to those that start their turn there, and 2d6 acid damage to those that end their turn there. Dex save prevents acid damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hypnotic_pattern",
+      name: "Hypnotic Pattern",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Targets incapacitated and speed of 0. Wis save stops. Ends if target attacked.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_incite_greed",
+      name: "Incite Greed",
+      level: 3,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "cleric",
+        "warlock",
+        "wizard"
+      ],
+      source: "AI",
+      page: "76",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_intellect_fortress",
+      name: "Intellect Fortress",
+      level: 3,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 hour Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_leomunds_tiny_hut",
+      name: "Leomund'S Tiny Hut",
+      level: 3,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Unlimited \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "10' radius immobile dome appears around you, providing protection from all outside, including spells or inclement weather.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_life_transference",
+      name: "Life Transference",
+      level: 3,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "160",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_lightning_arrow",
+      name: "Lightning Arrow",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "ranger"
+      ],
+      source: "PHB",
+      page: "255",
+      summary_basic: "Next ranged attack deals 4d8 lightning damage instead of normal, half damage on a miss. Those within 10' of target take 2d8 lightning damage, Dex save halves. Upcasting adds +1d8/level to both effects.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_lightning_bolt",
+      name: "Lightning Bolt",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "100'x5' line deals 8d6 lightning damage, Dex save halves. Upcasting adds +1d6 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_linked_glyphs",
+      name: "Linked Glyphs",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Until dispel, trigger",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "AitFR-AVT",
+      page: "9",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_magic_circle",
+      name: "Magic Circle",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "paladin",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "10' radius, 20' tall cylinder provides protection against one or more of celestials, elementals, fey, fiends, or undead. Can also cast in reverse to trap such beings inside. Upcasting increases duration by +1h/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_major_image",
+      name: "Major Image",
+      level: 3,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (100-foot line) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a convincing illusion that sounds, smells, looks, and has the warmth/cold of the real thing, in a 20' cube. Upcasting voids Concentration tag at 6th level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mass_healing_word",
+      name: "Mass Healing Word",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (30-foot radius) \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Heals up to 6 creatures by 1d4 + spellcasting ability modifier. Upcasting adds +1d4/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_meld_into_stone",
+      name: "Meld Into Stone",
+      level: 3,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Step into stone object, completely hiding within it to all nonmagical senses.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_melfs_minute_meteors",
+      name: "Melf's Minute Meteors",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [],
+      source: "XGE",
+      page: "161",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_motivational_speech",
+      name: "Motivational Speech",
+      level: 3,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "60 feet",
+      components: "V",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "cleric"
+      ],
+      source: "AI",
+      page: "77",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_phantom_steed",
+      name: "Phantom Steed",
+      level: 3,
+      school: "Illusion",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "30 feet",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "265",
+      summary_basic: "Creates a steed that can be ridden. Moves at 100'/10mph. Steed disappears if it takes damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_plant_growth",
+      name: "Plant Growth",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (100-foot line) \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "druid",
+        "ranger",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "All normal plants in a 100' radius become thick and overgrown, quadrupling movement costs. Alternately, cast the spell over eight hours, doubling  harvests for the year.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_protection_from_energy",
+      name: "Protection From Energy",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 hour Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "artificer",
+        "cleric",
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target gains resistance to your choice of acid, cold, fire, lightning, or thunder.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_pulse_wave",
+      name: "Pulse Wave",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "EGW",
+      page: "188",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_remove_curse",
+      name: "Remove Curse",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 minute 10 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action or 8 hours 150 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "paladin",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Removes curses affecting a creature or object, unless it is a cursed magic item, in which case it ends attunement.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_revivify",
+      name: "Revivify",
+      level: 3,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "artificer",
+        "cleric",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "272",
+      summary_basic: "Creature that died within the last minute is returned to life with 1 hit point.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sending",
+      name: "Sending",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Send a message of 25 words or less to a creature you know, which is heard in their mind. Works across planes 95% of the time.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sleet_storm",
+      name: "Sleet Storm",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (100-foot line) \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates 40' radius region of sleet and freezing rain, creating difficult terrain and obscuring visibility. Can break concentration or knock creatures prone.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_slow",
+      name: "Slow",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Unlimited \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Up to 6 creatures in a 40' cube are slowed. Wis save prevents. Slow halves their movement speed, gives -2 to AC and Dex saves, stops reactions, and forces it to take either a bonus action or action, not both. Spells have a 50% chance to wait until the next round to finish, risking losing them altogether. At the end of its turn, can roll Wis save again to break slow.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_speak_with_dead",
+      name: "Speak with Dead",
+      level: 3,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "10 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "bard",
+        "cleric"
+      ],
+      source: "PHB",
+      page: "277",
+      summary_basic: "Ask the corpse up to five questions, which it may answer as it likes.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_speak_with_plants",
+      name: "Speak with Plants",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "10 minute",
+      classes: [
+        "bard",
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "277",
+      summary_basic: "Plants within 30' have limited sentience and animation, letting them communicate with you and follow simple commands.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spirit_guardians",
+      name: "Spirit Guardians",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "15 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "278",
+      summary_basic: "Spirits protect you, impeding those within 15', halving their speed, and inflicting 3d8 radiant or necrotic (depending on your alignment) to those within radius. Wis save halves damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spirit_shroud",
+      name: "Spirit Shroud",
+      level: 3,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self (15-foot-radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_stinking_cloud",
+      name: "Stinking Cloud",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "278",
+      summary_basic: "20' radius sphere of nauseating gas forces creatures within to spend their action retching and reeling, Con save allows normal action.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_fey",
+      name: "Summon Fey",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_lesser_demons",
+      name: "Summon Lesser Demons",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_shadowspawn",
+      name: "Summon Shadowspawn",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "TCE",
+      page: "113",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_undead",
+      name: "Summon Undead",
+      level: 3,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "TCE",
+      page: "114",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_thunder_step",
+      name: "Thunder Step",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tidal_wave",
+      name: "Tidal Wave",
+      level: 3,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tiny_servant",
+      name: "Tiny Servant",
+      level: 3,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "touch",
+      components: "V, S",
+      duration: "8 hour",
+      classes: [],
+      source: "XGE",
+      page: "168",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tongues",
+      name: "Tongues",
+      level: 3,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, M",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "cleric",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "283",
+      summary_basic: "Touched creature understands any spoken language, and can be understood by any creature that knows at least one language.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_vampiric_touch",
+      name: "Vampiric Touch",
+      level: 3,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Self (15-foot-radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 bonus action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Melee spell attack deals 3d6 necrotic damage and returns half the damage to you as healing; can attack again for duration. Upcasting increases damage by +1d6/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_sand",
+      name: "Wall of Sand",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [],
+      source: "XGE",
+      page: "170",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_water",
+      name: "Wall Of Water",
+      level: 3,
+      school: "Conjuration",
+      ritual: true,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_water_breathing",
+      name: "Water Breathing",
+      level: 3,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE14C \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "artificer",
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Up to 10 creatures can breathe underwater.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_water_walk",
+      name: "Water Walk",
+      level: 3,
+      school: "Transmutation",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "cleric",
+        "druid",
+        "ranger",
+        "sorcerer"
+      ],
+      source: "PHB",
+      page: "287",
+      summary_basic: "Up to 10 creatures can walk across surface of liquid, and (if submerged) resurface at 60'/round.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wind_wall",
+      name: "Wind Wall",
+      level: 3,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "288",
+      summary_basic: "Creates a wall of wind, which deals 3d8 bludgeoning damage to those caught within, Str halves. Small projectiles, flying humanoids, gasses, etc, can't pass through or are harmlessly diverted.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_animate_objects",
+      name: "Animate Objects",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Animates up to ten nonmagical objects. Upcast for +2 objects/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_arcane_eye",
+      name: "Arcane Eye",
+      level: 4,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "214",
+      summary_basic: "Creates an invisible magic eye that you can see through and sees within 30'.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_aura_of_life",
+      name: "Aura Of Life",
+      level: 4,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "30' aura provides resistance to necrotic damage, prevents max HP reduction, and heals living, nonhostile creatures to 1hp.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_aura_of_purity",
+      name: "Aura Of Purity",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "30' aura provides immunity to disease, resistance to poison damage, and advantage on saves against most conditions.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_banishment",
+      name: "Banishment",
+      level: 4,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "paladin",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target must make a Cha save or be banished to its home plane (or a harmless demiplane if it's on its home plane). Upcasting increases the number of targets by 1/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_charm_monster",
+      name: "Charm Monster",
+      level: 4,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [],
+      source: "XGE",
+      page: "151",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_confusion",
+      name: "Confusion",
+      level: 4,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "druid",
+        "paladin",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "10' radius sphere become confused, taking random actions, unless they make a Wis save (repeats each round). Upcasting adds +5' radius/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_minor_elementals",
+      name: "Conjure Minor Elementals",
+      level: 4,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Summons CR2 or less elementals that obey verbal commands. Upcasting allows you to summon more elementals.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_control_water",
+      name: "Control Water",
+      level: 4,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 minute 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE027 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "druid",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Control up to 100'x100'x100' cube of water.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_death_ward",
+      name: "Death Ward",
+      level: 4,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "If the target would drop to 0 hit points due to damage, they instead drop to 1 hit point and the spell ends.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dimension_door",
+      name: "Dimension Door",
+      level: 4,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Teleport self, carried objects, one willing creature. Take 4d6 force damage and spell fails if you try to teleport into something.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_divination",
+      name: "Divination",
+      level: 4,
+      school: "Evocation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Ask one question about something that will happen within 7 days. Repeated casts before a long rest cause risk of random results.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dominate_beast",
+      name: "Dominate Beast",
+      level: 4,
+      school: "Abjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "ranger",
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Charms a beast, letting you telepathically give it commands for the duration. Wis save prevents, and taking damage while charmed prompts a new Wis save. Upcasting increases duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_evards_black_tentacles",
+      name: "Evard'S Black Tentacles",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "20' region of writhing tentacles. People caught in the effect or who move through it must make a Dex save or be restrained and take 3d6 bludgeoning damage, repeating each round. Restrained creatures may spend their action to make a Str or Dex save (their choice) to escape.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fabricate",
+      name: "Fabricate",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Turns raw material into a finished good, such as furniture from wood.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_find_greater_steed",
+      name: "Find Greater Steed",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fire_shield",
+      name: "Fire Shield",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "242",
+      summary_basic: "Lights 20' nearby, provides resistance to cold or fire damage (chosen at cast), and deals 2d8 fire/cold damage (opposite of resistance) to melee attackers within 5'.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_freedom_of_movement",
+      name: "Freedom Of Movement",
+      level: 4,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Touched creature is unaffected by difficult terrain, or magical effects that reduce movement speed or cause it to be paralyzed or restrained.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_galders_speedy_courier",
+      name: "Galder's Speedy Courier",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "10 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "LLK",
+      page: "57",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gate_seal",
+      name: "Gate Seal",
+      level: 4,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "24 hour",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "SatO",
+      page: "12",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_giant_insect",
+      name: "Giant Insect",
+      level: 4,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S",
+      duration: "10 minute",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "245",
+      summary_basic: "Enlarges specimens of several species of arthropods when cast; the resulting creatures obey your verbal commands. Depending on species, may enlarge one or several with a single casting.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_grasping_vine",
+      name: "Grasping Vine",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "30 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "246",
+      summary_basic: "Vine grabs a chosen creature within 30', pulling it 20' towards it (Dex save prevents), can be ordered to grab at same target or new as a bonus action each turn.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gravity_sinkhole",
+      name: "Gravity Sinkhole",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "EGW",
+      page: "187",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_greater_invisibility",
+      name: "Greater Invisibility",
+      level: 4,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 bonus action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target becomes invisible.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_guardian_of_faith",
+      name: "Guardian Of Faith",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 10 minutes 30 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a Large spectral guardian. When a creature moves within 10' of it, it deals 20 radiant damage, Dex save halves. When it's dealt 60 damage total, it vanishes.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_guardian_of_nature",
+      name: "Guardian of Nature",
+      level: 4,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "157",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hallucinatory_terrain",
+      name: "Hallucinatory Terrain",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 500 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "druid",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "150' cube of natural terrain appears entirely like a different sort of natural terrain.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ice_storm",
+      name: "Ice Storm",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "300 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "252",
+      summary_basic: "Each creature in 20' radius 40' height cylinder takes 4d6 cold damage and 2d8 bludgeoning damage, Dex save halves. Upcasting adds +1d8 bludgeoning damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_leomunds_secret_chest",
+      name: "Leomund'S Secret Chest",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 bonus action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Hides a chest and its contents on the Ethereal Plane for up to 60 days safely. You can recall the chest back using a Tiny replica.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_locate_creature",
+      name: "Locate Creature",
+      level: 4,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 300 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Sense the direction of a creature within 1000' of you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mordenkainens_faithful_hound",
+      name: "Mordenkainen'S Faithful Hound",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a invisible watchdog that sees invisible creatures, into the Ethereal plane, and ignores illusions. It barks when a creature comes within 30', and bites hostile creatures each turn, attacking and dealing 4d8 piercing damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mordenkainens_private_sanctum",
+      name: "Mordenkainen'S Private Sanctum",
+      level: 4,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 10 minutes 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Cubic area up to 100' on a side becomes magically secure, protected from external sounds, vision through, divination spells, teleportation, and planar travelers. Upcasting increases the maximum size of the cube by +100'/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_otilukes_resilient_sphere",
+      name: "Otiluke's Resilient Sphere",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "264",
+      summary_basic: "Impenetrable sphere surrounds creature or object of Large or smaller size, protecting it from everything. Dex save avoids being caught. Sphere can be rolled from inside at half normal speed, or moved from outside.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_phantasmal_killer",
+      name: "Phantasmal Killer",
+      level: 4,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 10 minutes 300 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target must make Wis save or be frightened. Thereafter, each turn, must make a Wis save or take 4d10 psychic damage, with a Wis save ending the effect. Upcasting adds +1d10 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_polymorph",
+      name: "Polymorph",
+      level: 4,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 10 minutes 300 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target is transformed into a new shape with a CR equal to or less than its CR (or level). All stats are replaced, including current and maximum hit points. Unwilling targets may make a Wis save to prevent. Unwilling shapechangers cannot be targeted.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shadow_of_moil",
+      name: "Shadow of Moil",
+      level: 4,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "164",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sickening_radiance",
+      name: "Sickening Radiance",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "10 minute",
+      classes: [],
+      source: "XGE",
+      page: "164",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_spirit_of_death",
+      name: "Spirit of Death",
+      level: 4,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "BMT",
+      page: "50",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_staggering_smite",
+      name: "Staggering Smite",
+      level: 4,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "paladin",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Next creature hit with a melee weapon attack takes 4d6 psychic damage and gets disadvantage on attack rolls and ability checks and cannot take reactions until the end of its next turn. Wis save cancels effect but not damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_stone_shape",
+      name: "Stone Shape",
+      level: 4,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "cleric",
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Reshapes a Medium size stone object or 5' cube section of stone.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_stoneskin",
+      name: "Stoneskin",
+      level: 4,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "artificer",
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "278",
+      summary_basic: "Willing creature has resistance to nonmagical bludgeoning, piercing, and slashing damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_storm_sphere",
+      name: "Storm Sphere",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "166",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_aberration",
+      name: "Summon Aberration",
+      level: 4,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_construct",
+      name: "Summon Construct",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "artificer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_draconic_spirit",
+      name: "Summon Draconic Spirit",
+      level: 4,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (30-foot cone) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_elemental",
+      name: "Summon Elemental",
+      level: 4,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_greater_demon",
+      name: "Summon Greater Demon",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "XGE",
+      page: "166",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_vitriolic_sphere",
+      name: "Vitriolic Sphere",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "170",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_fire",
+      name: "Wall Of Fire",
+      level: 4,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 4 1 action Self \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Fire wall deals 5d8 fire damage to those within. Dex save halves. Continues to damage those within and within 10' for 5d8 fire damage, no save. Upcasting adds +1d8 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_watery_sphere",
+      name: "Watery Sphere",
+      level: 4,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "170",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_antilife_shell",
+      name: "Antilife Shell",
+      level: 5,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "10 feet",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "213",
+      summary_basic: "Living creatures cannot pass through 10' radius around you, in/out.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_arcane_gate",
+      name: "Arcane Gate",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Create two portals that people can walk between.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_awaken",
+      name: "Awaken",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "8 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "bard",
+        "druid"
+      ],
+      source: "PHB",
+      page: "216",
+      summary_basic: "Makes a dumb beast or plant Int 10 and positively inclined towards you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_banishing_smite",
+      name: "Banishing Smite",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Next attack deals bonus 5d10 force damage, banishing it to its home plane (or a harmless demiplane if it's on its home plane).",
+      summary_expert: ""
+    },
+    {
+      id: "spell_bigbys_hand",
+      name: "Bigby'S Hand",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a giant hand that can grab, punch, block, and crush things. Upcasting increases the damage of the punch (force) and crushing (bludgeoning) options.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blade_barrier",
+      name: "Blade Barrier",
+      level: 5,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Vertical wall of blades cuts creatures for 6d10 slashing damage; Dex save halves damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_circle_of_death",
+      name: "Circle Of Death",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute 10 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE01D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "60' sphere which deals 8d6 necrotic damage, Con save halves. Upcasting increases damage by 2d6/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_circle_of_power",
+      name: "Circle of Power",
+      level: 5,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V",
+      duration: "10 minute",
+      classes: [
+        "paladin"
+      ],
+      source: "PHB",
+      page: "221",
+      summary_basic: "30' aura provides advantage on saves against spells or magical effects, and half-damage on save becomes no damage on save.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_cloudkill",
+      name: "Cloudkill",
+      level: 5,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (10-foot radius) \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a 20' radius fog which deals 5d8 poison damage, Con save halves. Upcasting increases damage by 1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_commune",
+      name: "Commune",
+      level: 5,
+      school: "Divination",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "223",
+      summary_basic: "Ask your god three yes-or-no questions.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_commune_with_nature",
+      name: "Commune with Nature",
+      level: 5,
+      school: "Divination",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "self",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "224",
+      summary_basic: "Gain awareness of the nearest 3 miles (300' underground), so long as those environs are natural.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_cone_of_cold",
+      name: "Cone Of Cold",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 8 hours Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "8d8 cold damage to targets in 60' cone, Con save halves damage. Upcasting adds 1d8 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_elemental",
+      name: "Conjure Elemental",
+      level: 5,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Summons a CR5 or less elemental that obeys your verbal commands, and becomes hostile to you if your concentration is interrupted. Upcasting adds 1 CR to the cap/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_volley",
+      name: "Conjure Volley",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "ranger"
+      ],
+      source: "PHB",
+      page: "226",
+      summary_basic: "Duplicate thrown weapon/ammunition, with copies dealing 8d8 damage in a 40' radius/20' height cylinder. Dex save halves. Same damage type as thrown weapon/ammunition.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_contact_other_plane",
+      name: "Contact Other Plane",
+      level: 5,
+      school: "Divination",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "self",
+      components: "V",
+      duration: "1 minute",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "226",
+      summary_basic: "Ask a powerful being up to five questions, with one word answers. Make a DC 15 Int save or take 6d6 psychic damage and go insane until you take a long rest or have greater restoration cast on you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_contagion",
+      name: "Contagion",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "paladin",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Touched target is afflicted with one of several diseases; 3 succeeded Con saves clears the disease, and 3 failed Con saves lead to it lasting 7 days.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_control_winds",
+      name: "Control Winds",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_create_spelljamming_helm",
+      name: "Create Spelljamming Helm",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "AAG",
+      page: "22",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_creation",
+      name: "Creation",
+      level: 5,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "Special",
+      classes: [
+        "artificer",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "229",
+      summary_basic: "Creates an object fitting in a 5' cube, duration based on quality of matter. Upcasting increases size of cube by 5'/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_danse_macabre",
+      name: "Danse Macabre",
+      level: 5,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [],
+      source: "XGE",
+      page: "153",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dawn",
+      name: "Dawn",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 300 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_destructive_wave",
+      name: "Destructive Wave",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "paladin"
+      ],
+      source: "PHB",
+      page: "231",
+      summary_basic: "Deals 5d6 thunder damage + 5d6 radiant/necrotic (caster's choice) damage in a 30' radius around yourself to those you pick, and knocks them prone. Con save for half damage, no effect.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dispel_evil_and_good",
+      name: "Dispel Evil And Good",
+      level: 5,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action Self (30-foot radius) \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Celestials, elementals, fey, fiends, and undead have disadvantage on attack rolls. Can end to break charm/fright/possession from such beings on allies, or to try to banish (Cha save prevents) such beings back to their home plane.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dominate_person",
+      name: "Dominate Person",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 8 hours Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Charms a humanoid, letting you telepathically give it commands for the duration. Wis save prevents, and taking damage while charmed prompts a new Wis save. Upcasting increases duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dream",
+      name: "Dream",
+      level: 5,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute Special \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "You or someone you touch enters the dream of a target on the same plane, letting them talk to them. If they appear monstrous, they can't say more than ten words, but the target must make a Wis save or take 3d6 psychic damage and lose any benefits of sleep.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_enervation",
+      name: "Enervation",
+      level: 5,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "155",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_far_step",
+      name: "Far Step",
+      level: 5,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_flame_strike",
+      name: "Flame Strike",
+      level: 5,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self (60-foot cone) \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Deals 4d6 fire and 4d6 radiant damage in a 10' radius, 40' height cylinder, Dex save halves. Upcasting adds +1d6 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_geas",
+      name: "Geas",
+      level: 5,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Special \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Special \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Give a creature that can understand you a magical command, charming them. Acting against the command causes 5d10 psychic damage (once per day) for the duration. Wisdom save stops. Upcasting extends duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_greater_restoration",
+      name: "Greater Restoration",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 minute 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "bard",
+        "cleric",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Reduce exhaustion by one or cancel a single instance of a charm, petrification, curse, attunement to a cursed item, ability score reduction, or hit point maximum reduction.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hallow",
+      name: "Hallow",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "24 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Until dispel",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "249",
+      summary_basic: "60' radius area is hallowed, stopping celestials, elementals, fey, fiends, and undead (can exclude creature types) from entering it or charming/frightening/possessing those within. Can also add one of several additional buffs that benefit those within the area.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_hold_monster",
+      name: "Hold Monster",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "paladin",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Paralyzes non-undead target, Wis save ends, try again each turn. Upcasting adds +1 target/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_holy_weapon",
+      name: "Holy Weapon",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 minute 60 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE1C1 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "paladin"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_immolation",
+      name: "Immolation",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 bonus action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_infernal_calling",
+      name: "Infernal Calling",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 24 hours Touch \uE30F \uE30B \uE01D \uE30B \uE30F 24 hours Touch \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_insect_plague",
+      name: "Insect Plague",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 24 hours Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 bonus action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "20' radius sphere deals 4d10 piercing damage to those inside, Con save halves. +1d10 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_legend_lore",
+      name: "Legend Lore",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Gives accurate information about a named or described legendary person, place, or object.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_maelstrom",
+      name: "Maelstrom",
+      level: 5,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 minute 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mass_cure_wounds",
+      name: "Mass Cure Wounds",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "bard",
+        "cleric",
+        "druid"
+      ],
+      source: "PHB",
+      page: "258",
+      summary_basic: "Up to 6 creatures in a 30' radius heal 3d8 + spellcasting ability modifier. Upcasting increases by +1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mislead",
+      name: "Mislead",
+      level: 5,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "S",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "260",
+      summary_basic: "Become invisible and create illusory double; invisibility ends on attack, and double does what you wish. You can see through double as a bonus action instead of own senses.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_modify_memory",
+      name: "Modify Memory",
+      level: 5,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 10 minutes Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Charms targeted creature, incapacitating it and making it unaware of its surroundings. Wis save prevents, and advantage on save if you are fighting it. While incapacitated, creature can have memories within 24h adjusted by you talking to it. Upcasting increases maximum age of memory affected.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_negative_energy_flood",
+      name: "Negative Energy Flood",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 minute 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE01D \uE30B \uE30F 10 minutes Self \uE30F \uE30B \uE01D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_passwall",
+      name: "Passwall",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "264",
+      summary_basic: "Creates an up to 20' deep passage through a wall, ceiling, or floor.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_planar_binding",
+      name: "Planar Binding",
+      level: 5,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Binds a celestial, elemental, fey, or fiend into your service for  the duration. Cha save at end of casting prevents. Upcasting increases the duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_raise_dead",
+      name: "Raise Dead",
+      level: 5,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "bard",
+        "cleric",
+        "paladin"
+      ],
+      source: "PHB",
+      page: "270",
+      summary_basic: "Brings back a dead person who hasn't been dead for longer than ten days.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_rarys_telepathic_bond",
+      name: "Rary'S Telepathic Bond",
+      level: 5,
+      school: "Enchantment",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Allows up to eight willing creatures to communicate telepathically through the bond, without range limit.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_reincarnate",
+      name: "Reincarnate",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "271",
+      summary_basic: "Target deceased humanoid that has been dead no longer than ten days enters a new body, probably of a different race.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_scrying",
+      name: "Scrying",
+      level: 5,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 hour 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Lets you see and hear a particular creature on the same plane of existence. Wis save prevents for next 24 hours.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_seeming",
+      name: "Seeming",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 150 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE29D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE29D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Any number of creatures in range are given a new, illusory appearance. Cha save prevents.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_skill_empowerment",
+      name: "Skill Empowerment",
+      level: 5,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 10 minutes Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_steel_wind_strike",
+      name: "Steel Wind Strike",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "30 feet",
+      components: "S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "166",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_celestial",
+      name: "Summon Celestial",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "TCE",
+      page: "110",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_swift_quiver",
+      name: "Swift Quiver",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "ranger"
+      ],
+      source: "PHB",
+      page: "279",
+      summary_basic: "Creates endless ammunition and lets you make two attacks with that ammunition as a bonus action.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_synaptic_static",
+      name: "Synaptic Static",
+      level: 5,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_telekinesis",
+      name: "Telekinesis",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "For duration of spell can move a Huge or smaller creature, or a 1000lbs or less object, switching targets as you wish.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_teleportation_circle",
+      name: "Teleportation Circle",
+      level: 5,
+      school: "Transmutation",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "cleric",
+        "ranger",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "10' diameter circle teleports you to a known permanent teleportation circle. It can create a permanent teleportation circle by casting on a specific location every day for a year.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_temporal_shunt",
+      name: "Temporal Shunt",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 reaction (taken when a creature you can see makes an attack roll or starts to cast a spell)",
+      range: "120 feet",
+      components: "V, S",
+      duration: "1 round",
+      classes: [],
+      source: "EGW",
+      page: "189",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_transmute_rock",
+      name: "Transmute Rock",
+      level: 5,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tree_stride",
+      name: "Tree Stride",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "druid",
+        "ranger"
+      ],
+      source: "PHB",
+      page: "283",
+      summary_basic: "Allows you to teleport between trees of the same kind within 500' of each other.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_force",
+      name: "Wall Of Force",
+      level: 5,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 120 feet \uE30F \uE30B \uE14C \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE14C \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE14C \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "artificer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates an impenetrable wall that stops things from physically passing through and extends into the Ethereal Plane. Dispel magic doesn't work, but disintegrate does.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_light",
+      name: "Wall Of Light",
+      level: 5,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 5 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 minute 10 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_stone",
+      name: "Wall of Stone",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "artificer",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "287",
+      summary_basic: "Creates a wall of stone that can trap people. If concentration is maintained the whole duration, it becomes permanent.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wrath_of_nature",
+      name: "Wrath of Nature",
+      level: 5,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "171",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_bones_of_the_earth",
+      name: "Bones of the Earth",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [],
+      source: "XGE",
+      page: "150",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_chain_lightning",
+      name: "Chain Lightning",
+      level: 6,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "221",
+      summary_basic: "Lightning hits one target, then up to 3 additional targets within 30' of them. 10d8 lightning damage, half on Dex save. Upcasting provides an extra secondary target/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_fey",
+      name: "Conjure Fey",
+      level: 6,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 minute",
+      range: "90 feet",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "druid",
+        "warlock"
+      ],
+      source: "PHB",
+      page: "226",
+      summary_basic: "Summons a CR6 or less fey or CR 6 or less beast that obeys verbal commands, and becomes hostile to you if your concentration is interrupted. Upcasting adds 1 CR to the cap/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_contingency",
+      name: "Contingency",
+      level: 6,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "10 minute",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 day",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "227",
+      summary_basic: "Cast a 5th spell or lower with a 1 action casting time that targets you, but it is activated on a predefined trigger within the next ten days. Can only have one contingency at a time.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_create_homunculus",
+      name: "Create Homunculus",
+      level: 6,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Self \uE30F \uE30B \uE208 \uE30B \uE30F 10 minutes Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_create_undead",
+      name: "Create Undead",
+      level: 6,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "10 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "cleric",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "229",
+      summary_basic: "Raises up to three ghouls, which obey your orders for 24h unless spell is recast. Upcasting increases number of undead and allows better undead.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_disintegrate",
+      name: "Disintegrate",
+      level: 6,
+      school: "Conjuration",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 500 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Deals 10d6 + 40 force damage, disintegrates if reduced to 0, Dex save prevents all damage. Instantly disintegrates Large or smaller nonmagical objects/obstacles/creations of magical force, or a 10'x10'x10' cube of larger such things. Upcasting adds 3d6 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_divine_word",
+      name: "Divine Word",
+      level: 6,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 5 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (60-foot line) \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creatures that can hear you suffer increasing negative effects (starting with deafening, adding blinding, then stunning, then killing) based on current hit points, if they fail a Cha save. Celestials, elementals, fey, and fiends are forced back to their home plane if they fail their save, regardless of current hit points.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_drawmijs_instant_summons",
+      name: "Drawmij's Instant Summons",
+      level: 6,
+      school: "Conjuration",
+      ritual: true,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Until dispel",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "235",
+      summary_basic: "Leaves a mark on an object 10lbs or less. You can consume the material component of this spell to summon it to your side instantly, if it is not held or carried by someone.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dream_of_the_blue_veil",
+      name: "Dream Of The Blue Veil",
+      level: 6,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes 20 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_druid_grove",
+      name: "Druid Grove",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute 90 feet \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE027 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_eyebite",
+      name: "Eyebite",
+      level: 6,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "238",
+      summary_basic: "While active, can send a single creature within 60' to sleep, into a panic, or sicken it. Can apply to a new creature each round. A successful Wis save stops effect and provides immunity for the duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_find_the_path",
+      name: "Find the Path",
+      level: 6,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 minute",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 day",
+      classes: [
+        "bard",
+        "cleric",
+        "druid"
+      ],
+      source: "PHB",
+      page: "240",
+      summary_basic: "Finds the shortest route to a location you know on the same plane as you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fizbans_platinum_shield",
+      name: "Fizban's Platinum Shield",
+      level: 6,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "FTD",
+      page: "20",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_flesh_to_stone",
+      name: "Flesh to Stone",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "243",
+      summary_basic: "Target begins turning to stone, causing it to be restrained; Con save prevents. If restrained, makes Con save each turn, and if it fails three times before succeeding three times, it is petrified; if you keep up concentration until duration ends, the transformation is permanent.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_forbiddance",
+      name: "Forbiddance",
+      level: 6,
+      school: "Abjuration",
+      ritual: true,
+      concentration: false,
+      casting_time: "10 minute",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 day",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "243",
+      summary_basic: "40,000 sqft of space (and 30' up) is warded against teleportation, planar travel, etc. It can also deal 5d10 radiant/necrotic (your choice on casting) damage to celestials, elementals, fey, fiends, and/or undead (your choice on casting) who enter or start their turn in the area.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_globe_of_invulnerability",
+      name: "Globe of Invulnerability",
+      level: 6,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "10 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "245",
+      summary_basic: "Immobile 10' radius barrier surrounds you, preventing 5th level or lower spells from affecting those inside. Upcasting increases level of spells affected, +1 level/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gravity_fissure",
+      name: "Gravity Fissure",
+      level: 6,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "100 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "EGW",
+      page: "187",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_guards_and_wards",
+      name: "Guards And Wards",
+      level: 6,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute Self \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE314 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Ward protects 2500 sqft of floor space, creating a variety of effects within the area.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_harm",
+      name: "Harm",
+      level: 6,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute Self \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Deals 14d6 necrotic damage, Con save halves. Damage can't reduce HP below 1, but maximum HP are reduced for 1h by the damage taken. Effects which remove disease also work on the lost temporary HP.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_heal",
+      name: "Heal",
+      level: 6,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Touch \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target regains 70 hp and is cured of blindness, deafness, and any diseases. Upcasting grants +10 hp/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_heroes_feast",
+      name: "Heroes' Feast",
+      level: 6,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "10 minute",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "cleric",
+        "druid"
+      ],
+      source: "PHB",
+      page: "250",
+      summary_basic: "Summons a feast. After spending an hour eating, those who partake are cured of all diseases and poisons. They also become immune to poison, gain advantage on Wis saves, and gain 2d10 hit point maximum/healing for the next 24 hours.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_investiture_of_flame",
+      name: "Investiture Of Flame",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self (10-foot radius) \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "sorcerer",
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_investiture_of_ice",
+      name: "Investiture Of Ice",
+      level: 6,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Touch \uE30F \uE30B \uE208 \uE30B \uE30F 10 minutes Touch \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_investiture_of_stone",
+      name: "Investiture of Stone",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "10 minute",
+      classes: [],
+      source: "XGE",
+      page: "159",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_investiture_of_wind",
+      name: "Investiture Of Wind",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_magic_jar",
+      name: "Magic Jar",
+      level: 6,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "self",
+      components: "V, S, M",
+      duration: "Until dispel",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "257",
+      summary_basic: "Moves your soul into a container, from which you can possess people if they are within 100' and fail a Cha save.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mass_suggestion",
+      name: "Mass Suggestion",
+      level: 6,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 minute Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Up to twelve creatures obey your reasonable-sounding suggestion. Wis save prevents. Upcasting increases duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mental_prison",
+      name: "Mental Prison",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mirage_arcane",
+      name: "Mirage Arcane",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Terrain in up to 1 mile square looks, sounds, smells, and feels like a different terrain.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_move_earth",
+      name: "Move Earth",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "In upwards of a 40'x40'x40' area, slowly reshape terrain. Can change area targeted once every ten minutes.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_nondetection",
+      name: "Nondetection",
+      level: 6,
+      school: "Illusion",
+      ritual: true,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 3 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "ranger",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target creature, place, or object can't be targeted or perceived by divination or magical scrying.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_otilukes_freezing_sphere",
+      name: "Otiluke'S Freezing Sphere",
+      level: 6,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Globe explodes in frost in 60' radius sphere and deals 10d6 cold damage, Con save halves. Globe can be thrown/slung normally by self or other, but only lasts 1 minute before exploding otherwise. Upcasting adds +1d6 damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ottos_irresistible_dance",
+      name: "Otto'S Irresistible Dance",
+      level: 6,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 10 minutes Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Targeted creature uses all movement to dance, giving it disadvantage on Dex saves and attack rolls, and giving others advantage on attacks against it. As an action, Wis save ends.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_planar_ally",
+      name: "Planar Ally",
+      level: 6,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Calls upon a powerful otherworldly entity, which sends a celestial, elemental, or fiend to aid you. You are expected to offer some sort of payment in exchange for services.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_primordial_ward",
+      name: "Primordial Ward",
+      level: 6,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "163",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_programmed_illusion",
+      name: "Programmed Illusion",
+      level: 6,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 300 feet \uE30F \uE30B 1 action 30 feet \uE30F \uE30B 1 action 120 feet \uE30F \uE30B \uE30B \uE208 \uE30F \uE30B \uE208 \uE30F \uE30B \uE208 \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates an illusory object, creature, or other visible phenomenon that activates when a specific condition occurs, playing up to a five minute performance. Resets after ten minutes of dormancy.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_scatter",
+      name: "Scatter",
+      level: 6,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_soul_cage",
+      name: "Soul Cage",
+      level: 6,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 reaction, which you take 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B when a humanoid you can \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "warlock"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_summon_fiend",
+      name: "Summon Fiend",
+      level: 6,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "TCE",
+      page: "112",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sunbeam",
+      name: "Sunbeam",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "60' line inflicts 6d8 radiant damage and blinds, Con save halves. Can change direction of line as your action.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tashas_otherworldly_guise",
+      name: "Tasha's Otherworldly Guise",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "TCE",
+      page: "116",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tensers_transformation",
+      name: "Tenser's Transformation",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [],
+      source: "XGE",
+      page: "168",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_transport_via_plants",
+      name: "Transport via Plants",
+      level: 6,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "10 feet",
+      components: "V, S",
+      duration: "1 round",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "283",
+      summary_basic: "Allows people to teleport via a Large or larger inanimate plant to another plant you have seen or touched for the duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_true_seeing",
+      name: "True Seeing",
+      level: 6,
+      school: "Divination",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "cleric",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "284",
+      summary_basic: "Grants target truesight, secret door detection, and ability to see into Ethereal Plane for 120'.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_ice",
+      name: "Wall Of Ice",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 bonus action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE208 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a wall of ice on a solid surface, dealing 10d6 cold damage to those caught inside, Dex save halves. Can be destroyed. Moving through the frigid air means you take 5d6 cold damage, Con save halves. Upcasting increases the damage by +2d6 for initial, +1d6 for later/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wall_of_thorns",
+      name: "Wall of Thorns",
+      level: 6,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "287",
+      summary_basic: "Creates a wall of thorns that deals 7d8 piercing to those trapped inside, Dex save halves. Creatures can move through, but movement speed is one fourth and the creature takes 7d8 slashing damage, Dex save halves. Upcasting increases both types of damage by +1d8/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wind_walk",
+      name: "Wind Walk",
+      level: 6,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "30 feet",
+      components: "V, S, M",
+      duration: "8 hour",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "288",
+      summary_basic: "You and up to ten creatures take on a gaseous form, which grants a flying speed of 300' and resistance to damage from nonmagical weapons, but can't take actions other than move, Dash, and revert to its original form.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_word_of_recall",
+      name: "Word of Recall",
+      level: 6,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "5 feet",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "289",
+      summary_basic: "You and up to five willing creatures teleport to a previously designated sanctuary such as a temple to your deity.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_abi_dalzims_horrid_wilting",
+      name: "Abi-Dalzim'S Horrid Wilting",
+      level: 7,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 10 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_animal_shapes",
+      name: "Animal Shapes",
+      level: 7,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Transforms willing targets within range into CR 4- Large or smaller beasts.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_conjure_celestial",
+      name: "Conjure Celestial",
+      level: 7,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 minute",
+      range: "90 feet",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "225",
+      summary_basic: "Summons a CR4 or less celestial that obeys verbal commands that don't conflict with its alignment. Upcasting at 9th level allows a CR5 or less celestial.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_create_magen",
+      name: "Create Magen",
+      level: 7,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "wizard"
+      ],
+      source: "IDRotF",
+      page: "318",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_crown_of_stars",
+      name: "Crown of Stars",
+      level: 7,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "1 hour",
+      classes: [],
+      source: "XGE",
+      page: "152",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_delayed_blast_fireball",
+      name: "Delayed Blast Fireball",
+      level: 7,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 300 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates an undetonated fireball that deals 12d6 fire damage in a 20' radius, +1d6 per round it isn't detonated, Dex save halves. Explodes after 1 minute/10 rounds, or when concentration is broken. Upcasting adds +1d6 base damage/level.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_draconic_transformation",
+      name: "Draconic Transformation",
+      level: 7,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 bonus",
+      range: "self",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "FTD",
+      page: "19",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ents_du",
+      name: "Ents Du",
+      level: 7,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 CAS 1 T m IN in G u t T e IME R 30 A 0 N fe G e E t \uE30F \uE30F \uE30B \uE314 \uE30B \uE30B \uE30F CAS 1 T m IN in G u t T e IME R 30 A 0 N fe G e E t \uE30F \uE30F \uE30B \uE314 \uE30B \uE30B \uE30F 1 action 60 feet \uE30F \uE30F \uE30B \uE314 \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F",
+      components: "",
+      duration: "\uE30B \uE30F COM V P , O S, N M ENTS DU 24 R h A o T u I r O s N \uE30F \uE30F \uE30B \uE30B \uE30B \uE30F COM V P , O S, N M ENTS DU 24 R h A o T u I r O s N",
+      classes: [
+        "bard",
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_etherealness",
+      name: "Etherealness",
+      level: 7,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S",
+      duration: "8 hour",
+      classes: [
+        "bard",
+        "cleric",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "238",
+      summary_basic: "Enter the Border Ethereal until you leave. You can see, but not interact with, the material plane up to 60', and otherwise move in all directions. Upcasting lets you bring +2/+5 willing creatures/level with you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_finger_of_death",
+      name: "Finger Of Death",
+      level: 7,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 10 minutes 20 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F 1 action Self \uE30F \uE30B \uE01D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target takes 7d8+30 necrotic damage, Con save halves. Humanoids killed this way rise as a zombie under your permanent command.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_fire_storm",
+      name: "Fire Storm",
+      level: 7,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 bonus action 30 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates an area of ten 10' cubes, which deal 7d10 fire damage to all within, Dex save halves.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_forcecage",
+      name: "Forcecage",
+      level: 7,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 10 minutes 20 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "An immobile, invisible prison surrounds up to 20'x20'x20' cage, or 10'x10'x10' for a completely sealed box. Creatures inside can't escape without magic, and escaping with magic requires a Cha save. Immune to dispel magic.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mordenkainens_magnificent_mansion",
+      name: "Mordenkainen's Magnificent Mansion",
+      level: 7,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 minute",
+      range: "300 feet",
+      components: "V, S, M",
+      duration: "24 hour",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "261",
+      summary_basic: "Creates an elaborate extradimensional dwelling, with a 5'x10' entrance, which you can open or close while within 30'. It has 100 people's worth of food and 100 near-transparent servants.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mordenkainens_sword",
+      name: "Mordenkainen's Sword",
+      level: 7,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "262",
+      summary_basic: "Sword-shaped plane of force deals 3d10 force damage, can be moved 20' as a bonus action to attack again.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_nathairs_mischief",
+      name: "Nathair'S Mischief",
+      level: 7,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 6 1 bonus action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action Self (60-foot cone) \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_plane_shift",
+      name: "Plane Shift",
+      level: 7,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 100 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 100 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "You and eight others are transported to another plane of your choice. Can be used as a melee spell attack, Cha save prevents.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_power_word_pain",
+      name: "Power Word Pain",
+      level: 7,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_prismatic_spray",
+      name: "Prismatic Spray",
+      level: 7,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self (60 foot cone) \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Targets in a 60' cone are struck by magical multicolored rays of light, typically dealing 10d6 damage of a random type. Dex save halves damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_project_image",
+      name: "Project Image",
+      level: 7,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (60 foot cone) \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (60 foot cone) \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Illusory copy of yourself created within range, which can move and act at your command. Can see through its senses or yours, but not both.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_regenerate",
+      name: "Regenerate",
+      level: 7,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 10 minutes Sight \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target regains 4d8 + 15 hit points, and recovers 1 hit point per turn, and regenerates severed extremities after two minutes.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_resurrection",
+      name: "Resurrection",
+      level: 7,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 action 500 miles \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 500 miles \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Dead creature that did not die of old age and died within the past century is brought back to life.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_reverse_gravity",
+      name: "Reverse Gravity",
+      level: 7,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "100 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "272",
+      summary_basic: "50' radius 100' cylinder has reversed gravity.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sequester",
+      name: "Sequester",
+      level: 7,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Until dispel",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "274",
+      summary_basic: "Touched target becomes invisible, impossible to target or perceive by divination. Target also falls into a state of suspended animation until the spell ends. You may set a special condition for it ending.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_simulacrum",
+      name: "Simulacrum",
+      level: 7,
+      school: "Illusion",
+      ritual: false,
+      concentration: false,
+      casting_time: "12 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Until dispel",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "276",
+      summary_basic: "Illusory duplicate has no equipment and half health, but otherwise same game stats as base creature. It is friendly and obeys your spoken commands, but cannot learn or regain spell slots. Casting again kills current duplicates.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_symbol",
+      name: "Symbol",
+      level: 7,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "of the spell. The duplicate is a lasts until it drops to 0 hit points, at which point divination of spells. \uE30B creature,",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric",
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Harmful glyph inflicts one of a variety of effects within a 60' radius sphere for 10 minutes when triggered.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_teleport",
+      name: "Teleport",
+      level: 7,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 10 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Instantly transports you and up to eight other willing creatures to a destination you know on the same plane of existence.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_temple_of_the_gods",
+      name: "Temple Of The Gods",
+      level: 7,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 7 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tether_essence",
+      name: "Tether Essence",
+      level: 7,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 hour",
+      classes: [],
+      source: "EGW",
+      page: "189",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_whirlwind",
+      name: "Whirlwind",
+      level: 7,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "300 feet",
+      components: "V, M",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "171",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_antimagic_field",
+      name: "Antimagic Field",
+      level: 8,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (10-foot-radius \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self (10-foot-radius \uE30F \uE30B \uE208 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B sphere) \uE30F \uE30B sphere) \uE30F \uE30B \uE30B \uE30F \uE30B \uE30F \uE30B \uE30F V, S, M Instantaneous \uE30F \uE30B",
+      classes: [
+        "cleric",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "All magic ceases to function within a 10' radius of you.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_antipathy",
+      name: "Antipathy",
+      level: 8,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 hour 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_antipathy_sympathy",
+      name: "Antipathy/Sympathy",
+      level: 8,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 hour",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "10 day",
+      classes: [
+        "druid",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "214",
+      summary_basic: "An enchanted object or area attracts or repels creatures of a particular type.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_astral_projection",
+      name: "Astral Projection",
+      level: 8,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Unlimited \uE30F \uE30B \uE208 \uE30B \uE30F 1 hour 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "monk",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Project yourself and up to eight creatures into the Astral Plane.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_blade_of_disaster",
+      name: "Blade Of Disaster",
+      level: 8,
+      school: "Enchantment",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_clone",
+      name: "Clone",
+      level: 8,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 hour",
+      range: "touch",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "222",
+      summary_basic: "Creates a clone, with the process finishing after 120 days. If the original dies, their soul inhabits the new body, effectively resurrecting them immediately.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_control_weather",
+      name: "Control Weather",
+      level: 8,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action Self (10-foot-radius \uE30F \uE30B \uE042 \uE30B \uE30F 1 action Self (10-foot-radius \uE30F \uE30B \uE042 \uE30B \uE30F 10 minutes Self (5-mile radius) \uE30F \uE30B \uE042 \uE30B \uE30F sphere) \uE30F \uE30B sphere) \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F \uE30B \uE30F",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Changes weather conditions within a 5mi radius.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dark_star",
+      name: "Dark Star",
+      level: 8,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "EGW",
+      page: "186",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_demiplane",
+      name: "Demiplane",
+      level: 8,
+      school: "Conjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "S",
+      duration: "1 hour",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "231",
+      summary_basic: "Creates a door to a demiplane, a 30'x30'x30' empty room; the door lasts an hour, but the demiplane exists indefinitely. You can open a new door to the same demiplane, a new one, or one another caster made that you know about.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_dominate_monster",
+      name: "Dominate Monster",
+      level: 8,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 10 minutes Self (5-mile radius) \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Charms a creature, letting you telepathically give it commands for the duration. Wis save prevents, and taking damage while charmed prompts a new Wis save. Upcasting increases duration.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_earthquake",
+      name: "Earthquake",
+      level: 8,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 hour 60 feet \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Self (5-mile radius) \uE30F \uE30B \uE027 \uE30B \uE30F 10 minutes Self (5-mile radius) \uE30F \uE30B \uE027 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "cleric",
+        "druid",
+        "sorcerer"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Shaking ground creates 100' radius difficult terrain, and breaks Concentration without a Con save. Each round, creatures in region must make Dex save or be knocked prone. Knocks down structures and creates fissures at DM's discretion.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_feeblemind",
+      name: "Feeblemind",
+      level: 8,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "druid",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target takes 4d6 psychic damage. It must also make an Int save or have Int and Cha set to 1, and lose the ability to activate magic items, cast spells, understand language, or communicate. Can attempt Int save again once every 30 days to clear the effect.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_glibness",
+      name: "Glibness",
+      level: 8,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V",
+      duration: "1 hour",
+      classes: [
+        "bard",
+        "warlock"
+      ],
+      source: "PHB",
+      page: "245",
+      summary_basic: "Replace any rolled Charisma check with a 15, and overpowers truth-telling magic.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_holy_aura",
+      name: "Holy Aura",
+      level: 8,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 10 minutes Self (5-mile radius) \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creatures you choose within 30' of you gain advantage on all saves, and other creatures have disadvantage on attacks against them. Additionally, fiends and undead that attack an affected creature are blinded unless they make a Con save.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_illusory_dragon",
+      name: "Illusory Dragon",
+      level: 8,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "120 feet",
+      components: "S",
+      duration: "1 minute",
+      classes: [],
+      source: "XGE",
+      page: "157",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_incendiary_cloud",
+      name: "Incendiary Cloud",
+      level: 8,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "253",
+      summary_basic: "20' radius sphere deals 10d8 fire damage to those inside, Dex save halves. Moves 10' away from you each turn.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_maddening_darkness",
+      name: "Maddening Darkness",
+      level: 8,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "150 feet",
+      components: "V, M",
+      duration: "10 minute",
+      classes: [],
+      source: "XGE",
+      page: "160",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_maze",
+      name: "Maze",
+      level: 8,
+      school: "Illusion",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Tosses creature into a labyrinthine demiplane, which they can only escape by making a DC 20 Int check as an action.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mighty_fortress",
+      name: "Mighty Fortress",
+      level: 8,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 1 mile \uE30F \uE30B \uE208 \uE30B \uE30F 1 minute 1 mile \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mind_blank",
+      name: "Mind Blank",
+      level: 8,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "touch",
+      components: "V, S",
+      duration: "24 hour",
+      classes: [
+        "bard",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "259",
+      summary_basic: "Touched creature is immune to psychic damage, emotion or thought-detecting effects, divination in general, and the charmed condition.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_power_word_stun",
+      name: "Power Word Stun",
+      level: 8,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 150 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target creature with fewer than 150 hit points is stunned. Repeatable Con save at end of its turn ends this effect.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_reality_break",
+      name: "Reality Break",
+      level: 8,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "EGW",
+      page: "189",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_sunburst",
+      name: "Sunburst",
+      level: 8,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 8 1 action 500 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 500 feet \uE30F \uE30B \uE027 \uE30B \uE30F 1 action 150 feet \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Deals 12d6 radiant damage and blinds within a 60' radius. Con save halves and prevents blinding. Blinded creatures can make fresh Con saves at the end of their turns to clear blindness.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_telepathy",
+      name: "Telepathy",
+      level: 8,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "unlimited",
+      components: "V, S, M",
+      duration: "24 hour",
+      classes: [
+        "wizard"
+      ],
+      source: "PHB",
+      page: "281",
+      summary_basic: "Creates a telepathic link between you and another creature on the same plane.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_tsunami",
+      name: "Tsunami",
+      level: 8,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 minute",
+      range: "sight",
+      components: "V, S",
+      duration: "6 round",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "284",
+      summary_basic: "300'x300'x50' wall of water, which deals 6d10 bludgeoning damage to those within its area at creation, Str save halves. Wall moves away 50'/round, losing 50' of height/round and dealing 5d10 bludgeoning damage (reducing 1d10/round) to those struck, Str save prevents damage.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_foresight",
+      name: "Foresight",
+      level: 9,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 hour 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 hour 10 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "bard",
+        "druid",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Touched creature cannot be surprised, has advantage on attack rolls, ability checks, and saving throws; other creatures have disadvantage on attack rolls for duration. Can only be active on one creature at a time.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_gate",
+      name: "Gate",
+      level: 9,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 hour 10 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour 10 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Creates a 5' to 20' diameter portal to another plane. Can target a creature on another plane whose name you know.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_imprisonment",
+      name: "Imprisonment",
+      level: 9,
+      school: "Necromancy",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 hour 10 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 bonus action 60 feet \uE30F \uE30B \uE01D \uE30B \uE30F 1 minute Touch \uE30F \uE30B \uE01D \uE30B \uE30F",
+      components: "",
+      duration: "\uE30F \uE30B \uE30F \uE30B \uE30F \uE30B \uE30B \uE30F",
+      classes: [
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target is magically imprisoned in a manner you choose, making them impossible to perceive or locate by divination, and immune to hunger, thirst, asphyxiation, and age. A successful Wis save grants permanent immunity. You can specify a condition that will cause the spell to end and release the target.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_invulnerability",
+      name: "Invulnerability",
+      level: 9,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "self",
+      components: "V, S, M",
+      duration: "10 minute",
+      classes: [],
+      source: "XGE",
+      page: "160",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mass_heal",
+      name: "Mass Heal",
+      level: 9,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "60 feet",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "cleric"
+      ],
+      source: "PHB",
+      page: "258",
+      summary_basic: "Restores up to 700 hit points across any creatures within range. Creatures healed are cured of all diseases and blindness and deafness.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_mass_polymorph",
+      name: "Mass Polymorph",
+      level: 9,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 minute 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_meteor_swarm",
+      name: "Meteor Swarm",
+      level: 9,
+      school: "Evocation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "1 miles",
+      components: "V, S",
+      duration: "Instantaneous",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "259",
+      summary_basic: "Creates four 40' radius spheres, all creatures within take 20d6 fire and 20d6 bludgeoning damage, Dex save halves.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_power_word_heal",
+      name: "Power Word Heal",
+      level: 9,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE042 \uE30B \uE30F 1 hour Touch \uE30F \uE30B \uE042 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "cleric"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target regains all hit points, and stops being charmed, frightened, paralyzed, or stunned.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_power_word_kill",
+      name: "Power Word Kill",
+      level: 9,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 120 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 1 mile \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Target creature with less than 100 hit points instantly dies.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_prismatic_wall",
+      name: "Prismatic Wall",
+      level: 9,
+      school: "Abjuration",
+      ritual: false,
+      concentration: false,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "90'x30' wall or 30' sphere briefly blinds those within 20' (Con save halves), and those who pass through it take up to 50d6 damage of various types, Dex save halves 10d6 each time, and are restrained and blinded, unless they have begun breaking down the wall other ways. You can designate yourself and allies as immune to these effect.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_psychic_scream",
+      name: "Psychic Scream",
+      level: 9,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 120 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action Touch \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_raulothims_psychic_lance",
+      name: "Raulothim'S Psychic Lance",
+      level: 9,
+      school: "Abjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 2 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 60 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_ravenous_void",
+      name: "Ravenous Void",
+      level: 9,
+      school: "Evocation",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "1000 feet",
+      components: "V, S, M",
+      duration: "1 minute",
+      classes: [],
+      source: "EGW",
+      page: "188",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_shapechange",
+      name: "Shapechange",
+      level: 9,
+      school: "Divination",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 minute Touch \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "druid",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "You transform into another creature, replacing game stats besides Int, Wis, Cha, and alignment.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_storm_of_vengeance",
+      name: "Storm of Vengeance",
+      level: 9,
+      school: "Conjuration",
+      ritual: false,
+      concentration: true,
+      casting_time: "1 action",
+      range: "sight",
+      components: "V, S",
+      duration: "1 minute",
+      classes: [
+        "druid"
+      ],
+      source: "PHB",
+      page: "279",
+      summary_basic: "Creates a 360' radius storm, which inflicts a variety of damage and effect over the duration. Immediately causes 2d6 thunder damage and five minute deafening for those within area who fail Con save.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_time_ravage",
+      name: "Time Ravage",
+      level: 9,
+      school: "Necromancy",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "90 feet",
+      components: "V, S, M",
+      duration: "Instantaneous",
+      classes: [],
+      source: "EGW",
+      page: "189",
+      summary_basic: "",
+      summary_expert: ""
+    },
+    {
+      id: "spell_time_stop",
+      name: "Time Stop",
+      level: 9,
+      school: "Transmutation",
+      ritual: false,
+      concentration: false,
+      casting_time: "1 action",
+      range: "self",
+      components: "V",
+      duration: "Instantaneous",
+      classes: [
+        "sorcerer",
+        "wizard"
+      ],
+      source: "PHB",
+      page: "283",
+      summary_basic: "You can take 1d4+1 turns in a row, but cannot affect a creature other than you or an object being worn or carried.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_true_polymorph",
+      name: "True Polymorph",
+      level: 9,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 90 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE314 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Transforms a creature into a different creature, into an object, or an object into a creature. Shapechangers aren't affected, and unwilling creatures may make a Wis save.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_true_resurrection",
+      name: "True Resurrection",
+      level: 9,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action Self \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Sight \uE30F \uE30B \uE027 \uE30B \uE30F 1 action Sight \uE30F \uE30B \uE027 \uE30B \uE30F \uE30F \uE30B",
+      components: "",
+      duration: "\uE30F \uE30B",
+      classes: [
+        "cleric",
+        "druid"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Resurrects a creature that has been dead for less than 200 years, even if the body is destroyed.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_weird",
+      name: "Weird",
+      level: 9,
+      school: "Transmutation",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F 1 action 30 feet \uE30F \uE30B \uE208 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "In a 30' radius sphere, creatures are overcome by their deepest fears and become frightened, Wis save prevents. At the start of the frightened creatures' turns, they take 4d10 psychic damage, Wis save ends.",
+      summary_expert: ""
+    },
+    {
+      id: "spell_wish",
+      name: "Wish",
+      level: 9,
+      school: "Enchantment",
+      ritual: false,
+      concentration: true,
+      casting_time: "",
+      range: "\uE30F \uE30B \uE30B \uE30F 9 1 action 60 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action 90 feet \uE30F \uE30B \uE2F2 \uE30B \uE30F 1 action Self \uE30F \uE30B \uE2F2 \uE30B \uE30F \uE30F \uE30B \uE30F \uE30B \uE30F \uE30B",
+      components: "",
+      duration: "\uE30B \uE30F",
+      classes: [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      source: "",
+      page: "",
+      summary_basic: "Duplicates any 8th level or lower spell, or a wide variety of other effects, or a custom wish that may be creatively interpreted by the DM. Afterwards, you are excruciatingly stressed/exhausted, and there is a 33% chance you will never be able to cast wish again.",
+      summary_expert: ""
+    }
+  ];
 
   // js/v2/catalog-standalone.js
   function asList(v) {

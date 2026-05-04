@@ -920,6 +920,20 @@ label {
   overflow: auto;
   padding-right: 4px;
 }
+.session-notes-block textarea {
+  min-height: 340px;
+  resize: vertical;
+}
+.play-utility-rail .card .card-body {
+  max-height: 300px;
+  overflow: auto;
+  padding-right: 4px;
+}
+#sec-trackers .log-list {
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 4px;
+}
 .play-math-strip {
   grid-column: 1 / -1;
   display: flex;

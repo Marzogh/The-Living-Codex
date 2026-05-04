@@ -590,7 +590,8 @@ const PLAY_PANES = [
   { id: "bonus", label: "Bonus Actions" },
   { id: "attacks", label: "Attacks" },
   { id: "trackers", label: "Trackers" },
-  { id: "log", label: "Log" }
+  { id: "log", label: "Log" },
+  { id: "notes", label: "Notes" }
 ];
 
 function tabSections(tabId) {
@@ -751,6 +752,7 @@ function renderPlayMode(character, uiState) {
   const hp = character?.combat?.hp || { max: 0, current: 0, temp: 0 };
   const trackers = Array.isArray(character?.trackers) ? character.trackers : [];
   const log = Array.isArray(character?.log) ? character.log : [];
+  const sessionNotes = (character?.play_state?.session_notes ?? "").toString();
   const known = Array.isArray(character?.spells_known) ? character.spells_known : [];
   const prepared = Array.isArray(character?.spells_prepared) ? character.spells_prepared : [];
   const slots = computeEffectiveSlots(character).levels;
@@ -773,7 +775,30 @@ function renderPlayMode(character, uiState) {
   const concentration = character?.combat?.concentration || { active: false, source: "", notes: "" };
   const recentActions = Array.isArray(character?.play_state?.recent_actions) ? character.play_state.recent_actions.slice(0, 5) : [];
   const castFeedback = character?.play_state?.cast_feedback || "";
-  const rollState = character?.play_state?.dice_last_roll || null;
+  const diceRollState = character?.play_state?.dice_last_roll || null;
+  const checkRollState = character?.play_state?.last_check_roll || null;
+  const rollState = (() => {
+    if (!diceRollState && !checkRollState) return null;
+    if (!diceRollState) {
+      return {
+        label: checkRollState?.label || "Check",
+        total: checkRollState?.total ?? 0
+      };
+    }
+    if (!checkRollState) return diceRollState;
+    const diceAt = Date.parse(diceRollState?.utc || "");
+    const checkAt = Date.parse(checkRollState?.utc || "");
+    if (!Number.isFinite(diceAt) && !Number.isFinite(checkAt)) return diceRollState;
+    if (!Number.isFinite(diceAt)) return { label: checkRollState?.label || "Check", total: checkRollState?.total ?? 0 };
+    if (!Number.isFinite(checkAt)) return diceRollState;
+    if (checkAt >= diceAt) {
+      return {
+        label: checkRollState?.label || "Check",
+        total: checkRollState?.total ?? 0
+      };
+    }
+    return diceRollState;
+  })();
   const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
   const derived = deriveStats(character);
   const bonusActions = collectBonusActions(character);
@@ -814,7 +839,7 @@ function renderPlayMode(character, uiState) {
     label: titleizeId(id),
     mod: asInt(derived?.skills?.[id]?.total, 0)
   }));
-  const lastCheckRoll = character?.play_state?.last_check_roll || null;
+  const lastCheckRoll = checkRollState;
 
   const activePane = uiState.activePlayPane || "spells";
   const paneNav = `<nav class="play-pane-tabs">${PLAY_PANES.map((p) => `<button type="button" class="${activePane === p.id ? "is-active" : ""}" data-play-pane="${p.id}">${esc(p.label)}</button>`).join("")}
@@ -862,14 +887,21 @@ function renderPlayMode(character, uiState) {
   const logPane = `<article class="card"><h2>Adventure Log</h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="playLogAdd">Add Log Entry</button></div>
       <div class="log-list">
-        ${log.length === 0 ? `<p class="hint">No log entries</p>` : log.slice(-6).map((entry, idx, arr) => {
-          const realIdx = log.length - arr.length + idx;
+        ${log.length === 0 ? `<p class="hint">No log entries</p>` : log.map((_, idx) => {
+          const realIdx = log.length - 1 - idx;
+          const row = log[realIdx];
           return `<div class="play-log-row">
-          <input data-play-log-tag="${realIdx}" value="${esc(entry.tag || "")}" placeholder="tag" />
-          <input data-play-log-message="${realIdx}" value="${esc(entry.message || "")}" placeholder="Log entry" />
+          <input data-play-log-tag="${realIdx}" value="${esc(row.tag || "")}" placeholder="tag" />
+          <input data-play-log-message="${realIdx}" value="${esc(row.message || "")}" placeholder="Log entry" />
           <button type="button" data-play-log-del="${realIdx}">Delete</button>
         </div>`; }).join("")}
       </div>
+    </div></article>`;
+  const notesPane = `<article class="card"><h2>Session Notes</h2><div class="card-body stack">
+      <section class="session-notes-block">
+        <textarea id="playSessionNotes" rows="20" placeholder="Write long-form notes for this session...">${esc(sessionNotes)}</textarea>
+        <div class="inline-actions"><button type="button" id="playSessionNotesSave">Save Notes</button></div>
+      </section>
     </div></article>`;
 
   const bonusPane = `<article class="card bonus-actions-card"><h2>Class Powers & Bonus Actions</h2><div class="card-body stack">
@@ -904,7 +936,7 @@ function renderPlayMode(character, uiState) {
         ${classActions.reaction.map((row) => `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small></li>`).join("")}
       </ul></section>` : ""}
     </div></article>`;
-  const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, trackers: trackersPane, log: logPane };
+  const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, trackers: trackersPane, log: logPane, notes: notesPane };
 
   const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round((hp.current / hp.max) * 100))) : 0;
   return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
@@ -974,7 +1006,7 @@ function renderPlayMode(character, uiState) {
           ${rollState ? `<p class="hint">Last roll: <strong>${esc(rollState.label || "Roll")}</strong> = ${esc(rollState.total)}</p>` : ""}
           </div></article>
           <article class="card"><h2>Session Log</h2><div class="card-body">
-            ${log.length ? log.slice(-5).reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") : `<p class="hint">No log entries</p>`}
+            ${log.length ? log.slice().reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") : `<p class="hint">No log entries</p>`}
           </div></article>
         </aside>` : ""}
       </div>
@@ -1216,7 +1248,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
         <button type="button" data-tracker-del="${idx}">Delete</button>
       </div>`).join("")}
       <div class="log-list">
-        ${log.slice(-8).reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") || `<p class="hint">No log entries</p>`}
+        ${log.slice().reverse().map((entry) => `<p><strong>${esc(entry.tag || "note")}</strong> ${esc(entry.message || "")}</p>`).join("") || `<p class="hint">No log entries</p>`}
       </div>
     </div></article>
 
@@ -1735,6 +1767,7 @@ export function mountV2UI({ root, getState, actions }) {
       { id: "ui.pane.attacks", label: "Play Pane: Attacks", hint: "Play pane", keywords: ["pane", "attacks"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
       { id: "ui.pane.trackers", label: "Play Pane: Trackers", hint: "Play pane", keywords: ["pane", "trackers"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
       { id: "ui.pane.log", label: "Play Pane: Log", hint: "Play pane", keywords: ["pane", "log"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("log") },
+      { id: "ui.pane.notes", label: "Play Pane: Notes", hint: "Play pane", keywords: ["pane", "notes", "session"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("notes") },
       { id: "ui.play.openChecksDrawer", label: "Play: Open Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openChecksDrawer() },
       { id: "ui.play.closeChecksDrawer", label: "Play: Close Checks Drawer", hint: "Checks and saves", keywords: ["play", "checks", "saves", "drawer", "close"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.checksDrawerOpen, run: () => closeChecksDrawer() },
       { id: "ui.play.focusCast", label: "Play Focus: Cast", hint: "Turn console", keywords: ["play", "cast", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
@@ -2108,9 +2141,10 @@ export function mountV2UI({ root, getState, actions }) {
 
     applyAppearance(uiState.appearanceOpen ? uiState.appearanceDraft : resolveAppearance(character));
 
+    const hasPortrait = Boolean(character?.ui?.portrait?.data_url);
     root.innerHTML = `
-      <header class="shell-topbar ${uiState.mode === "play" && character?.ui?.portrait?.data_url ? "has-play-portrait" : ""}">
-        ${uiState.mode === "play" && character?.ui?.portrait?.data_url ? `<img class="play-profile-portrait" src="${esc(character.ui.portrait.data_url)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
+      <header class="shell-topbar ${hasPortrait ? "has-play-portrait" : ""}">
+        ${hasPortrait ? `<img class="play-profile-portrait" src="${esc(character.ui.portrait.data_url)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
         <div class="brand-block">
           <h1>${character ? esc(character?.meta?.name || "Unnamed") : "No active character"}</h1>
           <p class="brand-meta">${character ? esc(characterSubtitle(character, catalog)) : "The Living Codex"} </p>
@@ -2333,7 +2367,13 @@ export function mountV2UI({ root, getState, actions }) {
       setPolicyMode(e.target.checked ? "core_only" : "all_official");
       render();
     });
-    root.querySelector("#importBtn")?.addEventListener("click", () => actions.importZip());
+    root.querySelector("#importBtn")?.addEventListener("click", async () => {
+      await actions.importZip();
+      if (getState().character) {
+        uiState.showCreate = false;
+        render();
+      }
+    });
     root.querySelector("#exportBtn")?.addEventListener("click", () => actions.exportZip());
     root.querySelector("#modeToggle")?.addEventListener("change", (e) => {
       setMode(e.target.checked ? "play" : "edit");
@@ -2729,10 +2769,42 @@ export function mountV2UI({ root, getState, actions }) {
         c.trackers = Array.isArray(c.trackers) ? c.trackers : [];
         c.trackers.push({ id: crypto.randomUUID(), label: "", type: "counter", reset: "none", max: 0, current: 0 });
       }));
-      root.querySelector("#playLogAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
-        c.log = Array.isArray(c.log) ? c.log : [];
-        c.log.push({ id: crypto.randomUUID(), utc: new Date().toISOString(), tag: "note", message: "" });
-      }));
+    root.querySelector("#playLogAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
+      c.log = Array.isArray(c.log) ? c.log : [];
+      c.log.push({ id: crypto.randomUUID(), utc: new Date().toISOString(), tag: "note", message: "" });
+    }));
+    const saveSessionNotes = () => {
+      const text = root.querySelector("#playSessionNotes")?.value || "";
+      actions.updateCharacter((c) => {
+        c.play_state = c.play_state || {};
+        c.play_state.session_notes = text;
+      });
+      recordPlayAction("Updated session notes");
+    };
+    const pinSessionNotesToBottom = () => {
+      const notesEl = root.querySelector("#playSessionNotes");
+      if (!notesEl) return;
+      notesEl.scrollTop = notesEl.scrollHeight;
+    };
+    root.querySelector("#playSessionNotesSave")?.addEventListener("click", () => saveSessionNotes());
+    root.querySelector("#playSessionNotes")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        saveSessionNotes();
+      }
+      setTimeout(pinSessionNotesToBottom, 0);
+    });
+    root.querySelector("#playSessionNotes")?.addEventListener("input", () => {
+      pinSessionNotesToBottom();
+    });
+    setTimeout(() => {
+      pinSessionNotesToBottom();
+      const notesEl = root.querySelector("#playSessionNotes");
+      if (notesEl && document.activeElement === notesEl) {
+        const end = notesEl.value.length;
+        notesEl.setSelectionRange(end, end);
+      }
+    });
       root.querySelectorAll("[data-play-tracker-label]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-play-tracker-label"), -1);
         actions.updateCharacter((c) => { if (c.trackers?.[i]) c.trackers[i].label = e.target.value; });
@@ -3215,6 +3287,47 @@ export function mountV2UI({ root, getState, actions }) {
     root.addEventListener("click", (e) => {
       const target = e.target && e.target.nodeType === 1 ? e.target : e.target?.parentElement;
       if (!target) return;
+      const importBtn = typeof target.closest === "function" ? target.closest("#importBtn") : null;
+      if (importBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        Promise.resolve(actions.importZip()).then(() => {
+          if (getState().character) {
+            uiState.showCreate = false;
+            render();
+          }
+        });
+        return;
+      }
+      const newCharBtn = typeof target.closest === "function" ? target.closest("#newCharBtn") : null;
+      if (newCharBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        uiState.showCreate = true;
+        render();
+        return;
+      }
+      const cancelCreateBtn = typeof target.closest === "function" ? target.closest("#cancelCreateBtn") : null;
+      if (cancelCreateBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        uiState.showCreate = false;
+        render();
+        return;
+      }
+      const createBtn = typeof target.closest === "function" ? target.closest("#createBtn") : null;
+      if (createBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        draft.name = root.querySelector("#newName")?.value || draft.name;
+        draft.rulesetId = root.querySelector("#newRuleset")?.value || draft.rulesetId;
+        draft.classId = root.querySelector("#newClass")?.value || "";
+        draft.speciesId = root.querySelector("#newSpecies")?.value || "";
+        for (const k of ["str", "dex", "con", "int", "wis", "cha"]) draft[k] = asInt(root.querySelector(`#new${k.toUpperCase()}`)?.value, 10);
+        actions.newCharacter(draft);
+        uiState.showCreate = false;
+        return;
+      }
       const btn = typeof target.closest === "function" ? target.closest("#toolsMenuBtn") : null;
       if (btn) {
         e.preventDefault();
@@ -3252,6 +3365,22 @@ export function mountV2UI({ root, getState, actions }) {
       }
     });
     root.__lcxToolsDelegationBound = true;
+  }
+  if (!root.__lcxChangeDelegationBound) {
+    root.addEventListener("change", (e) => {
+      const target = e.target && e.target.nodeType === 1 ? e.target : e.target?.parentElement;
+      if (!target) return;
+      if (target.id === "modeToggle") {
+        setMode(target.checked ? "play" : "edit");
+        render();
+        return;
+      }
+      if (target.id === "policyModeToggle") {
+        setPolicyMode(target.checked ? "core_only" : "all_official");
+        render();
+      }
+    });
+    root.__lcxChangeDelegationBound = true;
   }
   document.addEventListener("click", (e) => {
     if (!uiState.toolsMenuOpen) return;
