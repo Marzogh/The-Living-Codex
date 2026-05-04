@@ -17,6 +17,14 @@ function norm(v) {
   return (v ?? "").toString().trim().toLowerCase();
 }
 
+function toBoolFlag(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  const s = norm(v);
+  if (!s) return false;
+  return ["true", "yes", "y", "1", "concentration", "required"].includes(s);
+}
+
 function optionList(items, selected, placeholder) {
   const selectedNorm = norm(selected);
   const options = [`<option value="">${esc(placeholder)}</option>`];
@@ -244,6 +252,87 @@ const SPECIES_TWEAK = {
   elf_drow: { shift: 0.12 }, sea_elf: { shift: -0.08 }, duergar: { shift: 0.1 }, goblin: { shift: -0.05 }, githyanki: { shift: -0.04 }, githzerai: { shift: 0.04 }
 };
 
+const SPECIES_DEFAULT_PORTRAITS = {
+  aarakocra: "assets/species-portraits-by-id/aarakocra.png",
+  aasimar: "assets/species-portraits-by-id/aasimar.png",
+  bugbear: "assets/species-portraits-by-id/bugbear.png",
+  centaur: "assets/species-portraits-by-id/centaur.png",
+  changeling: "assets/species-portraits-by-id/changeling.png",
+  deep_gnome: "assets/species-portraits-by-id/deep_gnome.png",
+  dragonborn: "assets/species-portraits-by-id/dragonborn.png",
+  elf_drow: "assets/species-portraits-by-id/elf_drow.png",
+  duergar: "assets/species-portraits-by-id/duergar.png",
+  eladrin: "assets/species-portraits-by-id/eladrin.png",
+  fairy: "assets/species-portraits-by-id/fairy.png",
+  firbolg: "assets/species-portraits-by-id/firbolg.png",
+  gnome_forest: "assets/species-portraits-by-id/gnome_forest.png",
+  genasi_air: "assets/species-portraits-by-id/genasi_air.png",
+  genasi_earth: "assets/species-portraits-by-id/genasi_earth.png",
+  genasi_fire: "assets/species-portraits-by-id/genasi_fire.png",
+  genasi_water: "assets/species-portraits-by-id/genasi_water.png",
+  githyanki: "assets/species-portraits-by-id/githyanki.png",
+  githzerai: "assets/species-portraits-by-id/githzerai.png",
+  goblin: "assets/species-portraits-by-id/goblin.png",
+  goliath: "assets/species-portraits-by-id/goliath.png",
+  half_elf: "assets/species-portraits-by-id/half_elf.png",
+  half_orc: "assets/species-portraits-by-id/half_orc.png",
+  harengon: "assets/species-portraits-by-id/harengon.png",
+  elf_high: "assets/species-portraits-by-id/elf_high.png",
+  dwarf_hill: "assets/species-portraits-by-id/dwarf_hill.png",
+  hobgoblin: "assets/species-portraits-by-id/hobgoblin.png",
+  human: "assets/species-portraits-by-id/human.png",
+  kenku: "assets/species-portraits-by-id/kenku.png",
+  kobold: "assets/species-portraits-by-id/kobold.png",
+  halfling_lightfoot: "assets/species-portraits-by-id/halfling_lightfoot.png",
+  lizardfolk: "assets/species-portraits-by-id/lizardfolk.png",
+  minotaur: "assets/species-portraits-by-id/minotaur.png",
+  dwarf_mountain: "assets/species-portraits-by-id/dwarf_mountain.png",
+  orc: "assets/species-portraits-by-id/orc.png",
+  gnome_rock: "assets/species-portraits-by-id/gnome_rock.png",
+  satyr: "assets/species-portraits-by-id/satyr.png",
+  sea_elf: "assets/species-portraits-by-id/sea_elf.png",
+  shadar_kai: "assets/species-portraits-by-id/shadar_kai.png",
+  shifter: "assets/species-portraits-by-id/shifter.png",
+  halfling_stout: "assets/species-portraits-by-id/halfling_stout.png",
+  tabaxi: "assets/species-portraits-by-id/tabaxi.png",
+  tiefling: "assets/species-portraits-by-id/tiefling.png",
+  tortle: "assets/species-portraits-by-id/tortle.png",
+  triton: "assets/species-portraits-by-id/triton.png",
+  elf_wood: "assets/species-portraits-by-id/elf_wood.png",
+  yuan_ti: "assets/species-portraits-by-id/yuan_ti.png"
+};
+
+const CLASS_BADGES = {
+  artificer: "assets/class-badges/artificer.png",
+  barbarian: "assets/class-badges/Barbarian.png",
+  bard: "assets/class-badges/Bard.png",
+  cleric: "assets/class-badges/Cleric.png",
+  druid: "assets/class-badges/Druid.png",
+  fighter: "assets/class-badges/Fighter.png",
+  monk: "assets/class-badges/Monk.png",
+  paladin: "assets/class-badges/Paladin.png",
+  ranger: "assets/class-badges/Ranger.png",
+  rogue: "assets/class-badges/Rogue.png",
+  sorcerer: "assets/class-badges/Sorcerer.png",
+  warlock: "assets/class-badges/Warlock.png",
+  wizard: "assets/class-badges/Wazard.png"
+};
+
+function getEffectivePortrait(character) {
+  const uploaded = character?.ui?.portrait?.data_url || "";
+  if (uploaded) return uploaded;
+  const speciesId = norm(character?.core?.speciesId || "");
+  return SPECIES_DEFAULT_PORTRAITS[speciesId] || "";
+}
+
+function getDraftPortrait(speciesId) {
+  return SPECIES_DEFAULT_PORTRAITS[norm(speciesId)] || "";
+}
+
+function getClassBadge(classId) {
+  return CLASS_BADGES[norm(classId)] || "";
+}
+
 function sanitizeAppearance(raw = {}) {
   const out = { ...APPEARANCE_DEFAULTS };
   for (const [key] of APPEARANCE_FIELDS) {
@@ -446,6 +535,8 @@ function deriveStats(character) {
 function collectBonusActions(character) {
   const out = { features: [], spells: [] };
   const classes = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+  const primaryClass = primaryClassRow(character);
+  const primaryClassBadge = getClassBadge(primaryClass?.id);
   const known = Array.isArray(character?.spells_known) ? character.spells_known : [];
   const prepared = Array.isArray(character?.spells_prepared) ? character.spells_prepared : [];
   const spellSource = prepared.length ? prepared : known;
@@ -748,7 +839,73 @@ function renderPalette(state, commands) {
   </div>`;
 }
 
-function renderPlayMode(character, uiState) {
+const LOG_NOTES_CHAR_LIMIT = 5_000_000;
+
+function textLen(v) {
+  return (v ?? "").toString().length;
+}
+
+function parseRoundsFromDuration(durationText) {
+  const raw = (durationText || "").toString().trim().toLowerCase();
+  if (!raw) return null;
+  const match = raw.match(/(\d+)\s*(round|rounds|minute|minutes|hour|hours)/);
+  if (!match) return null;
+  const qty = asInt(match[1], 0);
+  const unit = match[2];
+  if (qty <= 0) return null;
+  if (unit.startsWith("round")) return qty;
+  if (unit.startsWith("minute")) return qty * 10;
+  if (unit.startsWith("hour")) return qty * 600;
+  return null;
+}
+
+function computeLogNotesChars(character) {
+  const log = Array.isArray(character?.log) ? character.log : [];
+  const sessionNotes = (character?.play_state?.session_notes ?? "").toString();
+  let used = textLen(sessionNotes);
+  for (const row of log) {
+    if (!row || typeof row !== "object") continue;
+    used += textLen(row.tag);
+    used += textLen(row.message);
+    used += textLen(row.type);
+    used += textLen(row.label);
+    used += textLen(row.data_json);
+    used += textLen(row.notes);
+  }
+  return {
+    used,
+    remaining: Math.max(0, LOG_NOTES_CHAR_LIMIT - used),
+    limit: LOG_NOTES_CHAR_LIMIT
+  };
+}
+
+function clampToBudget(character, incoming, existing = "") {
+  const stats = computeLogNotesChars(character);
+  const existingLen = textLen(existing);
+  const allowed = Math.max(0, existingLen + stats.remaining);
+  return (incoming ?? "").toString().slice(0, allowed);
+}
+
+function findSpellByAnyKey(rows, key) {
+  const target = norm(key);
+  if (!target || !Array.isArray(rows)) return null;
+  return rows.find((s) => {
+    const keys = [s?.id, s?.spell_id, s?.name].map((v) => norm(v)).filter(Boolean);
+    return keys.includes(target);
+  }) || null;
+}
+
+function inferConcentrationRoundsFromSource(sourceName, actions) {
+  const name = norm(sourceName);
+  if (!name) return null;
+  const cat = actions?.getCatalog ? actions.getCatalog() : null;
+  const spells = Array.isArray(cat?.spells) ? cat.spells : [];
+  const row = spells.find((s) => norm(s?.name) === name || norm(s?.id) === name || norm(s?.spell_id) === name);
+  if (!row) return null;
+  return parseRoundsFromDuration(row?.duration || "");
+}
+
+function renderPlayMode(character, uiState, actions) {
   const hp = character?.combat?.hp || { max: 0, current: 0, temp: 0 };
   const trackers = Array.isArray(character?.trackers) ? character.trackers : [];
   const log = Array.isArray(character?.log) ? character.log : [];
@@ -770,9 +927,30 @@ function renderPlayMode(character, uiState) {
   const activeConditionsRaw = Array.isArray(character?.combat?.conditions) ? character.combat.conditions : [];
   const activeConditions = activeConditionsRaw.map((c, idx) => {
     if (typeof c === "string") return { name: c, source: "", duration: "", notes: "", active: true, _idx: idx };
-    return { name: c?.name || `Condition ${idx + 1}`, source: c?.source || "", duration: c?.duration || "", notes: c?.notes || "", active: c?.active !== false, _idx: idx };
+    return {
+      name: c?.name || `Condition ${idx + 1}`,
+      source: c?.source || "",
+      duration: c?.duration || "",
+      rounds_remaining: c?.rounds_remaining ?? null,
+      notes: c?.notes || "",
+      active: c?.active !== false,
+      _idx: idx
+    };
   }).filter((c) => c.active !== false);
-  const concentration = character?.combat?.concentration || { active: false, source: "", notes: "" };
+  const concentration = character?.combat?.concentration || { active: false, source: "", notes: "", rounds_remaining: null };
+  const concentrationResolvedRounds = (() => {
+    const n = asInt(concentration?.rounds_remaining, NaN);
+    if (Number.isFinite(n) && n > 0) return n;
+    if (!concentration?.active) return null;
+    const inferred = inferConcentrationRoundsFromSource(concentration?.source, actions);
+    return Number.isFinite(inferred) && inferred > 0 ? inferred : null;
+  })();
+  const controls = uiState.playBoard?.conditionControls || {};
+  const showConditionControls = Boolean(controls.showConditions || activeConditions.length);
+  const showConcentrationControls = Boolean(controls.showConcentration || concentration.active);
+  const concentrationLabel = concentration.active
+    ? `${concentration.source || "Concentration"}${concentrationResolvedRounds > 0 ? ` (${concentrationResolvedRounds} rounds)` : " (no round timer)"}`
+    : "";
   const recentActions = Array.isArray(character?.play_state?.recent_actions) ? character.play_state.recent_actions.slice(0, 5) : [];
   const castFeedback = character?.play_state?.cast_feedback || "";
   const diceRollState = character?.play_state?.dice_last_roll || null;
@@ -800,6 +978,7 @@ function renderPlayMode(character, uiState) {
     return diceRollState;
   })();
   const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
+  const logBudget = computeLogNotesChars(character);
   const derived = deriveStats(character);
   const bonusActions = collectBonusActions(character);
   const classActions = collectClassActionFeatures(character);
@@ -865,7 +1044,7 @@ function renderPlayMode(character, uiState) {
             <header><strong>Level ${lvl}</strong><small>${esc(available)}</small>${pips}</header>
             <ul class="pill-list">${(byLevel.get(lvl) || []).slice(0, 16).map((s) => {
               const canCast = lvl === 0 || Math.max(0, (row.max || 0) - (row.used || 0)) > 0;
-              return `<li><button type="button" class="spell-cast-pill" data-cast-spell="${esc(s.id || s.name || "spell")}" data-cast-name="${esc(s.name || s.id || "Spell")}" data-cast-base-level="${lvl}" ${canCast ? "" : "disabled title=\"No slots left at this level\""}>${esc(s.name || s.id || "Spell")}</button></li>`;
+              return `<li><button type="button" class="spell-cast-pill" data-cast-spell="${esc(s.id || s.name || "spell")}" data-cast-name="${esc(s.name || s.id || "Spell")}" data-cast-base-level="${lvl}" data-cast-concentration="${toBoolFlag(s?.concentration) ? "1" : "0"}" data-cast-duration="${esc(s?.duration || "")}" ${canCast ? "" : "disabled title=\"No slots left at this level\""}>${esc(s.name || s.id || "Spell")}</button></li>`;
             }).join("")}</ul>
           </section>`;
         }).join("")}
@@ -980,11 +1159,19 @@ function renderPlayMode(character, uiState) {
       </div>
       </div>
       <div class="play-conditions">
-        <div class="inline-actions"><strong>Conditions</strong><button type="button" id="addConditionBtn">+ Condition</button><label class="check"><input type="checkbox" id="concentrationToggle" ${concentration.active ? "checked" : ""} />Concentration</label></div>
+        <div class="inline-actions">
+          <strong>Turn Effects</strong>
+          <label class="check check-condition"><input type="checkbox" id="conditionsVisibleToggle" ${showConditionControls ? "checked" : ""} />Track conditions</label>
+          <label class="check check-concentration"><input type="checkbox" id="concentrationVisibleToggle" ${showConcentrationControls ? "checked" : ""} />Track concentration</label>
+          ${((activeConditions.length > 0) || concentration.active) ? `<button type="button" id="advanceRoundBtn">End Round</button>` : ""}
+        </div>
+        <div class="inline-actions play-effects-actions">
+          ${showConditionControls ? `<button type="button" id="addConditionBtn">+ Condition</button>` : ""}
+        </div>
         <ul class="condition-strip">
-          ${activeConditions.length ? activeConditions.map((c) => `<li><button type="button" class="condition-chip-btn" data-cond-edit="${c._idx}">${esc(c.name)}${c.duration ? ` (${esc(c.duration)})` : ""}</button></li>`).join("") : `<li class="is-empty">No active conditions</li>`}
+          ${activeConditions.map((c) => `<li class="condition-pill"><button type="button" class="condition-chip-btn" data-cond-edit="${c._idx}">${esc(c.name)}${(c.rounds_remaining > 0) ? ` (${esc(c.rounds_remaining)} rounds)` : c.duration ? ` (${esc(c.duration)})` : ""}</button></li>`).join("")}
         </ul>
-        <p class="hint">${concentration.active ? `Concentrating on ${esc(concentration.source || "an effect")}` : "No active concentration."}</p>
+        ${(showConcentrationControls && concentration.active) ? `<ul class="condition-strip concentration-strip"><li class="concentration-pill"><button type="button" class="condition-chip-btn concentration-chip-btn" id="concentrationPill">${esc(concentrationLabel)}</button></li></ul>` : ""}
       </div>
       <div class="play-math-strip">
         <span>STR ${esc(fmtSigned(derived.abilityMods.str))}</span><span>DEX ${esc(fmtSigned(derived.abilityMods.dex))}</span><span>CON ${esc(fmtSigned(derived.abilityMods.con))}</span><span>INT ${esc(fmtSigned(derived.abilityMods.int))}</span><span>WIS ${esc(fmtSigned(derived.abilityMods.wis))}</span><span>CHA ${esc(fmtSigned(derived.abilityMods.cha))}</span>
@@ -992,16 +1179,18 @@ function renderPlayMode(character, uiState) {
         <span>Spell DC ${esc(derived.spellcasting.spellSaveDc)}</span><span>Spell Atk ${esc(fmtSigned(derived.spellcasting.spellAttackBonus))}</span>
       </div>
       </div>
+      <div class="play-hud-nav">
+        ${paneNav}
+      </div>
     </section>
 
     <section class="play-body">
-      ${paneNav}
       <div class="play-main-grid">
         <section class="play-turn-console">
           ${paneMap[activePane] || spellsPane}
         </section>
         ${uiState.playBoard?.utilityRailOpen !== false ? `<aside class="play-utility-rail">
-          <article class="card play-recent"><h2>Recent Actions</h2><div class="card-body">
+          <article class="card play-recent"><h2>Recent Actions <small class="char-budget">${esc(logBudget.remaining.toLocaleString())} chars left</small></h2><div class="card-body">
           ${recentActions.length ? `<ul class="recent-actions-list">${recentActions.map((entry) => `<li>${esc(entry)}</li>`).join("")}</ul>` : `<p class="hint">No recent actions yet.</p>`}
           ${rollState ? `<p class="hint">Last roll: <strong>${esc(rollState.label || "Roll")}</strong> = ${esc(rollState.total)}</p>` : ""}
           </div></article>
@@ -1052,7 +1241,8 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
   const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
   const derived = deriveStats(character);
   const spellcasting = character?.spellcasting || {};
-  const portrait = character?.ui?.portrait?.data_url || "";
+  const portrait = getEffectivePortrait(character);
+  const uploadedPortrait = character?.ui?.portrait?.data_url || "";
   const activeTab = uiState.activeEditTab || "core";
   const activeSections = new Set(tabSections(activeTab));
   const collapsed = uiState.collapsedSectionsByTab?.[activeTab] || {};
@@ -1093,6 +1283,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
     <article class="card ${sectionClass("sec-classes")}" id="sec-classes"><h2>${cardTitle("Classes", edited.classes)} <button type="button" class="card-toggle" data-toggle-sec="sec-classes">${collapsed["sec-classes"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="classAdd">Add Class</button><button type="button" data-open-lookup="class">Lookup Class</button><button type="button" data-open-lookup="subclass">Lookup Subclass</button></div>
       ${classes.length === 0 ? `<p class="hint">No classes</p>` : classes.map((row, idx) => `<div class="class-row">
+        ${getClassBadge(row.id) ? `<img class="class-badge" src="${esc(getClassBadge(row.id))}" alt="${esc(titleizeId(row.id))} badge" />` : `<span class="class-badge class-badge-placeholder" aria-hidden="true"></span>`}
         <select data-class-id="${idx}">${optionList(catalog.classes || [], row.id || "", "Select class")}</select>
         <input type="number" min="1" max="20" data-class-level="${idx}" value="${esc(row.level ?? 1)}" />
         <input data-class-subclass="${idx}" list="subclass-list-${idx}" value="${esc(row.subclassId || "")}" placeholder="subclass id" />
@@ -1122,7 +1313,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
         ${portrait ? `<img class="portrait-preview" src="${esc(portrait)}" alt="Character portrait" />` : `<div class="portrait-placeholder">No portrait</div>`}
         <div class="inline-actions">
           <input id="portraitUpload" type="file" accept="image/*" />
-          ${portrait ? `<button type="button" id="portraitRemove">Remove</button>` : ""}
+          ${uploadedPortrait ? `<button type="button" id="portraitRemove">Remove</button>` : ""}
         </div>
       </div>
       <label>Background<input id="profileBackground" value="${esc(profile.background || "")}" /></label>
@@ -1275,6 +1466,22 @@ export function mountV2UI({ root, getState, actions }) {
     str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10
   };
 
+  function readInitialPlayPane() {
+    const valid = new Set(PLAY_PANES.map((p) => p.id));
+    try {
+      const fromSession = (sessionStorage.getItem(PLAY_PANE_KEY) || "").trim();
+      if (valid.has(fromSession)) return fromSession;
+    } catch {}
+    const fromLocal = (localStorage.getItem(PLAY_PANE_KEY) || "").trim();
+    if (valid.has(fromLocal)) return fromLocal;
+    try {
+      const raw = JSON.parse(localStorage.getItem(PLAY_BOARD_KEY) || "{}");
+      const fromBoard = (raw?.activeModule || "").toString().trim();
+      if (valid.has(fromBoard)) return fromBoard;
+    } catch {}
+    return "spells";
+  }
+
   const uiState = {
     mode: localStorage.getItem(MODE_KEY) === "play" ? "play" : "edit",
     policyMode: localStorage.getItem(POLICY_KEY) === "core_only" ? "core_only" : "all_official",
@@ -1283,7 +1490,7 @@ export function mountV2UI({ root, getState, actions }) {
     edited: { core: false, classes: false, combat: false, spells: false, inventory: false, trackers: false },
     densityMode: localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable",
     activeEditTab: localStorage.getItem(EDIT_TAB_KEY) || "core",
-    activePlayPane: localStorage.getItem(PLAY_PANE_KEY) || "spells",
+    activePlayPane: readInitialPlayPane(),
     playBoard: (() => {
       try {
         const raw = JSON.parse(localStorage.getItem(PLAY_BOARD_KEY) || "{}");
@@ -1302,16 +1509,18 @@ export function mountV2UI({ root, getState, actions }) {
     lastCastLevel: 0,
     lastAction: "",
     checksDrawerOpen: false,
-    conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", notes: "", active: true } },
+    conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", rounds_remaining: "", notes: "", active: true } },
     diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
     portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
     toolsMenuOpen: false,
     toolsMenuOpenedAt: 0,
+    exportMenuOpen: false,
+    exportMenuOpenedAt: 0,
     appearanceOpen: false,
     appearanceSource: "auto",
     appearanceAutoLabel: "Default Parchment",
     appearanceDraft: sanitizeAppearance(),
-    castMenu: { open: false, spellName: "", spellKey: "", baseLevel: 0, options: [] },
+    castMenu: { open: false, spellName: "", spellKey: "", baseLevel: 0, options: [], spellRef: null, concentrationForce: false, concentrationRounds: "" },
     palette: { open: false, query: "", selected: 0, recents: [] },
     lookup: { open: false, type: "spell", query: "", level: "", allowOffClassSpells: false, selected: 0, results: [], feedback: "", originSectionId: "", originScrollY: 0, cursor: 0 }
   };
@@ -1362,15 +1571,63 @@ export function mountV2UI({ root, getState, actions }) {
     return sanitizeAppearance(raw);
   }
 
+  function sameAppearance(a, b) {
+    const left = sanitizeAppearance(a || {});
+    const right = sanitizeAppearance(b || {});
+    for (const [key] of APPEARANCE_FIELDS) {
+      if (left[key] !== right[key]) return false;
+    }
+    return left.surfaceAlpha === right.surfaceAlpha
+      && left.shadowOpacity === right.shadowOpacity
+      && left.shadowBlur === right.shadowBlur;
+  }
+
+  function persistAppearance(character, appearance, mode = "user") {
+    if (!character) return;
+    const finalAppearance = sanitizeAppearance(appearance);
+    const currentAppearance = readCharacterAppearance(character);
+    const currentMode = norm(character?.ui?.appearance_mode || "");
+    if (sameAppearance(currentAppearance, finalAppearance) && currentMode === mode) return;
+    actions.updateCharacter((c) => {
+      c.ui = c.ui || {};
+      c.ui.appearance = finalAppearance;
+      c.ui.appearance_mode = mode;
+    });
+  }
+
   function resolveAppearance(character) {
+    const appearanceMode = norm(character?.ui?.appearance_mode || "");
     const charTheme = readCharacterAppearance(character);
-    if (charTheme) {
+    if (charTheme && appearanceMode === "user") {
       uiState.appearanceSource = "user";
       uiState.appearanceAutoLabel = autoThemeLabel(character);
       return charTheme;
     }
+    if (charTheme && appearanceMode === "auto") {
+      const auto = deriveAutoAppearance(character);
+      uiState.appearanceSource = "auto";
+      uiState.appearanceAutoLabel = auto.label;
+      if (!sameAppearance(charTheme, auto.appearance)) {
+        persistAppearance(character, auto.appearance, "auto");
+      }
+      return auto.appearance;
+    }
+    if (charTheme && !appearanceMode) {
+      const auto = deriveAutoAppearance(character);
+      const isAuto = sameAppearance(charTheme, auto.appearance);
+      if (isAuto) {
+        uiState.appearanceSource = "auto";
+        uiState.appearanceAutoLabel = auto.label;
+        persistAppearance(character, auto.appearance, "auto");
+        return auto.appearance;
+      }
+      uiState.appearanceSource = "user";
+      uiState.appearanceAutoLabel = auto.label;
+      persistAppearance(character, charTheme, "user");
+      return charTheme;
+    }
     const localTheme = readLocalAppearance();
-    if (localTheme) {
+    if (localTheme && appearanceMode !== "auto") {
       uiState.appearanceSource = "user";
       uiState.appearanceAutoLabel = autoThemeLabel(character);
       return localTheme;
@@ -1378,6 +1635,7 @@ export function mountV2UI({ root, getState, actions }) {
     const auto = deriveAutoAppearance(character);
     uiState.appearanceSource = "auto";
     uiState.appearanceAutoLabel = auto.label;
+    persistAppearance(character, auto.appearance, "auto");
     return auto.appearance;
   }
 
@@ -1492,6 +1750,7 @@ export function mountV2UI({ root, getState, actions }) {
     uiState.activePlayPane = id;
     uiState.playBoard.activeModule = id;
     localStorage.setItem(PLAY_PANE_KEY, id);
+    try { sessionStorage.setItem(PLAY_PANE_KEY, id); } catch {}
     localStorage.setItem(PLAY_BOARD_KEY, JSON.stringify(uiState.playBoard));
   }
 
@@ -1509,11 +1768,12 @@ export function mountV2UI({ root, getState, actions }) {
     const rows = Array.isArray(state.character?.combat?.conditions) ? state.character.combat.conditions : [];
     const row = index >= 0 ? rows[index] : null;
     const model = typeof row === "string"
-      ? { name: row, source: "", duration: "", notes: "", active: true }
+      ? { name: row, source: "", duration: "", rounds_remaining: "", notes: "", active: true }
       : {
           name: row?.name || "",
           source: row?.source || "",
           duration: row?.duration || "",
+          rounds_remaining: row?.rounds_remaining ?? "",
           notes: row?.notes || "",
           active: row?.active !== false
         };
@@ -1522,8 +1782,78 @@ export function mountV2UI({ root, getState, actions }) {
   }
 
   function closeConditionEditor() {
-    uiState.conditionEditor = { open: false, index: -1, model: { name: "", source: "", duration: "", notes: "", active: true } };
+    uiState.conditionEditor = { open: false, index: -1, model: { name: "", source: "", duration: "", rounds_remaining: "", notes: "", active: true } };
     render();
+  }
+
+  function openConcentrationEditor(prefill = {}) {
+    const state = getState();
+    const current = state.character?.combat?.concentration || {};
+    uiState.conditionEditor = {
+      open: true,
+      index: -2,
+      model: {
+        name: "Concentration",
+        source: prefill.source || current.source || "",
+        duration: prefill.duration || "",
+        rounds_remaining: Number.isFinite(prefill.rounds_remaining) ? prefill.rounds_remaining : (current.rounds_remaining ?? ""),
+        notes: prefill.notes || current.notes || "",
+        active: prefill.active !== undefined ? Boolean(prefill.active) : (current.active !== false)
+      }
+    };
+    render();
+  }
+
+  function setConditionControls(patch = {}) {
+    const current = uiState.playBoard?.conditionControls || { showConditions: false, showConcentration: false };
+    setPlayBoard({ conditionControls: { ...current, ...patch } });
+  }
+
+  function advanceRound(steps = 1) {
+    const roundsToAdvance = Math.max(1, asInt(steps, 1));
+    let changed = false;
+    actions.updateCharacter((c) => {
+      c.combat = c.combat || {};
+      c.combat.conditions = Array.isArray(c.combat.conditions) ? c.combat.conditions : [];
+      c.combat.conditions = c.combat.conditions.map((row) => {
+        if (!row || typeof row !== "object" || row.active === false) return row;
+        const rounds = asInt(row.rounds_remaining, NaN);
+        if (!Number.isFinite(rounds) || rounds <= 0) return row;
+        changed = true;
+        const next = Math.max(0, rounds - roundsToAdvance);
+        return { ...row, rounds_remaining: next, active: next > 0 };
+      });
+      c.combat.concentration = c.combat.concentration || { active: false, source: "", notes: "", rounds_remaining: null };
+      let cRounds = asInt(c.combat.concentration.rounds_remaining, NaN);
+      if (c.combat.concentration.active && !Number.isFinite(cRounds)) {
+        const inferred = inferConcentrationRoundsFromSource(c.combat.concentration.source, actions);
+        if (Number.isFinite(inferred) && inferred > 0) {
+          c.combat.concentration.rounds_remaining = inferred;
+          cRounds = inferred;
+          changed = true;
+        }
+      }
+      if (c.combat.concentration.active && Number.isFinite(cRounds) && cRounds > 0) {
+        changed = true;
+        c.combat.concentration.rounds_remaining = Math.max(0, cRounds - roundsToAdvance);
+        if (c.combat.concentration.rounds_remaining <= 0) {
+          c.combat.concentration.active = false;
+          c.combat.concentration.source = "";
+        }
+      }
+    });
+    const stateAfter = getState();
+    const activeConcentration = Boolean(stateAfter?.character?.combat?.concentration?.active);
+    const activeConditionsAfter = Array.isArray(stateAfter?.character?.combat?.conditions)
+      ? stateAfter.character.combat.conditions.some((row) => {
+          if (!row) return false;
+          if (typeof row === "string") return true;
+          return row.active !== false;
+        })
+      : false;
+    if (!activeConcentration) setConditionControls({ showConcentration: false });
+    if (!activeConditionsAfter) setConditionControls({ showConditions: false });
+    if (changed) recordPlayAction(`Advanced ${roundsToAdvance} round${roundsToAdvance === 1 ? "" : "s"}`);
   }
 
   function openDiceTray() {
@@ -1915,7 +2245,7 @@ export function mountV2UI({ root, getState, actions }) {
     setCastFeedback("Long rest applied: all spell slots restored.");
   }
 
-  function openCastMenu(spellName, spellKey, baseLevel) {
+  function openCastMenu(spellName, spellKey, baseLevel, spellRef = null) {
     const state = getState();
     const effective = computeEffectiveSlots(state.character).levels;
     const options = [];
@@ -1924,16 +2254,32 @@ export function mountV2UI({ root, getState, actions }) {
       const avail = Math.max(0, (row.max || 0) - (row.used || 0));
       if (avail > 0) options.push({ level: lvl, available: avail, max: row.max || 0 });
     }
-    uiState.castMenu = { open: true, spellName, spellKey, baseLevel, options };
+    const catalogSpell = (() => {
+      const cat = actions.getCatalog ? actions.getCatalog() : null;
+      const spells = Array.isArray(cat?.spells) ? cat.spells : [];
+      return findSpellByAnyKey(spells, spellRef?.id || spellRef?.spell_id || spellKey || spellName) || spells.find((s) => norm(s?.name) === norm(spellName)) || null;
+    })();
+    const detectedConcentration = toBoolFlag(spellRef?.concentration) || toBoolFlag(catalogSpell?.concentration);
+    const detectedRounds = parseRoundsFromDuration(spellRef?.duration || catalogSpell?.duration || "");
+    uiState.castMenu = {
+      open: true,
+      spellName,
+      spellKey,
+      baseLevel,
+      options,
+      spellRef: spellRef || uiState.castMenu?.spellRef || null,
+      concentrationForce: detectedConcentration,
+      concentrationRounds: Number.isFinite(detectedRounds) ? String(detectedRounds) : ""
+    };
     render();
   }
 
   function closeCastMenu() {
-    uiState.castMenu = { open: false, spellName: "", spellKey: "", baseLevel: 0, options: [] };
+    uiState.castMenu = { open: false, spellName: "", spellKey: "", baseLevel: 0, options: [], spellRef: null, concentrationForce: false, concentrationRounds: "" };
     render();
   }
 
-  function performCastAtLevel(lvl, spellName = "Spell") {
+  function performCastAtLevel(lvl, spellName = "Spell", spellRef = null, castOptions = {}) {
     const level = clamp(asInt(lvl, 0), 0, 9);
     if (level === 0) {
       setCastFeedback("Cantrip cast: no slot consumed.");
@@ -1957,6 +2303,48 @@ export function mountV2UI({ root, getState, actions }) {
     });
     if (consumed) {
       uiState.lastCastLevel = level;
+      const castSpell = (() => {
+        if (spellRef) return spellRef;
+        const ch = getState().character || {};
+        const knownRows = Array.isArray(ch.spells_known) ? ch.spells_known : [];
+        const preparedRows = Array.isArray(ch.spells_prepared) ? ch.spells_prepared : [];
+        const allRows = [...knownRows, ...preparedRows];
+        return findSpellByAnyKey(allRows, spellName) || allRows.find((s) => norm(s?.name) === norm(spellName)) || null;
+      })();
+      const catalogSpell = (() => {
+        const cat = actions.getCatalog ? actions.getCatalog() : null;
+        const spells = Array.isArray(cat?.spells) ? cat.spells : [];
+        const direct = findSpellByAnyKey(spells, castSpell?.id || castSpell?.spell_id || spellName);
+        return direct || spells.find((s) => norm(s?.name) === norm(castSpell?.name || spellName)) || null;
+      })();
+      const isConcentration = toBoolFlag(castSpell?.concentration) || toBoolFlag(catalogSpell?.concentration);
+      const manualConcentration = castOptions?.forceConcentration === true;
+      if (isConcentration || manualConcentration) {
+        const manualRounds = asInt(castOptions?.concentrationRounds, 0);
+        const rounds = (() => {
+          if (manualRounds > 0) return manualRounds;
+          const fromCatalog = parseRoundsFromDuration(catalogSpell?.duration || "");
+          if (Number.isFinite(fromCatalog) && fromCatalog > 0) return fromCatalog;
+          const fromSpellRow = parseRoundsFromDuration(castSpell?.duration || "");
+          if (Number.isFinite(fromSpellRow) && fromSpellRow > 0) return fromSpellRow;
+          return null;
+        })();
+        const sourceName = castSpell?.name || catalogSpell?.name || spellName;
+        actions.updateCharacter((c) => {
+          c.combat = c.combat || {};
+          c.combat.concentration = c.combat.concentration || { active: false, source: "", notes: "", rounds_remaining: null };
+          c.combat.concentration.active = true;
+          c.combat.concentration.source = sourceName;
+          c.combat.concentration.rounds_remaining = Number.isFinite(rounds) ? rounds : null;
+        });
+        setConditionControls({ showConcentration: true });
+        if (!Number.isFinite(rounds) || rounds <= 0) {
+          openConcentrationEditor({ source: sourceName, active: true, rounds_remaining: "" });
+          recordPlayAction(`Concentration started: ${sourceName} (set rounds)`);
+        } else {
+          recordPlayAction(`Concentration started: ${sourceName} (${rounds} rounds)`);
+        }
+      }
       setCastFeedback(`Cast applied: ${spellName} at level ${level}.`);
       recordPlayAction(`Cast ${spellName} at L${level}`);
       return;
@@ -2036,8 +2424,8 @@ export function mountV2UI({ root, getState, actions }) {
           level: asInt(row.raw?.level, 0),
           school: row.raw?.school || "",
           source: row.raw?.source || "",
-          ritual: Boolean(row.raw?.ritual),
-          concentration: Boolean(row.raw?.concentration),
+          ritual: toBoolFlag(row.raw?.ritual),
+          concentration: toBoolFlag(row.raw?.concentration),
           casting_time: row.raw?.casting_time || "",
           range: row.raw?.range || "",
           components: row.raw?.components || "",
@@ -2141,13 +2529,22 @@ export function mountV2UI({ root, getState, actions }) {
 
     applyAppearance(uiState.appearanceOpen ? uiState.appearanceDraft : resolveAppearance(character));
 
-    const hasPortrait = Boolean(character?.ui?.portrait?.data_url);
+    const portrait = getEffectivePortrait(character);
+    const hasPortrait = Boolean(portrait);
+    const classBadgeRows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+    const classBadgeItems = classBadgeRows
+      .map((row) => ({ id: norm(row?.id), level: clamp(asInt(row?.level, 1), 1, 20) }))
+      .filter((row) => row.id && getClassBadge(row.id))
+      .filter((row, idx, arr) => arr.findIndex((x) => x.id === row.id) === idx);
     root.innerHTML = `
       <header class="shell-topbar ${hasPortrait ? "has-play-portrait" : ""}">
-        ${hasPortrait ? `<img class="play-profile-portrait" src="${esc(character.ui.portrait.data_url)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
+        ${hasPortrait ? `<img class="play-profile-portrait" src="${esc(portrait)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
         <div class="brand-block">
           <h1>${character ? esc(character?.meta?.name || "Unnamed") : "No active character"}</h1>
           <p class="brand-meta">${character ? esc(characterSubtitle(character, catalog)) : "The Living Codex"} </p>
+          ${classBadgeItems.length ? `<div class="header-class-strip" aria-label="Class badges">
+            ${classBadgeItems.map((row) => `<img class="header-class-badge" src="${esc(getClassBadge(row.id))}" alt="${esc(titleizeId(row.id))} class badge" title="${esc(`${titleizeId(row.id)} (Level ${row.level})`)}" />`).join("")}
+          </div>` : ""}
         </div>
         <div class="top-actions">
           <div class="top-controls-grid">
@@ -2172,26 +2569,49 @@ export function mountV2UI({ root, getState, actions }) {
               <button type="button" id="toolsMenuBtn" title="Tools" aria-label="Tools">⚙</button>
               ${uiState.toolsMenuOpen ? `<div class="tools-menu" id="toolsMenu">
                 <button type="button" id="toolsOpenPalette">Command Palette</button>
+                <button type="button" id="toolsExportPdf" ${character ? "" : "disabled"}>Export PDF</button>
                 <button type="button" id="toolsOpenAppearance">Customize Appearance</button>
                 <button type="button" id="toolsOpenDiagnostics">Diagnostics</button>
               </div>` : ""}
             </div>
             <button type="button" class="btn-primary" id="saveBtn" ${character ? "" : "disabled"}>Save</button>
             <button type="button" id="importBtn">Import</button>
-            <button type="button" id="exportBtn" ${character ? "" : "disabled"}>Export</button>
+            <div class="tools-menu-wrap export-menu-wrap">
+              <button type="button" id="exportMenuBtn" ${character ? "" : "disabled"}>Export</button>
+              ${uiState.exportMenuOpen ? `<div class="tools-menu" id="exportMenu">
+                <button type="button" id="exportZipOption" ${character ? "" : "disabled"}>Export ZIP</button>
+                <button type="button" id="exportPdfOption" ${character ? "" : "disabled"}>Export PDF</button>
+              </div>` : ""}
+            </div>
             <button type="button" id="newCharBtn">New Character</button>
           </div>
         </div>
       </header>
 
       ${(!character || uiState.showCreate) ? `<section class="card"><h2>Create Character</h2><div class="card-body create-grid">
+        <div class="create-portrait-preview">
+          ${getDraftPortrait(draft.speciesId)
+            ? `<img src="${esc(getDraftPortrait(draft.speciesId))}" alt="${esc(titleizeId(draft.speciesId || "species"))} portrait preview" />`
+            : `<div class="create-portrait-placeholder">Select a species to preview default portrait</div>`}
+        </div>
         <label>Name<input id="newName" value="${esc(draft.name)}" /></label>
         <label>Ruleset<select id="newRuleset"><option value="dnd5e_2014" ${draft.rulesetId === "dnd5e_2014" ? "selected" : ""}>D&D 5e (2014)</option><option value="dnd5e_2024" ${draft.rulesetId === "dnd5e_2024" ? "selected" : ""}>D&D 5e (2024)</option></select></label>
-        <label>Class<select id="newClass">${optionList(catalog.classes || [], draft.classId, "Optional class")}</select></label>
+        <label>Class
+          <div class="create-class-picker">
+            ${getClassBadge(draft.classId) ? `<img class="create-class-badge" src="${esc(getClassBadge(draft.classId))}" alt="${esc(titleizeId(draft.classId || "class"))} badge" />` : `<span class="create-class-badge-placeholder" aria-hidden="true"></span>`}
+            <select id="newClass">${optionList(catalog.classes || [], draft.classId, "Optional class")}</select>
+          </div>
+        </label>
         <label>Species<select id="newSpecies">${optionList(catalog.species || [], draft.speciesId, "Optional species")}</select></label>
+        <div class="create-identity-preview">
+          ${getClassBadge(draft.classId) ? `<img class="create-class-badge" src="${esc(getClassBadge(draft.classId))}" alt="${esc(titleizeId(draft.classId || "class"))} badge" />` : `<span class="create-class-badge-placeholder" aria-hidden="true"></span>`}
+          <span>${esc(titleizeId(draft.classId || "no class selected"))}</span>
+          <span>•</span>
+          <span>${esc(titleizeId(draft.speciesId || "no species selected"))}</span>
+        </div>
         <div class="six-grid">${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<label>${k.toUpperCase()}<input id="new${k.toUpperCase()}" type="number" min="1" max="30" value="${esc(draft[k])}" /></label>`).join("")}</div>
         <div class="inline-actions"><button type="button" class="btn-primary" id="createBtn">Create Character</button>${character ? `<button type="button" id="cancelCreateBtn">Cancel</button>` : ""}</div>
-      </div></section>` : `${uiState.mode === "play" ? renderPlayMode(character, uiState) : renderEditMode(character, catalog, uiState.lookup, uiState.edited, uiState)}`}
+      </div></section>` : `${uiState.mode === "play" ? renderPlayMode(character, uiState, actions) : renderEditMode(character, catalog, uiState.lookup, uiState.edited, uiState)}`}
 
       ${renderPalette(uiState.palette, commands)}
       ${uiState.appearanceOpen ? `<div class="palette-overlay" id="appearanceOverlay">
@@ -2226,16 +2646,18 @@ export function mountV2UI({ root, getState, actions }) {
       ${uiState.conditionEditor.open ? `<div class="palette-overlay" id="conditionOverlay">
         <section class="palette cast-menu" role="dialog" aria-modal="true">
           <button type="button" class="overlay-close" data-overlay-close="condition" aria-label="Close overlay">×</button>
-          <h3>${uiState.conditionEditor.index >= 0 ? "Edit Condition" : "Add Condition"}</h3>
+          <h3>${uiState.conditionEditor.index === -2 ? "Set Concentration Details" : (uiState.conditionEditor.index >= 0 ? "Edit Condition" : "Add Condition")}</h3>
           <div class="stack">
-            <label>Name<input id="condName" value="${esc(uiState.conditionEditor.model.name || "")}" placeholder="e.g. Poisoned" /></label>
-            <label>Source<input id="condSource" value="${esc(uiState.conditionEditor.model.source || "")}" placeholder="e.g. Hold Person" /></label>
-            <label>Duration<input id="condDuration" value="${esc(uiState.conditionEditor.model.duration || "")}" placeholder="e.g. 3 rounds" /></label>
+            ${uiState.conditionEditor.index === -2 ? `<p class="hint">Tell the app what you are concentrating on, and if known, how many rounds concentration lasts.</p>` : ""}
+            ${uiState.conditionEditor.index === -2 ? "" : `<label>Name<input id="condName" value="${esc(uiState.conditionEditor.model.name || "")}" placeholder="e.g. Poisoned" /></label>`}
+            <label>${uiState.conditionEditor.index === -2 ? "Concentrating on" : "Source"}<input id="condSource" value="${esc(uiState.conditionEditor.model.source || "")}" placeholder="e.g. Hold Person" /></label>
+            ${uiState.conditionEditor.index === -2 ? "" : `<label>Duration text<input id="condDuration" value="${esc(uiState.conditionEditor.model.duration || "")}" placeholder="e.g. Until the start of your next turn" /></label>`}
+            <label>${uiState.conditionEditor.index === -2 ? "How many rounds does concentration last?" : "How many rounds does this condition last?"}<input id="condRounds" type="number" min="1" value="${esc(uiState.conditionEditor.model.rounds_remaining ?? "")}" placeholder="Leave blank if open-ended" /></label>
             <label>Notes<textarea id="condNotes">${esc(uiState.conditionEditor.model.notes || "")}</textarea></label>
             <label class="check"><input type="checkbox" id="condActive" ${uiState.conditionEditor.model.active !== false ? "checked" : ""}/>Active</label>
           </div>
           <div class="inline-actions">
-            ${uiState.conditionEditor.index >= 0 ? `<button type="button" id="condDelete">Remove</button>` : ""}
+            ${(uiState.conditionEditor.index >= 0 || uiState.conditionEditor.index === -2) ? `<button type="button" id="condDelete">${uiState.conditionEditor.index === -2 ? "Clear" : "Remove"}</button>` : ""}
             <button type="button" id="condCancel">Cancel</button>
             <button type="button" class="btn-primary" id="condSave">Save</button>
           </div>
@@ -2296,8 +2718,9 @@ export function mountV2UI({ root, getState, actions }) {
         </section>
       </div>` : ""}
       <footer class="app-footer">
+        <div class="app-footer-mark" aria-hidden="true"></div>
         <div class="app-footer-left">
-          <strong>The Living Codex</strong> <sub>v2</sub>
+          <strong>The Living Codex <sup>v2</sup></strong>
         </div>
         <div class="app-footer-right">
           <p>Dungeons & Dragons and related marks are property of Wizards of the Coast. All trademarks and copyrights belong to their respective owners.</p>
@@ -2338,7 +2761,17 @@ export function mountV2UI({ root, getState, actions }) {
       e.preventDefault();
       e.stopPropagation();
       uiState.toolsMenuOpen = !uiState.toolsMenuOpen;
+      uiState.exportMenuOpen = false;
       if (uiState.toolsMenuOpen) uiState.toolsMenuOpenedAt = Date.now();
+      render();
+    });
+    root.querySelector("#exportMenuBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!character) return;
+      uiState.exportMenuOpen = !uiState.exportMenuOpen;
+      uiState.toolsMenuOpen = false;
+      if (uiState.exportMenuOpen) uiState.exportMenuOpenedAt = Date.now();
       render();
     });
     root.querySelector("#toolsOpenPalette")?.addEventListener("click", () => {
@@ -2347,6 +2780,21 @@ export function mountV2UI({ root, getState, actions }) {
       uiState.palette.query = "";
       uiState.palette.selected = 0;
       render();
+    });
+    root.querySelector("#toolsExportPdf")?.addEventListener("click", async () => {
+      uiState.toolsMenuOpen = false;
+      render();
+      await actions.exportPdf();
+    });
+    root.querySelector("#exportZipOption")?.addEventListener("click", async () => {
+      uiState.exportMenuOpen = false;
+      render();
+      await actions.exportZip();
+    });
+    root.querySelector("#exportPdfOption")?.addEventListener("click", async () => {
+      uiState.exportMenuOpen = false;
+      render();
+      await actions.exportPdf();
     });
     root.querySelector("#toolsOpenAppearance")?.addEventListener("click", () => openAppearanceCustomizer());
     root.querySelector("#toolsOpenDiagnostics")?.addEventListener("click", () => {
@@ -2374,7 +2822,6 @@ export function mountV2UI({ root, getState, actions }) {
         render();
       }
     });
-    root.querySelector("#exportBtn")?.addEventListener("click", () => actions.exportZip());
     root.querySelector("#modeToggle")?.addEventListener("change", (e) => {
       setMode(e.target.checked ? "play" : "edit");
       render();
@@ -2388,6 +2835,14 @@ export function mountV2UI({ root, getState, actions }) {
       for (const k of ["str", "dex", "con", "int", "wis", "cha"]) draft[k] = asInt(root.querySelector(`#new${k.toUpperCase()}`)?.value, 10);
       actions.newCharacter(draft);
       uiState.showCreate = false;
+    });
+    root.querySelector("#newSpecies")?.addEventListener("change", (e) => {
+      draft.speciesId = e.target.value || "";
+      render();
+    });
+    root.querySelector("#newClass")?.addEventListener("change", (e) => {
+      draft.classId = e.target.value || "";
+      render();
     });
     root.querySelector("#cancelCreateBtn")?.addEventListener("click", () => {
       uiState.showCreate = false;
@@ -2448,6 +2903,7 @@ export function mountV2UI({ root, getState, actions }) {
       uiState.appearanceDraft = auto.appearance;
       uiState.appearanceSource = "auto";
       uiState.appearanceAutoLabel = auto.label;
+      persistAppearance(stateNow.character, auto.appearance, "auto");
       applyAppearance(uiState.appearanceDraft);
       render();
     });
@@ -2456,12 +2912,7 @@ export function mountV2UI({ root, getState, actions }) {
       localStorage.setItem(APPEARANCE_KEY, JSON.stringify(finalAppearance));
       uiState.appearanceSource = "user";
       const stateNow = getState();
-      if (stateNow.character) {
-        actions.updateCharacter((c) => {
-          c.ui = c.ui || {};
-          c.ui.appearance = finalAppearance;
-        });
-      }
+      persistAppearance(stateNow.character, finalAppearance, "user");
       closeAppearanceCustomizer({ revert: false });
     });
     root.querySelectorAll("[data-appearance-color]").forEach((el) => el.addEventListener("input", (e) => {
@@ -2496,17 +2947,44 @@ export function mountV2UI({ root, getState, actions }) {
       if (e.target?.id === "portraitOverlay") closePortraitCrop();
     });
     root.querySelector("#castMenuCancel")?.addEventListener("click", () => closeCastMenu());
-    root.querySelector("#condCancel")?.addEventListener("click", () => closeConditionEditor());
+    root.querySelector("#condCancel")?.addEventListener("click", () => {
+      if (uiState.conditionEditor.index === -2) {
+        setConditionControls({ showConcentration: false });
+      } else {
+        setConditionControls({ showConditions: false });
+      }
+      closeConditionEditor();
+    });
     root.querySelector("#condSave")?.addEventListener("click", () => {
       const idx = uiState.conditionEditor.index;
       const payload = {
         name: (root.querySelector("#condName")?.value || "").trim(),
         source: (root.querySelector("#condSource")?.value || "").trim(),
         duration: (root.querySelector("#condDuration")?.value || "").trim(),
+        rounds_remaining: (() => {
+          const raw = (root.querySelector("#condRounds")?.value || "").trim();
+          if (!raw) return null;
+          const n = asInt(raw, 0);
+          return n > 0 ? n : null;
+        })(),
         notes: (root.querySelector("#condNotes")?.value || "").trim(),
         active: Boolean(root.querySelector("#condActive")?.checked)
       };
-      if (!payload.name) return;
+      if (idx !== -2 && !payload.name) return;
+      if (idx === -2) {
+        actions.updateCharacter((c) => {
+          c.combat = c.combat || {};
+          c.combat.concentration = c.combat.concentration || { active: false, source: "", notes: "", rounds_remaining: null };
+          c.combat.concentration.active = payload.active;
+          c.combat.concentration.source = payload.source;
+          c.combat.concentration.notes = payload.notes;
+          c.combat.concentration.rounds_remaining = payload.rounds_remaining;
+        });
+        setConditionControls({ showConcentration: payload.active || Boolean(payload.source || payload.rounds_remaining) });
+        recordPlayAction(payload.active ? `Concentration set: ${payload.source || "effect"}` : "Concentration cleared");
+        closeConditionEditor();
+        return;
+      }
       actions.updateCharacter((c) => {
         c.combat = c.combat || {};
         c.combat.conditions = Array.isArray(c.combat.conditions) ? c.combat.conditions : [];
@@ -2518,12 +2996,23 @@ export function mountV2UI({ root, getState, actions }) {
     });
     root.querySelector("#condDelete")?.addEventListener("click", () => {
       const idx = uiState.conditionEditor.index;
+      if (idx === -2) {
+        actions.updateCharacter((c) => {
+          c.combat = c.combat || {};
+          c.combat.concentration = { active: false, source: "", notes: "", rounds_remaining: null };
+        });
+        setConditionControls({ showConcentration: false });
+        recordPlayAction("Concentration cleared");
+        closeConditionEditor();
+        return;
+      }
       if (idx < 0) return;
       actions.updateCharacter((c) => {
         c.combat = c.combat || {};
         c.combat.conditions = Array.isArray(c.combat.conditions) ? c.combat.conditions : [];
         if (idx >= 0 && idx < c.combat.conditions.length) c.combat.conditions.splice(idx, 1);
       });
+      setConditionControls({ showConditions: false });
       recordPlayAction("Removed condition");
       closeConditionEditor();
     });
@@ -2563,8 +3052,9 @@ export function mountV2UI({ root, getState, actions }) {
       el.addEventListener("click", (e) => {
         const lvl = asInt(e.currentTarget.getAttribute("data-cast-at"), 0);
         const spellName = uiState.castMenu.spellName || "Spell";
+        const spellRef = uiState.castMenu.spellRef || null;
         closeCastMenu();
-        performCastAtLevel(lvl, spellName);
+        performCastAtLevel(lvl, spellName, spellRef);
       });
     });
 
@@ -2704,17 +3194,27 @@ export function mountV2UI({ root, getState, actions }) {
         });
       });
       root.querySelector("#addConditionBtn")?.addEventListener("click", () => openConditionEditor(-1));
+      root.querySelector("#concentrationPill")?.addEventListener("click", () => openConcentrationEditor());
+      root.querySelector("#conditionsVisibleToggle")?.addEventListener("change", (e) => {
+        setConditionControls({ showConditions: Boolean(e.target.checked) });
+        render();
+      });
+      root.querySelector("#concentrationVisibleToggle")?.addEventListener("change", (e) => {
+        const on = Boolean(e.target.checked);
+        setConditionControls({ showConcentration: on });
+        if (!on) {
+          actions.updateCharacter((c) => {
+            c.combat = c.combat || {};
+            c.combat.concentration = { active: false, source: "", notes: "", rounds_remaining: null };
+          });
+          recordPlayAction("Concentration cleared");
+        } else {
+          openConcentrationEditor();
+        }
+      });
+      root.querySelector("#advanceRoundBtn")?.addEventListener("click", () => advanceRound());
       root.querySelectorAll("[data-cond-edit]").forEach((el) => {
         el.addEventListener("click", (e) => openConditionEditor(asInt(e.currentTarget.getAttribute("data-cond-edit"), -1)));
-      });
-      root.querySelector("#concentrationToggle")?.addEventListener("change", (e) => {
-        actions.updateCharacter((c) => {
-          c.combat = c.combat || {};
-          c.combat.concentration = c.combat.concentration || { active: false, source: "", notes: "" };
-          c.combat.concentration.active = Boolean(e.target.checked);
-          if (!c.combat.concentration.active) c.combat.concentration.source = "";
-        });
-        recordPlayAction(e.target.checked ? "Concentration enabled" : "Concentration cleared");
       });
       root.querySelector("#undoLastCast")?.addEventListener("click", () => performUndoLastCast());
       root.querySelector("#shortRestSlots")?.addEventListener("click", () => performShortRest());
@@ -2744,11 +3244,25 @@ export function mountV2UI({ root, getState, actions }) {
           const baseLevel = clamp(asInt(e.currentTarget.getAttribute("data-cast-base-level"), 0), 0, 9);
           const spellName = e.currentTarget.getAttribute("data-cast-name") || "Spell";
           const spellKey = e.currentTarget.getAttribute("data-cast-spell") || spellName;
+          const characterNow = getState().character || {};
+          const knownRows = Array.isArray(characterNow.spells_known) ? characterNow.spells_known : [];
+          const preparedRows = Array.isArray(characterNow.spells_prepared) ? characterNow.spells_prepared : [];
+          const sourceRows = [...knownRows, ...preparedRows];
+          let spellRef = sourceRows.find((s) => norm(s?.id || s?.spell_id || s?.name) === norm(spellKey) || norm(s?.name) === norm(spellName)) || null;
+          if (!spellRef) {
+            spellRef = {
+              id: spellKey,
+              name: spellName,
+              concentration: toBoolFlag(e.currentTarget.getAttribute("data-cast-concentration")),
+              duration: e.currentTarget.getAttribute("data-cast-duration") || ""
+            };
+          }
           if (baseLevel === 0) {
-            performCastAtLevel(0, spellName);
+            performCastAtLevel(0, spellName, spellRef);
             return;
           }
           openCastMenu(spellName, spellKey, baseLevel);
+          uiState.castMenu.spellRef = spellRef;
         });
       });
       root.querySelectorAll("[data-play-tracker]").forEach((el) => {
@@ -2770,6 +3284,8 @@ export function mountV2UI({ root, getState, actions }) {
         c.trackers.push({ id: crypto.randomUUID(), label: "", type: "counter", reset: "none", max: 0, current: 0 });
       }));
     root.querySelector("#playLogAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
+      const stats = computeLogNotesChars(c);
+      if (stats.remaining <= 0) return;
       c.log = Array.isArray(c.log) ? c.log : [];
       c.log.push({ id: crypto.randomUUID(), utc: new Date().toISOString(), tag: "note", message: "" });
     }));
@@ -2777,7 +3293,7 @@ export function mountV2UI({ root, getState, actions }) {
       const text = root.querySelector("#playSessionNotes")?.value || "";
       actions.updateCharacter((c) => {
         c.play_state = c.play_state || {};
-        c.play_state.session_notes = text;
+        c.play_state.session_notes = clampToBudget(c, text, c.play_state.session_notes || "");
       });
       recordPlayAction("Updated session notes");
     };
@@ -2794,7 +3310,12 @@ export function mountV2UI({ root, getState, actions }) {
       }
       setTimeout(pinSessionNotesToBottom, 0);
     });
-    root.querySelector("#playSessionNotes")?.addEventListener("input", () => {
+    root.querySelector("#playSessionNotes")?.addEventListener("input", (e) => {
+      const state = getState();
+      const c = state.character || {};
+      const existing = c?.play_state?.session_notes || "";
+      const clamped = clampToBudget(c, e.target.value, existing);
+      if (clamped !== e.target.value) e.target.value = clamped;
       pinSessionNotesToBottom();
     });
     setTimeout(() => {
@@ -2823,11 +3344,15 @@ export function mountV2UI({ root, getState, actions }) {
       }));
       root.querySelectorAll("[data-play-log-tag]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-play-log-tag"), -1);
-        actions.updateCharacter((c) => { if (c.log?.[i]) c.log[i].tag = e.target.value; });
+        actions.updateCharacter((c) => {
+          if (c.log?.[i]) c.log[i].tag = clampToBudget(c, e.target.value, c.log[i].tag || "");
+        });
       }));
       root.querySelectorAll("[data-play-log-message]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-play-log-message"), -1);
-        actions.updateCharacter((c) => { if (c.log?.[i]) c.log[i].message = e.target.value; });
+        actions.updateCharacter((c) => {
+          if (c.log?.[i]) c.log[i].message = clampToBudget(c, e.target.value, c.log[i].message || "");
+        });
       }));
       root.querySelectorAll("[data-play-log-del]").forEach((el) => el.addEventListener("click", (e) => {
         const i = asInt(e.currentTarget.getAttribute("data-play-log-del"), -1);
@@ -3087,6 +3612,8 @@ export function mountV2UI({ root, getState, actions }) {
     root.querySelectorAll("[data-tracker-del]").forEach((el) => el.addEventListener("click", (e) => { const i = asInt(e.currentTarget.getAttribute("data-tracker-del"), -1); actions.updateCharacter((c) => { c.trackers.splice(i, 1); }); }));
 
     root.querySelector("#logAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
+      const stats = computeLogNotesChars(c);
+      if (stats.remaining <= 0) return;
       c.log = Array.isArray(c.log) ? c.log : [];
       c.log.push({ id: crypto.randomUUID(), utc: new Date().toISOString(), tag: "note", message: "" });
     }));
@@ -3094,6 +3621,7 @@ export function mountV2UI({ root, getState, actions }) {
 
   function handleGlobalHotkeys(e) {
     const cmd = e.metaKey || e.ctrlKey;
+    const hasAnyMod = e.metaKey || e.ctrlKey || e.altKey || e.shiftKey;
     const targetTyping = isTypingTarget(e.target);
 
     if (cmd && e.key.toLowerCase() === "k") {
@@ -3105,7 +3633,7 @@ export function mountV2UI({ root, getState, actions }) {
       return;
     }
 
-    if (cmd && e.key.toLowerCase() === "s") {
+    if (cmd && !e.shiftKey && e.key.toLowerCase() === "s") {
       e.preventDefault();
       actions.saveNow();
       return;
@@ -3120,6 +3648,12 @@ export function mountV2UI({ root, getState, actions }) {
     if (uiState.toolsMenuOpen && e.key === "Escape") {
       e.preventDefault();
       uiState.toolsMenuOpen = false;
+      render();
+      return;
+    }
+    if (uiState.exportMenuOpen && e.key === "Escape") {
+      e.preventDefault();
+      uiState.exportMenuOpen = false;
       render();
       return;
     }
@@ -3217,7 +3751,7 @@ export function mountV2UI({ root, getState, actions }) {
       return;
     }
 
-    if (uiState.mode === "play") {
+    if (uiState.mode === "play" && !hasAnyMod) {
       if (e.key.toLowerCase() === "c") {
         e.preventDefault();
         setActivePlayPane("spells");
@@ -3271,12 +3805,12 @@ export function mountV2UI({ root, getState, actions }) {
       return;
     }
 
-    if (e.key === "[") {
+    if (!hasAnyMod && e.key === "[") {
       e.preventDefault();
       cycleSections(-1);
       return;
     }
-    if (e.key === "]") {
+    if (!hasAnyMod && e.key === "]") {
       e.preventDefault();
       cycleSections(1);
     }
@@ -3383,8 +3917,9 @@ export function mountV2UI({ root, getState, actions }) {
     root.__lcxChangeDelegationBound = true;
   }
   document.addEventListener("click", (e) => {
-    if (!uiState.toolsMenuOpen) return;
-    if (Date.now() - asInt(uiState.toolsMenuOpenedAt, 0) < 220) return;
+    if (!uiState.toolsMenuOpen && !uiState.exportMenuOpen) return;
+    const openedAt = Math.max(asInt(uiState.toolsMenuOpenedAt, 0), asInt(uiState.exportMenuOpenedAt, 0));
+    if (Date.now() - openedAt < 220) return;
     const path = typeof e.composedPath === "function" ? e.composedPath() : [];
     const targetEl = e.target && e.target.nodeType === 1 ? e.target : e.target?.parentElement;
     const insideToolsByClosest = typeof targetEl?.closest === "function" && targetEl.closest(".tools-menu-wrap");
@@ -3392,6 +3927,7 @@ export function mountV2UI({ root, getState, actions }) {
     const insideTools = Boolean(insideToolsByClosest || insideToolsByPath);
     if (!insideTools) {
       uiState.toolsMenuOpen = false;
+      uiState.exportMenuOpen = false;
       render();
     }
   });

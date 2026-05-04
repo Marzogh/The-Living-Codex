@@ -198,10 +198,19 @@ ui = mountV2UI({
           }));
       }
       if (type === "subclass") {
-        const classFilter = normText(filters.classId || "");
+        const classFilters = Array.isArray(filters.classIds)
+          ? filters.classIds.map(normText).filter(Boolean)
+          : [];
+        const primaryClassFilter = normText(filters.classId || "");
         return (catalog.subclasses || [])
           .filter((row) => isAllowedByPolicy(row, policyMode))
-          .filter((row) => (!classFilter || normText(row?.class_id) === classFilter) && (!q || normText(row?.name || row?.id).includes(q)))
+          .filter((row) => {
+            const rowClassId = normText(row?.class_id);
+            const classMatch = classFilters.length
+              ? classFilters.includes(rowClassId)
+              : (!primaryClassFilter || rowClassId === primaryClassFilter);
+            return classMatch && (!q || normText(row?.name || row?.id).includes(q));
+          })
           .slice(0, 60)
           .map((row) => ({
             id: (row?.id || "").toString(),
@@ -319,8 +328,22 @@ ui = mountV2UI({
         setRuntimeStatus("Export PDF failed: no character loaded.", "warn");
         return;
       }
-      setRuntimeStatus("Opening print dialog (Save as PDF)...", "info");
-      setTimeout(() => window.print(), 30);
+      try {
+        const save = await flushSave({ makeActive: true });
+        if (!save.ok) {
+          setRuntimeStatus(`Export PDF blocked: ${(save.errors || []).join(" ") || "save failed."}`, "error");
+          return;
+        }
+        const latest = store.getState();
+        if (globalThis?.LivingCodexPdfHtml?.openPrintableHtml) {
+          await globalThis.LivingCodexPdfHtml.openPrintableHtml(latest.character, catalog);
+        } else {
+          throw new Error("PDF HTML renderer not loaded");
+        }
+        setRuntimeStatus("Exported PDF.", "success");
+      } catch (err) {
+        setRuntimeStatus(`Export PDF failed: ${err?.message || String(err)}`, "error");
+      }
     },
 
     saveNow: async () => {
@@ -373,7 +396,7 @@ window.addEventListener("beforeunload", () => {
 (async () => {
   await controller.bootstrap();
 
-  const state = store.getState();
+  let state = store.getState();
   if (!state.character) {
     const backup = readLocalBackup();
     if (backup) {
@@ -381,6 +404,15 @@ window.addEventListener("beforeunload", () => {
       controller.applyImportedCharacter(parsed);
       if (parsed.ok) await flushSave({ makeActive: true });
       if (parsed.ok) setRuntimeStatus("Recovered character from local backup.", "success");
+    }
+    state = store.getState();
+    if (!state.character) {
+      const listed = await V2Storage.listCharacters();
+      if (Array.isArray(listed) && listed.length > 0) {
+        const mostRecent = listed[0];
+        const loaded = await controller.loadCharacterById(mostRecent.id);
+        if (loaded?.ok) setRuntimeStatus(`Recovered most recent character: ${mostRecent.name || mostRecent.id}.`, "success");
+      }
     }
   } else {
     setRuntimeStatus("Loaded active character from storage.", "success");

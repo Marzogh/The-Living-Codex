@@ -209,10 +209,19 @@ ui = mountV2UI({
           }));
       }
       if (type === "subclass") {
-        const classFilter = normText(filters.classId || "");
+        const classFilters = Array.isArray(filters.classIds)
+          ? filters.classIds.map(normText).filter(Boolean)
+          : [];
+        const primaryClassFilter = normText(filters.classId || "");
         return (catalog.subclasses || [])
           .filter((row) => isAllowedByPolicy(row, policyMode))
-          .filter((row) => (!classFilter || normText(row?.class_id) === classFilter) && (!q || normText(row?.name || row?.id).includes(q)))
+          .filter((row) => {
+            const rowClassId = normText(row?.class_id);
+            const classMatch = classFilters.length
+              ? classFilters.includes(rowClassId)
+              : (!primaryClassFilter || rowClassId === primaryClassFilter);
+            return classMatch && (!q || normText(row?.name || row?.id).includes(q));
+          })
           .slice(0, 60)
           .map((row) => ({
             id: (row?.id || "").toString(),
@@ -330,8 +339,22 @@ ui = mountV2UI({
         setRuntimeStatus("Export PDF failed: no character loaded.", "warn");
         return;
       }
-      setRuntimeStatus("Opening print dialog (Save as PDF)...", "info");
-      setTimeout(() => window.print(), 30);
+      try {
+        const save = await flushSave({ makeActive: true });
+        if (!save.ok) {
+          setRuntimeStatus(`Export PDF blocked: ${(save.errors || []).join(" ") || "save failed."}`, "error");
+          return;
+        }
+        const latest = store.getState();
+        if (globalThis?.LivingCodexPdfHtml?.openPrintableHtml) {
+          await globalThis.LivingCodexPdfHtml.openPrintableHtml(latest.character, catalog);
+        } else {
+          throw new Error("PDF HTML renderer not loaded");
+        }
+        setRuntimeStatus("Exported PDF.", "success");
+      } catch (err) {
+        setRuntimeStatus(`Export PDF failed: ${err?.message || String(err)}`, "error");
+      }
     },
 
     saveNow: async () => {

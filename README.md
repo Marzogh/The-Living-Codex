@@ -1,175 +1,113 @@
-# The Living Codex (Beta)
+# The Living Codex
 
-The Living Codex is a locally hosted, browser-based character sheet system for  
-tabletop role-playing games.
+![Version](https://img.shields.io/badge/version-v2.0-2c5f52?style=flat-square) · ![Status](https://img.shields.io/badge/status-stable-2f6f49?style=flat-square) · ![Local First](https://img.shields.io/badge/local--first-yes-6d5a41?style=flat-square) · ![Ruleset](https://img.shields.io/badge/D%26D-5e%20(2014)-8b3a2f?style=flat-square) · ![GitHub Release](https://img.shields.io/github/v/release/Marzogh/The-Living-Codex?display_name=tag&style=flat-square) · ![Last Commit](https://img.shields.io/github/last-commit/Marzogh/The-Living-Codex?style=flat-square) · ![Open Issues](https://img.shields.io/github/issues/Marzogh/The-Living-Codex?style=flat-square) · ![Open PRs](https://img.shields.io/github/issues-pr/Marzogh/The-Living-Codex?style=flat-square) · ![License](https://img.shields.io/badge/license-MIT-2c5f52?style=flat-square)
 
-It is designed to be:
-- Rules-aware but player-controlled
-- Multiclass-safe
-- Data-driven (CSV / JSON → UI)
-- Offline-friendly
-- Transparent and hackable
+The Living Codex is a local-first tabletop character companion designed for real play at the table, not just data entry. v2 is now the active release line, and legacy v1 has been archived under `archive/v1/`.
 
-This project is currently in beta. Expect iteration.
+## Quick Start
 
----
-
-## Beta Status
-
-This is a functional beta:
-- Core systems work end-to-end
-- Rules logic is implemented
-- UI and data formats may still evolve
-
-There is no backend server and no cloud storage.  
-Everything runs locally in your browser.
-
----
-
-## What This Is (and Isn’t)
-
-### What it is
-- A responsive character sheet
-- Automatic spell slot calculation
-- Multiclass and subclass aware
-- Prepared and known spell tracking
-- Designed for self-hosting and tinkering
-
-### What it is not
-- A game engine
-- A rules adjudicator
-- A hosted web service
-- Locked to any single tabletop system
-
----
-
-## Running Locally (Required)
-
-Because this project uses ES modules and dynamic imports,  
-you must run it via a local web server.  
-Opening `index.html` directly from disk will not work.
-
----
-
-### Option A: Python (Recommended)
-
-If you have Python 3 installed:
+Run a local server from the project root:
 
 ```bash
 cd The-Living-Codex
 python3 -m http.server 8000
 ```
 
-Then open your browser at:
-```
-http://localhost:8000
-```
----
-### Using The Living Codex
+Then open `http://localhost:8000/`.
 
-Creating a Character
-	•	Click “New Character”
-	•	Choose:
-	•	Species
-	•	Class
-	•	Level
-	•	Ability scores
-	•	Proficiencies and derived stats are calculated automatically
+That root entry is the canonical v2 experience. If you open the app directly via `file://`, browser module restrictions can prevent loading, so always use local HTTP.
 
----
+## What You Get in v2
 
-### Classes, Multiclassing, and Subclasses
-	•	Multiple classes are supported
-	•	Subclasses unlock at the correct class level
-	•	Spellcasting progression respects:
-	•	Full, half, and third casters
-	•	Pact magic
-	•	Subclass-gated casting
+v2 gives you a fast Play Mode and a full Edit Mode, with local save/import/export flows, subclass and spell lookup, multiclass-aware visuals, and species/class identity elements (including default portraits and class badges). It runs fully local-first, with no backend and no cloud dependency.
 
----
+## Screenshots
 
-### Spells
-	•	Spells are selected from a searchable rules database
-	•	Known and prepared spells are tracked separately
-	•	Prepared limits are enforced per class
-	•	Cantrips are handled independently
-	•	Spell slots auto-calculate from class levels
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/create-character-empty.png">
+        <img src="docs/screenshots/create-character-empty.png" alt="Create Character Empty State" width="100%" />
+      </a>
+      <p><strong>Create Character</strong><br/>Empty-state onboarding with species/class preview guidance.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/create-character-flow.png">
+        <img src="docs/screenshots/create-character-flow.png" alt="Create Character Flow" width="100%" />
+      </a>
+      <p><strong>Create Character (Populated)</strong><br/>Live portrait and class badge preview before creation.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/edit-mode-core.png">
+        <img src="docs/screenshots/edit-mode-core.png" alt="Edit Mode Core" width="100%" />
+      </a>
+      <p><strong>Edit Mode: Core</strong><br/>Identity, ability scores, species, and class foundations.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/edit-mode-spellcraft.png">
+        <img src="docs/screenshots/edit-mode-spellcraft.png" alt="Edit Mode Spellcraft" width="100%" />
+      </a>
+      <p><strong>Edit Mode: Spellcraft</strong><br/>Prepared/known spell management and spellcasting setup.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/edit-mode-combat-mechanics.png">
+        <img src="docs/screenshots/edit-mode-combat-mechanics.png" alt="Edit Mode Combat and Mechanics" width="100%" />
+      </a>
+      <p><strong>Edit Mode: Combat &amp; Mechanics</strong><br/>Saves, skills, attacks, and derived combat values.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/edit-mode-gear-inventory.png">
+        <img src="docs/screenshots/edit-mode-gear-inventory.png" alt="Edit Mode Gear and Inventory" width="100%" />
+      </a>
+      <p><strong>Edit Mode: Gear</strong><br/>Inventory, quantities, notes, and tracker/log entry points.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/edit-mode-chronicle.png">
+        <img src="docs/screenshots/edit-mode-chronicle.png" alt="Edit Mode Chronicle" width="100%" />
+      </a>
+      <p><strong>Edit Mode: Chronicle</strong><br/>Portrait, background, story details, and coin tracking.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/play-mode-tactical-board.png">
+        <img src="docs/screenshots/play-mode-tactical-board.png" alt="Play Mode Tactical Board" width="100%" />
+      </a>
+      <p><strong>Play Mode: Tactical Board</strong><br/>At-table HUD with quick actions, logs, and turn workflow.</p>
+    </td>
+  </tr>
+</table>
 
-Manual overrides are always available.
+## Typical Flow
 
----
+Create or import a character, refine identity and mechanics in Edit Mode, then switch to Play Mode for turn-by-turn decisions, tracking, and logging. When you want a backup or to move devices, export a ZIP character pack.
 
-### Proficiencies
-	•	Displayed as readable pills
-	•	Editable via an overlay
-	•	Supports:
-	•	Saving throws
-	•	Skills
-	•	Tools
-	•	Weapons
-	•	Armour
-	•	Languages
+## Project Layout
 
----
+The main implementation lives in `js/v2/` with styling in `css/v2.css`, while 2014 rules data is in `data/dnd5e_2014/`. If you need implementation and pack-format details, `docs/v2-spec.md` is the source of truth. Legacy code remains available in `archive/v1/` for reference only.
 
-## Data and Rules Architecture
+## Troubleshooting
 
-The Living Codex uses a layered architecture:
+If the app fails to load, confirm you are opening `http://localhost:8000/` and not a file URL. If import/export behaves unexpectedly, verify vendor scripts are present in `vendor/`. If the UI looks stale after updates, do a hard refresh to clear cached assets.
 
-```
-CSV / JSON (data)
-      ↓
-RulesDB (indexed runtime rules)
-      ↓
-Character State
-      ↓
-Derived Calculations
-      ↓
-      UI
-```
+## Contributing
 
-This makes it easy to:
-	•	Add new systems
-	•	Extend rules
-	•	Audit calculations
-	•	Replace datasets
+Contributions are welcome through issues and pull requests. The most useful bug reports include reproduction steps, expected vs actual behavior, and any console errors.
 
----
+## Legal, Copyright, and Trademarks
 
-### Repository Structure (High Level)
+This repository contains original software, UI, and project-authored content owned by this project and its contributors.
 
-```
-/data/
-  /dnd5e_2014/
-    classes.json
-    subclasses.json
-    species.json
-    spells.min.json
-    cantrips.json
+Dungeons & Dragons, Wizards of the Coast, and related names or marks are trademarks and/or copyrighted property of their respective owners. The Living Codex does **not** claim ownership of third-party intellectual property.
 
-/js/
-  app.js
-  /ui/
-    editor.js
-    spells.js
-    derived.js
+No warranty. Use at your own risk; you’re responsible for outcomes and any errors.
 
-/tools/
-  normalize_spells.py
-  build_rulesdb.mjs
-```
+## License
 
----
+This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE).
 
-### Known Limitations (Beta)
-	•	No persistence beyond the current session
-	•	No character export yet
-	•	Inventory automation incomplete
-	•	Subclass spell restrictions not yet enforced (hooks exist)
-
----
-
-## License and Attribution
-
-This project does not reproduce proprietary rule text.
-All trademarks referred to belong to their respective owners.
+The MIT license applies to original code and project-authored content in this repository. It does **not** grant rights to third-party IP, trademarks, or copyrighted material.
