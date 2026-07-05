@@ -1,0 +1,22 @@
+export const HELP_FEATURE_REGISTRY = [
+  { featureId: "create.panel", sectionId: "help-create", label: "Create Character", surface: "create", actionId: "openCreateCharacter" },
+  { featureId: "import.flow", sectionId: "help-data", label: "Import", surface: "header", actionId: "runImportZip" },
+  { featureId: "save.export", sectionId: "help-data", label: "Save and Export", surface: "header" },
+  { featureId: "diagnostics.drawer", sectionId: "help-troubleshooting", label: "Diagnostics", surface: "tools", actionId: "openDiagnostics" },
+  { featureId: "lookup.species", sectionId: "help-lookups", label: "Species Lookup", surface: "lookup", actionId: "openSpeciesLookup", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "lookup.class", sectionId: "help-lookups", label: "Class Lookup", surface: "lookup", actionId: "openClassLookup", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "lookup.subclass", sectionId: "help-lookups", label: "Subclass Lookup", surface: "lookup", actionId: "openSubclassLookup", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "lookup.spell", sectionId: "help-lookups", label: "Spell Lookup", surface: "lookup", actionId: "openSpellLookup", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "lookup.attack", sectionId: "help-lookups", label: "Attack Lookup", surface: "lookup", actionId: "openAttackLookup", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "edit.tab.core", sectionId: "help-edit", label: "Core", surface: "edit-nav", actionId: "switchEditTabCore", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "edit.tab.battle", sectionId: "help-edit", label: "Battle", surface: "edit-nav", actionId: "switchEditTabBattle", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "edit.tab.spellcraft", sectionId: "help-edit", label: "Spellcraft", surface: "edit-nav", actionId: "switchEditTabSpellcraft", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "edit.tab.gear", sectionId: "help-edit", label: "Gear", surface: "edit-nav", actionId: "switchEditTabGear", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "edit.tab.chronicle", sectionId: "help-edit", label: "Chronicle", surface: "edit-nav", actionId: "switchEditTabChronicle", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "play.mode", sectionId: "help-play", label: "Play Mode", surface: "play", actionId: "switchToPlayMode", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "play.pane.spells", sectionId: "help-play", label: "Spell Pane", surface: "play", actionId: "focusPlaySpells", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "play.pane.attacks", sectionId: "help-play", label: "Attack Pane", surface: "play", actionId: "focusPlayAttacks", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "play.pane.trackers", sectionId: "help-play", label: "Tracker Pane", surface: "play", actionId: "focusPlayTrackers", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "play.pane.log", sectionId: "help-play", label: "Log Pane", surface: "play", actionId: "focusPlayLog", visibleWhen: (state) => Boolean(state?.character) },
+  { featureId: "play.pane.notes", sectionId: "help-play", label: "Notes Pane", surface: "play", actionId: "focusPlayNotes", visibleWhen: (state) => Boolean(state?.character) }
+];
