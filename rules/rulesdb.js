@@ -1,7 +1,7 @@
 /**
  * RulesDB (edition-agnostic)
  *
- * Loads minimal selector datasets (spells/items/classes/species) from:
+ * Loads minimal selector datasets (spells/items/classes/species/attacks) from:
  *   /data/<rulesetId>/
  *
  * This module lives under /rules/, so dataset URLs resolve via ../data/...
@@ -142,6 +142,7 @@ export const RulesDB = {
     let classes = [];
     let subclasses = [];
     let species = [];
+    let attacks = [];
     let meta = null;
 
     try { spells = await fetchJson(new URL("spells.min.json", baseUrl).href); } catch { /* optional */ }
@@ -166,6 +167,7 @@ export const RulesDB = {
         }
       }
     }
+    try { attacks = await fetchJson(new URL("attacks.min.json", baseUrl).href); } catch { /* optional */ }
     try { meta = await fetchJson(new URL("meta.json", baseUrl).href); } catch { /* optional */ }
 
     const spellsIndex = buildIndex(spells);
@@ -173,6 +175,7 @@ export const RulesDB = {
     const classesIndex = buildIndex(classes);
     const speciesIndex = buildIndex(species);
     const subclassesIndex = buildIndex(subclasses);
+    const attacksIndex = buildIndex(attacks);
 
     return {
       rulesetId: rs,
@@ -183,13 +186,15 @@ export const RulesDB = {
         items: itemsIndex.list.length,
         classes: classesIndex.list.length,
         subclasses: subclassesIndex.list.length,
-        species: speciesIndex.list.length
+        species: speciesIndex.list.length,
+        attacks: attacksIndex.list.length
       },
       spells: makeSpellApi(spellsIndex),
       items: makeGenericApi(itemsIndex),
       classes: makeGenericApi(classesIndex),
       subclasses: makeGenericApi(subclassesIndex),
-      species: makeGenericApi(speciesIndex)
+      species: makeGenericApi(speciesIndex),
+      attacks: makeGenericApi(attacksIndex)
     };
   }
 };

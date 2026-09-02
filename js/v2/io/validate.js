@@ -529,6 +529,7 @@ function normalizeSheetExtensions(character, report) {
   ensureObject(character, "saving_throws", report, "saving_throws");
   ensureObject(character, "skills", report, "skills");
   ensureObject(character, "spellcasting", report, "spellcasting");
+  ensureObject(character, "play_state", report, "play_state");
   ensureArray(character, "attacks", report, "attacks");
 
   const c = character.combat;
@@ -544,15 +545,21 @@ function normalizeSheetExtensions(character, report) {
   c.concentration.active = toBool(c.concentration.active);
   c.concentration.source = asString(c.concentration.source || "");
   c.concentration.notes = asString(c.concentration.notes || "");
+  const concentrationRounds = toInt(c.concentration.rounds_remaining, NaN);
+  c.concentration.rounds_remaining = Number.isFinite(concentrationRounds) && concentrationRounds > 0
+    ? concentrationRounds
+    : null;
   c.conditions = c.conditions.map((row) => {
     if (typeof row === "string") {
-      return { name: row, source: "", duration: "", notes: "", active: true };
+      return { name: row, source: "", duration: "", rounds_remaining: null, notes: "", active: true };
     }
     const x = isObj(row) ? row : {};
+    const rounds = toInt(x.rounds_remaining, NaN);
     return {
       name: asString(x.name || "").trim(),
       source: asString(x.source || ""),
       duration: asString(x.duration || ""),
+      rounds_remaining: Number.isFinite(rounds) && rounds > 0 ? rounds : null,
       notes: asString(x.notes || ""),
       active: x.active === undefined ? true : toBool(x.active)
     };
@@ -593,17 +600,79 @@ function normalizeSheetExtensions(character, report) {
   sc.save_dc_override = toInt(sc.save_dc_override, 0);
   sc.attack_bonus_override = toInt(sc.attack_bonus_override, 0);
 
+  ensureArray(character.play_state, "active_effects", report, "play_state.active_effects");
+  ensureArray(character.play_state, "recent_actions", report, "play_state.recent_actions");
+  character.play_state.session_notes = asString(character.play_state.session_notes || "");
+  character.play_state.active_effects = character.play_state.active_effects.map((row, idx) => {
+    const r = isObj(row) ? row : {};
+    const rounds = toInt(r.rounds_remaining, NaN);
+    const applicationMode = asString(r.application_mode).toLowerCase();
+    const advantageState = asString(r.advantage_state).toLowerCase();
+    return {
+      id: asString(r.id || crypto.randomUUID()),
+      label: asString(r.label || `Effect ${idx + 1}`),
+      source: asString(r.source || ""),
+      source_type: asString(r.source_type || "custom_effect"),
+      source_id: asString(r.source_id || ""),
+      effect_type: asString(r.effect_type || r.category || "custom"),
+      category: asString(r.category || r.effect_type || "custom"),
+      active: r.active === undefined ? true : toBool(r.active),
+      scope: asString(r.scope || "all_attacks"),
+      timing: asString(r.timing) === "per_attack" ? "per_attack" : "persistent",
+      application_mode: ["auto", "suggested", "manual"].includes(applicationMode) ? applicationMode : "manual",
+      rounds_remaining: Number.isFinite(rounds) && rounds > 0 ? rounds : null,
+      attack_roll_bonus: toInt(r.attack_roll_bonus, 0),
+      attack_roll_dice: asString(r.attack_roll_dice || ""),
+      advantage_state: ["advantage", "disadvantage", "none"].includes(advantageState) ? advantageState : "none",
+      damage_bonus: toInt(r.damage_bonus, 0),
+      damage_dice: asString(r.damage_dice || ""),
+      damage_type_add: asString(r.damage_type_add || ""),
+      damage_type_replace: asString(r.damage_type_replace || ""),
+      crit_extra_dice: asString(r.crit_extra_dice || ""),
+      resource_cost: isObj(r.resource_cost) ? structuredClone(r.resource_cost) : null,
+      notes: asString(r.notes || "")
+    };
+  });
+
   character.attacks = character.attacks.map((row, idx) => {
     const r = isObj(row) ? row : {};
-    if (!asString(r.id)) r.id = crypto.randomUUID();
+    const legacyAtkBonus = r.atk_bonus ?? r.attack_bonus ?? 0;
+    const kind = asString(r.kind || (r.range_short || r.range_long ? "ranged_weapon" : "melee_weapon")).toLowerCase() || "custom";
+    const attackAbility = asString(r.attack_ability || "auto").toLowerCase();
+    const atkMode = asString(r.atk_bonus_mode || (r.attack_bonus_mode || "auto")).toLowerCase();
+    const damageMode = asString(r.damage_mode || "manual").toLowerCase();
+    const rangeShort = Math.max(0, toInt(r.range_short, 0));
+    const rangeLong = Math.max(0, toInt(r.range_long, 0));
+    const reach = Math.max(0, toInt(r.reach, 0));
+    const rangeText = asString(r.range || "");
+    const properties = Array.isArray(r.properties)
+      ? r.properties.map((x) => asString(x).trim()).filter(Boolean)
+      : asString(r.properties || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const tags = Array.isArray(r.tags)
+      ? r.tags.map((x) => asString(x).trim()).filter(Boolean)
+      : asString(r.tags || "").split(",").map((x) => x.trim()).filter(Boolean);
     return {
-      id: asString(r.id),
+      id: asString(r.id || crypto.randomUUID()),
+      catalog_id: asString(r.catalog_id || r.weapon_id || ""),
       name: asString(r.name || `Attack ${idx + 1}`),
-      atk_bonus: toInt(r.atk_bonus, 0),
-      damage: asString(r.damage || ""),
+      kind: kind || "custom",
+      attack_ability: ["auto", "str", "dex", "spell", "custom"].includes(attackAbility) ? attackAbility : "auto",
+      proficient: r.proficient === undefined ? true : toBool(r.proficient),
+      magic_bonus: toInt(r.magic_bonus, 0),
+      atk_bonus_mode: atkMode === "manual" ? "manual" : "auto",
+      atk_bonus_override: toInt(r.atk_bonus_override ?? legacyAtkBonus, 0),
+      atk_bonus: toInt(legacyAtkBonus, 0),
+      damage_mode: damageMode === "auto" ? "auto" : "manual",
+      damage: asString(r.damage || r.damage_base || ""),
       damage_type: asString(r.damage_type || ""),
-      range: asString(r.range || ""),
-      notes: asString(r.notes || "")
+      versatile_damage: asString(r.versatile_damage || ""),
+      range: rangeText,
+      range_short: rangeShort,
+      range_long: rangeLong,
+      reach,
+      properties,
+      notes: asString(r.notes || ""),
+      tags
     };
   });
 }

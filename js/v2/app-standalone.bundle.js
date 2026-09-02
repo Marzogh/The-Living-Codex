@@ -2814,7 +2814,7 @@
   });
 
   // js/v2/app-standalone.js
-  var import_jszip_min2 = __toESM(require_jszip_min());
+  var import_jszip_min = __toESM(require_jszip_min());
   var import_papaparse_min = __toESM(require_papaparse_min());
 
   // js/v2/core/events.js
@@ -3805,6 +3805,15 @@
       },
       skills: {},
       attacks: [],
+      play_state: {
+        active_effects: [],
+        recent_actions: [],
+        session_notes: "",
+        dice_last_roll: null,
+        last_check_roll: null,
+        last_attack_roll: null,
+        last_attack_damage_roll: null
+      },
       spellcasting: {
         class_id: classId || "",
         ability: "",
@@ -3824,9 +3833,6 @@
       ui: {}
     };
   }
-
-  // js/v2/io/zipio.js
-  var import_jszip_min = __toESM(require_jszip_min());
 
   // js/v2/io/headers.js
   var CSV_HEADERS = {
@@ -4467,6 +4473,7 @@
     ensureObject(character, "saving_throws", report, "saving_throws");
     ensureObject(character, "skills", report, "skills");
     ensureObject(character, "spellcasting", report, "spellcasting");
+    ensureObject(character, "play_state", report, "play_state");
     ensureArray(character, "attacks", report, "attacks");
     const c = character.combat;
     c.speed = Math.max(0, toInt2(c.speed, 30));
@@ -4481,15 +4488,19 @@
     c.concentration.active = toBool2(c.concentration.active);
     c.concentration.source = asString3(c.concentration.source || "");
     c.concentration.notes = asString3(c.concentration.notes || "");
+    const concentrationRounds = toInt2(c.concentration.rounds_remaining, NaN);
+    c.concentration.rounds_remaining = Number.isFinite(concentrationRounds) && concentrationRounds > 0 ? concentrationRounds : null;
     c.conditions = c.conditions.map((row) => {
       if (typeof row === "string") {
-        return { name: row, source: "", duration: "", notes: "", active: true };
+        return { name: row, source: "", duration: "", rounds_remaining: null, notes: "", active: true };
       }
       const x = isObj(row) ? row : {};
+      const rounds = toInt2(x.rounds_remaining, NaN);
       return {
         name: asString3(x.name || "").trim(),
         source: asString3(x.source || ""),
         duration: asString3(x.duration || ""),
+        rounds_remaining: Number.isFinite(rounds) && rounds > 0 ? rounds : null,
         notes: asString3(x.notes || ""),
         active: x.active === void 0 ? true : toBool2(x.active)
       };
@@ -4525,17 +4536,74 @@
     sc.attack_bonus_mode = asString3(sc.attack_bonus_mode) === "manual" ? "manual" : "auto";
     sc.save_dc_override = toInt2(sc.save_dc_override, 0);
     sc.attack_bonus_override = toInt2(sc.attack_bonus_override, 0);
+    ensureArray(character.play_state, "active_effects", report, "play_state.active_effects");
+    ensureArray(character.play_state, "recent_actions", report, "play_state.recent_actions");
+    character.play_state.session_notes = asString3(character.play_state.session_notes || "");
+    character.play_state.active_effects = character.play_state.active_effects.map((row, idx) => {
+      const r = isObj(row) ? row : {};
+      const rounds = toInt2(r.rounds_remaining, NaN);
+      const applicationMode = asString3(r.application_mode).toLowerCase();
+      const advantageState = asString3(r.advantage_state).toLowerCase();
+      return {
+        id: asString3(r.id || crypto.randomUUID()),
+        label: asString3(r.label || `Effect ${idx + 1}`),
+        source: asString3(r.source || ""),
+        source_type: asString3(r.source_type || "custom_effect"),
+        source_id: asString3(r.source_id || ""),
+        effect_type: asString3(r.effect_type || r.category || "custom"),
+        category: asString3(r.category || r.effect_type || "custom"),
+        active: r.active === void 0 ? true : toBool2(r.active),
+        scope: asString3(r.scope || "all_attacks"),
+        timing: asString3(r.timing) === "per_attack" ? "per_attack" : "persistent",
+        application_mode: ["auto", "suggested", "manual"].includes(applicationMode) ? applicationMode : "manual",
+        rounds_remaining: Number.isFinite(rounds) && rounds > 0 ? rounds : null,
+        attack_roll_bonus: toInt2(r.attack_roll_bonus, 0),
+        attack_roll_dice: asString3(r.attack_roll_dice || ""),
+        advantage_state: ["advantage", "disadvantage", "none"].includes(advantageState) ? advantageState : "none",
+        damage_bonus: toInt2(r.damage_bonus, 0),
+        damage_dice: asString3(r.damage_dice || ""),
+        damage_type_add: asString3(r.damage_type_add || ""),
+        damage_type_replace: asString3(r.damage_type_replace || ""),
+        crit_extra_dice: asString3(r.crit_extra_dice || ""),
+        resource_cost: isObj(r.resource_cost) ? structuredClone(r.resource_cost) : null,
+        notes: asString3(r.notes || "")
+      };
+    });
     character.attacks = character.attacks.map((row, idx) => {
       const r = isObj(row) ? row : {};
-      if (!asString3(r.id)) r.id = crypto.randomUUID();
+      const legacyAtkBonus = r.atk_bonus ?? r.attack_bonus ?? 0;
+      const kind = asString3(r.kind || (r.range_short || r.range_long ? "ranged_weapon" : "melee_weapon")).toLowerCase() || "custom";
+      const attackAbility = asString3(r.attack_ability || "auto").toLowerCase();
+      const atkMode = asString3(r.atk_bonus_mode || (r.attack_bonus_mode || "auto")).toLowerCase();
+      const damageMode = asString3(r.damage_mode || "manual").toLowerCase();
+      const rangeShort = Math.max(0, toInt2(r.range_short, 0));
+      const rangeLong = Math.max(0, toInt2(r.range_long, 0));
+      const reach = Math.max(0, toInt2(r.reach, 0));
+      const rangeText = asString3(r.range || "");
+      const properties = Array.isArray(r.properties) ? r.properties.map((x) => asString3(x).trim()).filter(Boolean) : asString3(r.properties || "").split(",").map((x) => x.trim()).filter(Boolean);
+      const tags = Array.isArray(r.tags) ? r.tags.map((x) => asString3(x).trim()).filter(Boolean) : asString3(r.tags || "").split(",").map((x) => x.trim()).filter(Boolean);
       return {
-        id: asString3(r.id),
+        id: asString3(r.id || crypto.randomUUID()),
+        catalog_id: asString3(r.catalog_id || r.weapon_id || ""),
         name: asString3(r.name || `Attack ${idx + 1}`),
-        atk_bonus: toInt2(r.atk_bonus, 0),
-        damage: asString3(r.damage || ""),
+        kind: kind || "custom",
+        attack_ability: ["auto", "str", "dex", "spell", "custom"].includes(attackAbility) ? attackAbility : "auto",
+        proficient: r.proficient === void 0 ? true : toBool2(r.proficient),
+        magic_bonus: toInt2(r.magic_bonus, 0),
+        atk_bonus_mode: atkMode === "manual" ? "manual" : "auto",
+        atk_bonus_override: toInt2(r.atk_bonus_override ?? legacyAtkBonus, 0),
+        atk_bonus: toInt2(legacyAtkBonus, 0),
+        damage_mode: damageMode === "auto" ? "auto" : "manual",
+        damage: asString3(r.damage || r.damage_base || ""),
         damage_type: asString3(r.damage_type || ""),
-        range: asString3(r.range || ""),
-        notes: asString3(r.notes || "")
+        versatile_damage: asString3(r.versatile_damage || ""),
+        range: rangeText,
+        range_short: rangeShort,
+        range_long: rangeLong,
+        reach,
+        properties,
+        notes: asString3(r.notes || ""),
+        tags
       };
     });
   }
@@ -4586,7 +4654,7 @@
 
   // js/v2/io/zipio.js
   function assertJSZip() {
-    const zipLib = (typeof import_jszip_min.default === "function" ? import_jszip_min.default : null) || (typeof import_jszip_min.default?.default === "function" ? import_jszip_min.default.default : null) || (typeof globalThis !== "undefined" && typeof globalThis.JSZip === "function" ? globalThis.JSZip : null);
+    const zipLib = typeof globalThis !== "undefined" && typeof globalThis.JSZip === "function" ? globalThis.JSZip : null;
     if (!zipLib) {
       throw new Error("JSZip is required for ZIP import/export.");
     }
@@ -4681,6 +4749,500 @@
     exportZipToDownload
   };
 
+  // js/v2/ui/help/registry.js
+  var HELP_FEATURE_REGISTRY = [
+    { featureId: "create.panel", sectionId: "help-create", label: "Create Character", surface: "create", actionId: "openCreateCharacter" },
+    { featureId: "import.flow", sectionId: "help-data", label: "Import", surface: "header", actionId: "runImportZip" },
+    { featureId: "save.export", sectionId: "help-data", label: "Save and Export", surface: "header" },
+    { featureId: "diagnostics.drawer", sectionId: "help-troubleshooting", label: "Diagnostics", surface: "tools", actionId: "openDiagnostics" },
+    { featureId: "lookup.species", sectionId: "help-lookups", label: "Species Lookup", surface: "lookup", actionId: "openSpeciesLookup", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "lookup.class", sectionId: "help-lookups", label: "Class Lookup", surface: "lookup", actionId: "openClassLookup", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "lookup.subclass", sectionId: "help-lookups", label: "Subclass Lookup", surface: "lookup", actionId: "openSubclassLookup", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "lookup.spell", sectionId: "help-lookups", label: "Spell Lookup", surface: "lookup", actionId: "openSpellLookup", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "lookup.attack", sectionId: "help-lookups", label: "Attack Lookup", surface: "lookup", actionId: "openAttackLookup", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "edit.tab.core", sectionId: "help-edit", label: "Core", surface: "edit-nav", actionId: "switchEditTabCore", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "edit.tab.battle", sectionId: "help-edit", label: "Battle", surface: "edit-nav", actionId: "switchEditTabBattle", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "edit.tab.spellcraft", sectionId: "help-edit", label: "Spellcraft", surface: "edit-nav", actionId: "switchEditTabSpellcraft", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "edit.tab.gear", sectionId: "help-edit", label: "Gear", surface: "edit-nav", actionId: "switchEditTabGear", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "edit.tab.chronicle", sectionId: "help-edit", label: "Chronicle", surface: "edit-nav", actionId: "switchEditTabChronicle", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "play.mode", sectionId: "help-play", label: "Play Mode", surface: "play", actionId: "switchToPlayMode", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "play.pane.spells", sectionId: "help-play", label: "Spell Pane", surface: "play", actionId: "focusPlaySpells", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "play.pane.attacks", sectionId: "help-play", label: "Attack Pane", surface: "play", actionId: "focusPlayAttacks", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "play.pane.trackers", sectionId: "help-play", label: "Tracker Pane", surface: "play", actionId: "focusPlayTrackers", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "play.pane.log", sectionId: "help-play", label: "Log Pane", surface: "play", actionId: "focusPlayLog", visibleWhen: (state) => Boolean(state?.character) },
+    { featureId: "play.pane.notes", sectionId: "help-play", label: "Notes Pane", surface: "play", actionId: "focusPlayNotes", visibleWhen: (state) => Boolean(state?.character) }
+  ];
+
+  // js/v2/ui/help/content.js
+  var HELP_SHORTCUTS = [
+    {
+      id: "palette",
+      keys: "Cmd/Ctrl + K",
+      detail: "Open the command palette from almost anywhere in the app."
+    },
+    {
+      id: "save",
+      keys: "Cmd/Ctrl + S",
+      detail: "Save the active character immediately."
+    },
+    {
+      id: "jump",
+      keys: "Cmd/Ctrl + 1-6",
+      detail: "Jump between major Edit Mode sections."
+    },
+    {
+      id: "escape",
+      keys: "Esc",
+      detail: "Close overlays like Help, Diagnostics, the Dice Tray, and Lookups."
+    }
+  ];
+  var HELP_GLOSSARY = {
+    ruleset: {
+      id: "ruleset",
+      title: "Ruleset",
+      body: "The version of D&D rules your character follows, such as 2014 or 2024."
+    },
+    species: {
+      id: "species",
+      title: "Species",
+      body: "Your character's people or ancestry. Species affects identity, flavor, and sometimes mechanics."
+    },
+    class_subclass: {
+      id: "class_subclass",
+      title: "Class and Subclass",
+      body: "Your class is your main adventuring role, like Wizard or Fighter. A subclass is your specialization inside that class."
+    },
+    known_prepared_spells: {
+      id: "known_prepared_spells",
+      title: "Known vs Prepared Spells",
+      body: "Known spells are spells your character has learned. Prepared spells are the spells currently ready to use today. Some classes use one list more than the other."
+    },
+    trackers: {
+      id: "trackers",
+      title: "Trackers",
+      body: "Trackers are counters for things you want to watch during play, such as arrows, rage uses, ki points, or custom reminders."
+    },
+    concentration: {
+      id: "concentration",
+      title: "Concentration",
+      body: "Some spells require your focus to stay active. If you lose concentration, that spell ends."
+    },
+    conditions: {
+      id: "conditions",
+      title: "Conditions",
+      body: "Conditions are temporary states like Poisoned, Restrained, or Invisible that change how your character acts."
+    },
+    rests: {
+      id: "rests",
+      title: "Short Rest and Long Rest",
+      body: "A short rest restores some class features for some characters. A long rest usually resets more resources, spell slots, and daily abilities."
+    }
+  };
+  var HELP_SECTIONS = [
+    {
+      id: "help-start",
+      title: "Start Here",
+      navLabel: "Start Here",
+      summary: "Choose the fastest next step for a brand-new or returning player.",
+      audience: "beginner",
+      featureIds: ["create.panel", "import.flow"],
+      related: ["help-create", "help-data", "help-terms"],
+      blocks: [
+        {
+          type: "paragraph",
+          text: "If this is your first visit, make a new character. If you already have one saved, import its ZIP pack and keep going from there."
+        },
+        {
+          type: "action_reference",
+          title: "Most common first steps",
+          actions: [
+            { actionId: "openCreateCharacter", label: "Create Character", detail: "Open the new-character flow." },
+            { actionId: "runImportZip", label: "Import ZIP", detail: "Bring in a character you exported earlier." }
+          ]
+        },
+        {
+          type: "callout",
+          tone: "note",
+          text: "Your character lives in this browser until you export it. If a character matters to you, make ZIP backups regularly."
+        },
+        {
+          type: "bullets",
+          title: "A good first session with the app usually looks like this",
+          items: [
+            "Create or import a character.",
+            "Fill in the important identity and combat fields in Edit Mode.",
+            "Check your spells, attacks, inventory, and trackers.",
+            "Switch to Play Mode at the table when you want a faster action-focused view."
+          ]
+        }
+      ]
+    },
+    {
+      id: "help-create",
+      title: "Create or Import a Character",
+      navLabel: "Create or Import",
+      summary: "Learn the difference between starting fresh and bringing in a saved adventurer.",
+      audience: "beginner",
+      featureIds: ["create.panel", "import.flow"],
+      related: ["help-edit", "help-data", "help-terms"],
+      blocks: [
+        {
+          type: "steps",
+          title: "Creating a new character",
+          items: [
+            "Use New Character or the large Create Character panel.",
+            "Pick a ruleset first so the app knows which player options to show.",
+            "Choose a class and species if you want the portrait and class badge preview.",
+            "Enter starting ability scores, then create the character and continue into Edit Mode."
+          ]
+        },
+        {
+          type: "steps",
+          title: "Importing an existing character",
+          items: [
+            "Choose Import and select a ZIP character pack.",
+            "The app loads character.json first, then applies any inventory, spell, or log CSV overrides inside the pack.",
+            "If the import needs fixes or has blocked problems, check Diagnostics for the report."
+          ]
+        },
+        {
+          type: "callout",
+          tone: "tip",
+          text: "If you move between devices, ZIP export and ZIP import are the safest way to keep the same character with you."
+        }
+      ]
+    },
+    {
+      id: "help-edit",
+      title: "Edit Mode",
+      navLabel: "Edit Mode",
+      summary: "Use Edit Mode to build the full character sheet and keep the details accurate between sessions.",
+      audience: "beginner",
+      featureIds: ["edit.tab.core", "edit.tab.battle", "edit.tab.spellcraft", "edit.tab.gear", "edit.tab.chronicle"],
+      related: ["help-lookups", "help-play", "help-terms"],
+      blocks: [
+        {
+          type: "paragraph",
+          text: "Edit Mode is your workshop. This is where you record identity, stats, combat values, spells, inventory, attacks, story details, and anything you want ready before play begins."
+        },
+        {
+          type: "bullets",
+          title: "What each major area is for",
+          items: [
+            "Core: name, ruleset, species, and ability scores.",
+            "Classes: class levels, multiclassing, and subclass choices.",
+            "Battle: armor class, hit points, speed, initiative, saves, skills, and attacks.",
+            "Spellcraft: spellcasting setup plus known and prepared spells.",
+            "Gear: inventory, custom trackers, and log support.",
+            "Chronicle: portrait, backstory, personality, player details, and treasure."
+          ]
+        },
+        {
+          type: "action_reference",
+          title: "Useful jumps",
+          actions: [
+            { actionId: "switchToEditMode", label: "Switch to Edit Mode", detail: "Return to editing if you are currently in Play Mode." },
+            { actionId: "openSpellLookup", label: "Open Spell Lookup", detail: "Search official spell data and add it directly." },
+            { actionId: "openClassLookup", label: "Open Class Lookup", detail: "Search classes and subclasses from the built-in rules data." }
+          ]
+        }
+      ]
+    },
+    {
+      id: "help-lookups",
+      title: "Rules Lookups",
+      navLabel: "Rules Lookups",
+      summary: "Use lookups to pull official game data into the character instead of typing it all by hand.",
+      audience: "beginner",
+      featureIds: ["lookup.class", "lookup.subclass", "lookup.species", "lookup.spell", "lookup.attack"],
+      related: ["help-edit", "help-terms"],
+      blocks: [
+        {
+          type: "paragraph",
+          text: "Lookups search the built-in rules data for classes, subclasses, species, spells, and attacks. They help you add consistent records faster and reduce manual typing errors."
+        },
+        {
+          type: "bullets",
+          title: "What the lookups help with",
+          items: [
+            "Species lookup updates the species on the character.",
+            "Class and subclass lookup fills in class rows more safely.",
+            "Spell lookup can add names, levels, schools, concentration flags, durations, and other spell details.",
+            "Attack lookup can pull in weapon or attack templates to use as a starting point."
+          ]
+        },
+        {
+          type: "callout",
+          tone: "note",
+          text: "The player-options toggle at the top of the app controls whether lookups show all official player options or only the core ones."
+        },
+        {
+          type: "action_reference",
+          title: "Open a lookup now",
+          actions: [
+            { actionId: "openSpeciesLookup", label: "Species Lookup", detail: "Pick a species from the rules data." },
+            { actionId: "openClassLookup", label: "Class Lookup", detail: "Search classes and subclasses." },
+            { actionId: "openSpellLookup", label: "Spell Lookup", detail: "Search and add spells." }
+          ]
+        }
+      ]
+    },
+    {
+      id: "help-play",
+      title: "Play Mode",
+      navLabel: "Play Mode",
+      summary: "Use Play Mode at the table when you want fast access to actions, resources, logs, and combat tracking.",
+      audience: "beginner",
+      featureIds: ["play.mode", "play.pane.spells", "play.pane.attacks", "play.pane.trackers", "play.pane.log", "play.pane.notes"],
+      related: ["help-edit", "help-data", "help-terms"],
+      blocks: [
+        {
+          type: "paragraph",
+          text: "Play Mode turns the character into an at-table dashboard. It favors speed and visibility over full sheet editing."
+        },
+        {
+          type: "bullets",
+          title: "What Play Mode gives you",
+          items: [
+            "A Combat HUD for AC, initiative, speed, hit points, proficiency, passive perception, and inspiration.",
+            "Spell, attack, tracker, log, and notes panes for the things you reach for most often during play.",
+            "Round-based condition and concentration tracking.",
+            "Quick actions like rests, dice rolls, and initiative rolls."
+          ]
+        },
+        {
+          type: "callout",
+          tone: "tip",
+          text: "If your character has a prepared-spell list, Play Mode prefers that list. If not, it falls back to known spells."
+        },
+        {
+          type: "action_reference",
+          title: "Go there now",
+          actions: [
+            { actionId: "switchToPlayMode", label: "Switch to Play Mode", detail: "Open the faster at-table view." },
+            { actionId: "focusPlaySpells", label: "Open Spell Pane", detail: "Jump straight to the spell console." },
+            { actionId: "focusPlayAttacks", label: "Open Attack Pane", detail: "Jump straight to attacks." }
+          ]
+        }
+      ]
+    },
+    {
+      id: "help-data",
+      title: "Save, Export, and Move Between Devices",
+      navLabel: "Saving & Export",
+      summary: "Understand what is saved automatically, what stays in this browser, and when to export a ZIP.",
+      audience: "beginner",
+      featureIds: ["save.export", "import.flow"],
+      related: ["help-start", "help-troubleshooting"],
+      blocks: [
+        {
+          type: "paragraph",
+          text: "The app autosaves locally, but local browser storage is not the same as a portable backup. If you want to move a character or protect it against browser or device changes, export a ZIP pack."
+        },
+        {
+          type: "bullets",
+          title: "What each action is for",
+          items: [
+            "Save: writes the latest character state right away.",
+            "Export ZIP: creates a portable character pack you can import elsewhere.",
+            "Export PDF: creates a printable or shareable reading version.",
+            "Import: restores a ZIP pack into the app."
+          ]
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          text: "If a character matters to you, export a ZIP before big edits, before changing devices, and before clearing browser data."
+        },
+        {
+          type: "action_reference",
+          title: "Backup actions",
+          actions: [
+            { actionId: "saveNow", label: "Save Now", detail: "Force an immediate save." },
+            { actionId: "runExportZip", label: "Export ZIP", detail: "Create a backup you can move or re-import." },
+            { actionId: "runImportZip", label: "Import ZIP", detail: "Restore a saved character pack." }
+          ]
+        }
+      ]
+    },
+    {
+      id: "help-terms",
+      title: "Common Terms",
+      navLabel: "Key Terms",
+      summary: "Quick explanations for the game and app terms most likely to confuse a new player.",
+      audience: "beginner",
+      featureIds: ["glossary"],
+      related: ["help-create", "help-edit", "help-play"],
+      blocks: [
+        {
+          type: "term_definition",
+          title: "Quick glossary",
+          termIds: [
+            "ruleset",
+            "species",
+            "class_subclass",
+            "known_prepared_spells",
+            "trackers",
+            "concentration",
+            "conditions",
+            "rests"
+          ]
+        }
+      ]
+    },
+    {
+      id: "help-troubleshooting",
+      title: "Troubleshooting",
+      navLabel: "Troubleshooting",
+      summary: "Use this section when something feels wrong, missing, or out of date.",
+      audience: "beginner",
+      featureIds: ["diagnostics.drawer"],
+      related: ["help-data", "help-lookups"],
+      blocks: [
+        {
+          type: "troubleshooting_case",
+          title: "Common problems",
+          cases: [
+            {
+              issue: "The app looks stale or out of date.",
+              fix: "Refresh the page so your browser picks up the newest files."
+            },
+            {
+              issue: "An import did not behave the way you expected.",
+              fix: "Open Diagnostics and review the import report for warnings, fixes, and blocked issues."
+            },
+            {
+              issue: "You are worried about losing a character.",
+              fix: "Export a ZIP before large edits and keep that backup somewhere safe."
+            },
+            {
+              issue: "You are running the project from GitHub yourself.",
+              fix: "Use a local web server and open the app over HTTP instead of opening files directly."
+            }
+          ]
+        },
+        {
+          type: "action_reference",
+          title: "Helpful tools",
+          actions: [
+            { actionId: "openDiagnostics", label: "Open Diagnostics", detail: "Review runtime and import issues." },
+            { actionId: "runExportZip", label: "Export ZIP", detail: "Make a safety backup before more changes." }
+          ]
+        }
+      ]
+    }
+  ];
+
+  // js/v2/ui/help/controller.js
+  function mapById(items = []) {
+    return new Map(items.map((item) => [item.id, item]));
+  }
+  function validateHelpModel({ sections = [], glossary = {}, registry = [], actionMap = {} } = {}) {
+    const errors = [];
+    const sectionMap = mapById(sections);
+    const glossaryIds = new Set(Object.keys(glossary || {}));
+    const actionIds = new Set(Object.keys(actionMap || {}));
+    const sectionIds = sections.map((section) => section.id).filter(Boolean);
+    const uniqueIds = new Set(sectionIds);
+    if (uniqueIds.size !== sectionIds.length) {
+      errors.push("Help sections must have unique ids.");
+    }
+    for (const section of sections) {
+      if (!section?.id) errors.push("Every help section must define an id.");
+      if (!section?.title) errors.push(`Help section '${section?.id || "unknown"}' is missing a title.`);
+      if (!section?.navLabel) errors.push(`Help section '${section?.id || "unknown"}' is missing a navLabel.`);
+      for (const relatedId of section?.related || []) {
+        if (!sectionMap.has(relatedId)) {
+          errors.push(`Help section '${section.id}' references missing related section '${relatedId}'.`);
+        }
+      }
+      for (const block of section?.blocks || []) {
+        if (block?.type === "term_definition") {
+          for (const termId of block.termIds || []) {
+            if (!glossaryIds.has(termId)) {
+              errors.push(`Help section '${section.id}' references missing glossary term '${termId}'.`);
+            }
+          }
+        }
+        if (block?.type === "action_reference") {
+          for (const row of block.actions || []) {
+            if (!actionIds.has(row.actionId)) {
+              errors.push(`Help section '${section.id}' references missing help action '${row.actionId}'.`);
+            }
+          }
+        }
+      }
+    }
+    for (const row of registry) {
+      if (!row?.featureId) errors.push("Every help registry entry must define featureId.");
+      if (!sectionMap.has(row?.sectionId)) {
+        errors.push(`Help feature '${row?.featureId || "unknown"}' maps to missing section '${row?.sectionId || "unknown"}'.`);
+      }
+      if (row?.actionId && !actionIds.has(row.actionId)) {
+        errors.push(`Help feature '${row.featureId}' references missing action '${row.actionId}'.`);
+      }
+    }
+    return errors;
+  }
+  function createHelpController({
+    sections = [],
+    glossary = {},
+    registry = [],
+    actionMap = {},
+    getState = () => ({})
+  } = {}) {
+    const sectionMap = mapById(sections);
+    const featureMap = new Map(registry.map((row) => [row.featureId, row]));
+    const validationErrors = validateHelpModel({ sections, glossary, registry, actionMap });
+    function normalizeSectionId(sectionId) {
+      if (sectionId && sectionMap.has(sectionId)) return sectionId;
+      return sections[0]?.id || "";
+    }
+    function listHelpSections() {
+      return sections.slice();
+    }
+    function resolveHelpSection(featureId) {
+      if (!featureId) return normalizeSectionId();
+      const row = featureMap.get(featureId);
+      if (!row) return normalizeSectionId();
+      if (typeof row.visibleWhen === "function" && !row.visibleWhen(getState()?.character || getState())) {
+        return normalizeSectionId();
+      }
+      return normalizeSectionId(row.sectionId);
+    }
+    function openHelp(sectionId) {
+      return normalizeSectionId(sectionId);
+    }
+    function getHelpQuickActions(sectionId) {
+      const section = sectionMap.get(normalizeSectionId(sectionId));
+      if (!section) return [];
+      return (section.blocks || []).filter((block) => block.type === "action_reference").flatMap((block) => block.actions || []).map((row) => ({
+        ...row,
+        handler: actionMap[row.actionId] || null
+      }));
+    }
+    function runHelpAction(actionId) {
+      const handler = actionMap[actionId];
+      if (typeof handler === "function") {
+        return handler();
+      }
+      return false;
+    }
+    function getFeatureMeta(featureId) {
+      return featureMap.get(featureId) || null;
+    }
+    return {
+      validationErrors,
+      glossary,
+      openHelp,
+      resolveHelpSection,
+      listHelpSections,
+      getHelpQuickActions,
+      runHelpAction,
+      getFeatureMeta
+    };
+  }
+
   // js/v2/ui/app-ui.js
   function esc(v) {
     return (v ?? "").toString().replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
@@ -4691,6 +5253,9 @@
   }
   function norm(v) {
     return (v ?? "").toString().trim().toLowerCase();
+  }
+  function softNorm(v) {
+    return norm(v).replace(/[^a-z0-9]+/g, "");
   }
   function toBoolFlag(v) {
     if (typeof v === "boolean") return v;
@@ -5030,12 +5595,40 @@
     return out;
   }
   function primaryClassRow(character) {
-    const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+    const rows = getClassRows(character);
     if (!rows.length) return null;
     const primary = rows.find((x) => x?.isPrimary && norm(x?.id));
     if (primary) return primary;
     const ranked = [...rows].filter((x) => norm(x?.id)).sort((a, b) => asInt(b?.level, 0) - asInt(a?.level, 0));
     return ranked[0] || rows[0];
+  }
+  function getClassRows(character) {
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    const pushRow = (row) => {
+      if (!row || typeof row !== "object") return;
+      const id = norm(row.id || row.class_id || row.name);
+      if (!id) return;
+      const level = clamp(asInt(row.level, 1), 1, 20);
+      const subclassId = norm(row.subclassId || row.subclass_id || row.subclass || "");
+      const isPrimary = Boolean(row.isPrimary || row.is_primary);
+      const key = `${id}:${level}:${subclassId}:${isPrimary ? "1" : "0"}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ id, level, subclassId, isPrimary });
+    };
+    const coreRows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
+    coreRows.forEach(pushRow);
+    const identityRows = Array.isArray(character?.identity?.classes) ? character.identity.classes : [];
+    identityRows.forEach(pushRow);
+    if (!out.length) {
+      const legacyId = norm(
+        character?.core?.classId || character?.core?.class_id || character?.class_id || character?.class || ""
+      );
+      if (legacyId) pushRow({ id: legacyId, level: 1, isPrimary: true });
+    }
+    if (out.length && !out.some((row) => row.isPrimary)) out[0].isPrimary = true;
+    return out;
   }
   function autoThemeLabel(character) {
     const cls = primaryClassRow(character);
@@ -5130,6 +5723,212 @@
   }
   function dieShapeClass(die) {
     return `die-shape-d${asInt(die, 20)}`;
+  }
+  function splitCsvLike(value) {
+    if (Array.isArray(value)) return value.map((x) => (x ?? "").toString().trim()).filter(Boolean);
+    return (value || "").toString().split(",").map((x) => x.trim()).filter(Boolean);
+  }
+  function attackNameKeys(value) {
+    const raw = (value || "").toString().trim();
+    if (!raw) return [];
+    const variants = /* @__PURE__ */ new Set();
+    const add = (text) => {
+      const key = softNorm(text);
+      if (key) variants.add(key);
+    };
+    add(raw);
+    add(raw.replace(/^(a|an|the)\s+/i, ""));
+    add(raw.replace(/\bshort\s+sword\b/i, "shortsword"));
+    add(raw.replace(/\bshort\s+bow\b/i, "shortbow"));
+    add(raw.replace(/\blong\s+bow\b/i, "longbow"));
+    add(raw.replace(/\blight\s+crossbow\b/i, "lightcrossbow"));
+    add(raw.replace(/\bheavy\s+crossbow\b/i, "heavycrossbow"));
+    add(raw.replace(/\bhand\s+crossbow\b/i, "handcrossbow"));
+    return [...variants];
+  }
+  function findAttackCatalogMatch(catalogRows, attack) {
+    const idKey = norm(attack?.catalog_id || attack?.id);
+    if (idKey) {
+      const direct = catalogRows.find((row) => norm(row?.id) === idKey);
+      if (direct) return direct;
+    }
+    const keys = attackNameKeys(attack?.name);
+    if (!keys.length) return null;
+    return catalogRows.find((row) => {
+      const rowKeys = attackNameKeys(row?.name || row?.id);
+      return rowKeys.some((key) => keys.includes(key));
+    }) || null;
+  }
+  function inferAttackProfileFallback(attack) {
+    const keys = attackNameKeys(attack?.name);
+    const has = (key) => keys.includes(key);
+    if (has("shortsword")) return { kind: "melee_weapon", properties: ["finesse", "light"], damage_type: attack.damage_type || "piercing", reach: 5 };
+    if (has("dagger")) return { kind: "melee_weapon", properties: ["finesse", "light", "thrown"], damage_type: attack.damage_type || "piercing", range_short: 20, range_long: 60, reach: 5 };
+    if (has("shortbow")) return { kind: "ranged_weapon", properties: ["ammunition", "two_handed"], damage_type: attack.damage_type || "piercing", range_short: 80, range_long: 320 };
+    if (has("longbow")) return { kind: "ranged_weapon", properties: ["ammunition", "heavy", "two_handed"], damage_type: attack.damage_type || "piercing", range_short: 150, range_long: 600 };
+    if (has("lightcrossbow")) return { kind: "ranged_weapon", properties: ["ammunition", "loading", "two_handed"], damage_type: attack.damage_type || "piercing", range_short: 80, range_long: 320 };
+    if (has("handcrossbow")) return { kind: "ranged_weapon", properties: ["ammunition", "light", "loading"], damage_type: attack.damage_type || "piercing", range_short: 30, range_long: 120 };
+    if (has("arrow")) return { kind: "ranged_weapon", properties: ["ammunition"], damage_type: attack.damage_type || "piercing", range_short: 80, range_long: 320 };
+    if (has("silveredbolts") || has("bolt") || has("bolts")) return { kind: "ranged_weapon", properties: ["ammunition"], damage_type: attack.damage_type || "piercing", range_short: 80, range_long: 320 };
+    return null;
+  }
+  function ammoProfileInfo(attack) {
+    const keys = attackNameKeys(attack?.name);
+    const has = (key) => keys.includes(key);
+    if (has("arrow")) {
+      return {
+        type: "arrow",
+        label: attack?.name || "Arrow",
+        compatibleKinds: ["shortbow", "longbow"]
+      };
+    }
+    if (has("silveredbolts") || has("bolt") || has("bolts")) {
+      return {
+        type: "bolt",
+        label: attack?.name || "Bolts",
+        compatibleKinds: ["lightcrossbow", "heavycrossbow", "handcrossbow"]
+      };
+    }
+    return null;
+  }
+  function attackAmmoCompatibilityKey(attack) {
+    const keys = attackNameKeys(attack?.name || attack?.catalog_id || "");
+    if (keys.includes("shortbow")) return "shortbow";
+    if (keys.includes("longbow")) return "longbow";
+    if (keys.includes("lightcrossbow")) return "lightcrossbow";
+    if (keys.includes("heavycrossbow")) return "heavycrossbow";
+    if (keys.includes("handcrossbow")) return "handcrossbow";
+    return "";
+  }
+  function attackKindLabel(kind) {
+    const key = norm(kind);
+    const map = {
+      melee_weapon: "Melee Weapon",
+      ranged_weapon: "Ranged Weapon",
+      spell_attack: "Spell Attack",
+      natural_weapon: "Natural Weapon",
+      custom: "Custom Attack"
+    };
+    return map[key] || titleizeId(key || "attack");
+  }
+  function formatAttackRangeText(row) {
+    const explicit = (row?.range || "").toString().trim();
+    if (explicit) return explicit;
+    const short = Math.max(0, asInt(row?.range_short, 0));
+    const long = Math.max(0, asInt(row?.range_long, 0));
+    const reach = Math.max(0, asInt(row?.reach, 0));
+    if (short > 0 && long > 0) return `${short}/${long} ft.`;
+    if (reach > 0) return `${reach} ft. reach`;
+    return "";
+  }
+  function formatAttackDamageText(row, { versatile = false } = {}) {
+    const damage = versatile && row?.versatile_damage ? row.versatile_damage : row?.damage || "";
+    const type = (row?.damage_type || "").toString().trim();
+    return [damage, type].filter(Boolean).join(" ");
+  }
+  function attackGlyphForProfile(row = {}) {
+    const kind = norm(row.kind || "");
+    if (kind === "ranged_weapon") return "\u27B6";
+    if (kind === "spell_attack") return "\u2726";
+    if (kind === "ammunition") return "\u25CE";
+    if (kind === "natural_weapon") return "\u2727";
+    if (kind === "melee_weapon") return "\u2694";
+    return "\u25C6";
+  }
+  function normalizeAttackForUi(row = {}) {
+    const kind = norm(row.kind || (row.range_short || row.range_long ? "ranged_weapon" : "melee_weapon")) || "custom";
+    const properties = splitCsvLike(row.properties).map((x) => norm(x));
+    const tags = splitCsvLike(row.tags).map((x) => norm(x));
+    return {
+      id: (row.id || crypto.randomUUID()).toString(),
+      catalog_id: (row.catalog_id || "").toString(),
+      name: (row.name || "Attack").toString(),
+      kind,
+      attack_ability: norm(row.attack_ability || "auto") || "auto",
+      proficient: row.proficient !== false,
+      magic_bonus: asInt(row.magic_bonus, 0),
+      atk_bonus_mode: norm(row.atk_bonus_mode || "auto") === "manual" ? "manual" : "auto",
+      atk_bonus_override: asInt(row.atk_bonus_override ?? row.atk_bonus, 0),
+      atk_bonus: asInt(row.atk_bonus, 0),
+      damage_mode: norm(row.damage_mode || "manual") === "auto" ? "auto" : "manual",
+      damage: (row.damage || "").toString(),
+      damage_type: (row.damage_type || "").toString(),
+      versatile_damage: (row.versatile_damage || "").toString(),
+      range: (row.range || "").toString(),
+      range_short: Math.max(0, asInt(row.range_short, 0)),
+      range_long: Math.max(0, asInt(row.range_long, 0)),
+      reach: Math.max(0, asInt(row.reach, 5)),
+      properties,
+      notes: (row.notes || "").toString(),
+      tags
+    };
+  }
+  function parseDiceTerms(formula) {
+    const text = (formula || "").toString().replace(/\s+/g, "");
+    if (!text) return { dice: [], flat: 0, valid: false };
+    const tokens = text.match(/[+\-]?[^+\-]+/g) || [];
+    const dice = [];
+    let flat = 0;
+    let valid = true;
+    for (const token of tokens) {
+      const sign = token.startsWith("-") ? -1 : 1;
+      const body = token.replace(/^[+\-]/, "");
+      const dieMatch = body.match(/^(\d*)d(\d+)$/i);
+      if (dieMatch) {
+        const count = Math.max(1, asInt(dieMatch[1] || 1, 1));
+        const sides = Math.max(2, asInt(dieMatch[2], 6));
+        dice.push({ count, sides, sign });
+        continue;
+      }
+      if (/^\d+$/.test(body)) {
+        flat += sign * asInt(body, 0);
+        continue;
+      }
+      valid = false;
+    }
+    return { dice, flat, valid };
+  }
+  function secureDieRoll(sides) {
+    const max = Math.max(2, asInt(sides, 20));
+    const span = Math.floor(4294967296 / max) * max;
+    const bucket = new Uint32Array(1);
+    let v = 0;
+    do {
+      crypto.getRandomValues(bucket);
+      v = bucket[0];
+    } while (v >= span);
+    return v % max + 1;
+  }
+  function rollDiceTerms(formula, { crit = false, extraDice = [] } = {}) {
+    const parsed = parseDiceTerms(formula);
+    const detailed = [];
+    let total = 0;
+    let valid = parsed.valid;
+    for (const die of parsed.dice) {
+      const count = die.count * (crit ? 2 : 1);
+      const payload = Array.from({ length: count }, () => secureDieRoll(die.sides));
+      detailed.push({ sides: die.sides, sign: die.sign, rolls: payload });
+      total += die.sign * payload.reduce((a, b) => a + b, 0);
+    }
+    for (const extra of extraDice) {
+      const parsedExtra = parseDiceTerms(extra);
+      valid = valid && parsedExtra.valid;
+      for (const die of parsedExtra.dice) {
+        const count = die.count;
+        const payload = Array.from({ length: count }, () => secureDieRoll(die.sides));
+        detailed.push({ sides: die.sides, sign: die.sign, rolls: payload, extra: true });
+        total += die.sign * payload.reduce((a, b) => a + b, 0);
+      }
+      total += parsedExtra.flat;
+    }
+    total += parsed.flat;
+    return { parsed, detailed, total, valid };
+  }
+  function renderRolledFormula(parts) {
+    return parts.map((part) => {
+      const rendered = `${part.rolls.length}d${part.sides}(${part.rolls.join(", ")})`;
+      return part.sign < 0 ? `- ${rendered}` : rendered;
+    }).join(" + ").replace(/\+\s-\s/g, "- ");
   }
   function totalLevel(character) {
     const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
@@ -5312,6 +6111,266 @@
     }
     return out;
   }
+  function classLevel(character, classId) {
+    const rows = getClassRows(character);
+    return rows.filter((row) => norm(row?.id) === norm(classId)).reduce((sum, row) => sum + clamp(asInt(row?.level, 0), 0, 20), 0);
+  }
+  function attackMatchesScope(attack, scope) {
+    const sc = norm(scope || "all_attacks");
+    if (!sc || sc === "all_attacks") return true;
+    if (sc === "weapon_attacks") return attack.kind === "melee_weapon" || attack.kind === "ranged_weapon" || attack.kind === "natural_weapon";
+    if (sc === "melee_weapon") return attack.kind === "melee_weapon" || attack.kind === "natural_weapon";
+    if (sc === "ranged_weapon") return attack.kind === "ranged_weapon";
+    if (sc === "spell_attacks") return attack.kind === "spell_attack";
+    if (sc === `attack:${norm(attack.id)}`) return true;
+    return sc === norm(attack.id);
+  }
+  function inferAttackAbility(attack, derived) {
+    const mode = norm(attack.attack_ability || "auto");
+    if (["str", "dex", "con", "int", "wis", "cha"].includes(mode)) return mode;
+    if (mode === "spell") return derived?.spellcasting?.ability || "int";
+    if (mode === "custom") return "";
+    const props = new Set(attack.properties || []);
+    if (attack.kind === "spell_attack") return derived?.spellcasting?.ability || "int";
+    if (attack.kind === "ranged_weapon") return "dex";
+    if (props.has("finesse")) {
+      return asInt(derived?.abilityMods?.dex, 0) >= asInt(derived?.abilityMods?.str, 0) ? "dex" : "str";
+    }
+    return "str";
+  }
+  function deriveAttackProfile(attackRow, character, derived, catalog2) {
+    const attack = normalizeAttackForUi(attackRow);
+    const catalogRows = Array.isArray(catalog2?.attacks) ? catalog2.attacks : [];
+    const baseCatalog = findAttackCatalogMatch(catalogRows, attack);
+    const fallback = inferAttackProfileFallback(attack);
+    const inferredKind = norm(baseCatalog?.kind || fallback?.kind || attack.kind);
+    const hasManualRangeText = Boolean((attackRow?.range || "").toString().trim());
+    const explicitRangeLooksGenericMelee = norm(attackRow?.range || "") === "melee";
+    const explicitReachLooksDefaultMelee = !hasManualRangeText && asInt(attackRow?.reach, 0) === 5 && asInt(attackRow?.range_short, 0) === 0 && asInt(attackRow?.range_long, 0) === 0;
+    const shouldTrustExplicitRanges = !(inferredKind === "ranged_weapon" && (explicitRangeLooksGenericMelee || explicitReachLooksDefaultMelee));
+    const hasExplicitKind = Boolean(norm(attackRow?.kind || ""));
+    const hasExplicitRanges = shouldTrustExplicitRanges && Boolean(attackRow?.range || attackRow?.range_short || attackRow?.range_long || attackRow?.reach);
+    const hasExplicitProperties = Array.isArray(attackRow?.properties) ? attackRow.properties.length > 0 : splitCsvLike(attackRow?.properties).length > 0;
+    const preserveExplicitKind = hasExplicitKind && (hasExplicitRanges || hasExplicitProperties || !baseCatalog && !fallback);
+    const merged = normalizeAttackForUi({
+      ...baseCatalog || {},
+      ...fallback || {},
+      ...attack,
+      kind: preserveExplicitKind ? attack.kind : norm(baseCatalog?.kind || fallback?.kind || attack.kind),
+      range: attack.range || baseCatalog?.range || fallback?.range || "",
+      range_short: hasExplicitRanges ? attack.range_short : asInt(baseCatalog?.range_short ?? fallback?.range_short, attack.range_short),
+      range_long: hasExplicitRanges ? attack.range_long : asInt(baseCatalog?.range_long ?? fallback?.range_long, attack.range_long),
+      reach: hasExplicitRanges ? attack.reach : asInt(baseCatalog?.reach ?? fallback?.reach, attack.reach),
+      properties: hasExplicitProperties ? attack.properties : splitCsvLike(baseCatalog?.properties || fallback?.properties),
+      tags: attack.tags.length ? attack.tags : splitCsvLike(baseCatalog?.tags)
+    });
+    const abilityKey = inferAttackAbility(merged, derived);
+    const abilityMod = abilityKey ? asInt(derived?.abilityMods?.[abilityKey], 0) : 0;
+    const prof = asInt(derived?.proficiency?.value, 0);
+    const autoAttackBonus = merged.kind === "spell_attack" ? asInt(derived?.spellcasting?.spellAttackBonus, 0) + merged.magic_bonus : abilityMod + (merged.proficient ? prof : 0) + merged.magic_bonus;
+    const effectiveAttackBonus = merged.atk_bonus_mode === "manual" ? asInt(merged.atk_bonus_override, autoAttackBonus) : autoAttackBonus;
+    const autoDamage = merged.damage || (baseCatalog?.damage_base || "");
+    const damageFormula = merged.damage_mode === "auto" && baseCatalog?.damage_base ? baseCatalog.damage_base || "" : autoDamage;
+    const damageBonusAuto = merged.kind === "spell_attack" ? 0 : abilityMod + merged.magic_bonus;
+    return {
+      ...merged,
+      kindLabel: attackKindLabel(merged.kind),
+      abilityKey,
+      abilityMod,
+      proficiency: prof,
+      autoAttackBonus,
+      effectiveAttackBonus,
+      damageFormula,
+      damageBonusAuto,
+      rangeLabel: formatAttackRangeText(merged),
+      propertiesLabel: merged.properties.map(titleizeId).join(", "),
+      ammoInfo: ammoProfileInfo(merged),
+      ammoCompatibilityKey: attackAmmoCompatibilityKey(merged)
+    };
+  }
+  function concentrationSourceModifier(sourceName) {
+    const source = norm(sourceName);
+    if (!source) return null;
+    if (source.includes("hex")) {
+      return { label: "Hex", source_type: "spell", source_id: "hex", scope: "all_attacks", timing: "persistent", application_mode: "suggested", damage_dice: "1d6", notes: "Applies only to attacks against the hexed target." };
+    }
+    if (source.includes("hunter") && source.includes("mark")) {
+      return { label: "Hunter's Mark", source_type: "spell", source_id: "hunters_mark", scope: "weapon_attacks", timing: "persistent", application_mode: "suggested", damage_dice: "1d6", notes: "Applies only to attacks against the marked target." };
+    }
+    if (source.includes("bless")) {
+      return { label: "Bless", source_type: "spell", source_id: "bless", scope: "all_attacks", timing: "persistent", application_mode: "suggested", attack_roll_dice: "1d4", notes: "Add 1d4 to attack rolls while blessed." };
+    }
+    if (source.includes("faerie fire")) {
+      return { label: "Faerie Fire", source_type: "spell", source_id: "faerie_fire", scope: "all_attacks", timing: "persistent", application_mode: "suggested", advantage_state: "advantage", notes: "Use when attacking an affected target." };
+    }
+    return null;
+  }
+  function conditionToModifier(condition) {
+    const name = norm(condition?.name || condition);
+    if (!name) return null;
+    if (name.includes("poison")) return { label: titleizeId(name), source_type: "condition", source_id: name, scope: "all_attacks", timing: "persistent", application_mode: "auto", advantage_state: "disadvantage", notes: "Poisoned creatures have disadvantage on attack rolls." };
+    if (name.includes("blinded")) return { label: "Blinded", source_type: "condition", source_id: "blinded", scope: "all_attacks", timing: "persistent", application_mode: "auto", advantage_state: "disadvantage", notes: "Blinded creatures have disadvantage on attack rolls." };
+    if (name.includes("restrained")) return { label: "Restrained", source_type: "condition", source_id: "restrained", scope: "all_attacks", timing: "persistent", application_mode: "auto", advantage_state: "disadvantage", notes: "Restrained creatures have disadvantage on attack rolls." };
+    if (name.includes("invisible")) return { label: "Invisible", source_type: "condition", source_id: "invisible", scope: "all_attacks", timing: "persistent", application_mode: "auto", advantage_state: "advantage", notes: "Invisible attackers have advantage on attack rolls." };
+    return null;
+  }
+  function buildAttackModifierBuckets(character, attack, derived) {
+    const persistent = [];
+    const optional = [];
+    const activeEffects = Array.isArray(character?.play_state?.active_effects) ? character.play_state.active_effects : [];
+    for (const row of activeEffects) {
+      if (!row || row.active === false) continue;
+      if (!attackMatchesScope(attack, row.scope)) continue;
+      persistent.push({
+        id: (row.id || crypto.randomUUID()).toString(),
+        label: row.label || "Effect",
+        source_type: row.source_type || "custom_effect",
+        source_id: row.source_id || "",
+        scope: row.scope || "all_attacks",
+        timing: row.timing || "persistent",
+        application_mode: ["auto", "suggested", "manual"].includes(row.application_mode) ? row.application_mode : "manual",
+        attack_roll_bonus: asInt(row.attack_roll_bonus, 0),
+        attack_roll_dice: (row.attack_roll_dice || "").toString(),
+        advantage_state: ["advantage", "disadvantage", "none"].includes(norm(row.advantage_state)) ? norm(row.advantage_state) : "none",
+        damage_bonus: asInt(row.damage_bonus, 0),
+        damage_dice: (row.damage_dice || "").toString(),
+        damage_type_add: (row.damage_type_add || "").toString(),
+        damage_type_replace: (row.damage_type_replace || "").toString(),
+        crit_extra_dice: (row.crit_extra_dice || "").toString(),
+        notes: (row.notes || "").toString()
+      });
+    }
+    const concentration = character?.combat?.concentration || {};
+    if (concentration.active) {
+      const concEffect = concentrationSourceModifier(concentration.source);
+      if (concEffect && attackMatchesScope(attack, concEffect.scope)) {
+        persistent.push({ id: `concentration:${norm(concentration.source)}`, ...concEffect });
+      }
+    }
+    const conditions = Array.isArray(character?.combat?.conditions) ? character.combat.conditions : [];
+    for (const row of conditions) {
+      if (!row || row.active === false) continue;
+      const effect = conditionToModifier(row);
+      if (effect && attackMatchesScope(attack, effect.scope)) persistent.push({ id: `condition:${norm(row?.name || row)}`, ...effect });
+    }
+    const rogueLevel = classLevel(character, "rogue");
+    const sneakEligibleByName = attackNameKeys(attack.name).some((key) => [
+      "dagger",
+      "dart",
+      "rapier",
+      "scimitar",
+      "shortsword",
+      "shortbow",
+      "longbow",
+      "lightcrossbow",
+      "handcrossbow",
+      "sling",
+      "blowgun",
+      "whip"
+    ].includes(key));
+    if (rogueLevel > 0 && (attack.kind === "ranged_weapon" || attack.properties.includes("finesse") || sneakEligibleByName)) {
+      optional.push({
+        id: "class:sneak_attack",
+        label: `Sneak Attack (${Math.ceil(rogueLevel / 2)}d6)`,
+        source_type: "class_feature",
+        source_id: "sneak_attack",
+        application_mode: "manual",
+        damage_dice: `${Math.ceil(rogueLevel / 2)}d6`,
+        notes: "Apply once per turn when Sneak Attack conditions are met."
+      });
+    }
+    const barbarianLevel = classLevel(character, "barbarian");
+    if (barbarianLevel > 0 && attack.kind === "melee_weapon" && attack.abilityKey === "str") {
+      const rageBonus = barbarianLevel >= 16 ? 4 : barbarianLevel >= 9 ? 3 : 2;
+      optional.push({
+        id: "class:rage",
+        label: `Rage (+${rageBonus} damage)`,
+        source_type: "class_feature",
+        source_id: "rage",
+        application_mode: "manual",
+        damage_bonus: rageBonus,
+        notes: "Use only while raging."
+      });
+    }
+    const paladinLevel = classLevel(character, "paladin");
+    if (paladinLevel >= 2 && attack.kind === "melee_weapon") {
+      optional.push({
+        id: "class:divine_smite",
+        label: "Divine Smite",
+        source_type: "class_feature",
+        source_id: "divine_smite",
+        application_mode: "manual",
+        notes: "Choose a spell slot in the attack drawer to add radiant damage."
+      });
+    }
+    if (attack.tags.includes("sharpshooter")) {
+      optional.push({
+        id: "feat:sharpshooter",
+        label: "Sharpshooter (-5 to hit, +10 damage)",
+        source_type: "class_feature",
+        source_id: "sharpshooter",
+        application_mode: "manual",
+        attack_roll_bonus: -5,
+        damage_bonus: 10
+      });
+    }
+    if (attack.tags.includes("great_weapon_master")) {
+      optional.push({
+        id: "feat:great_weapon_master",
+        label: "Great Weapon Master (-5 to hit, +10 damage)",
+        source_type: "class_feature",
+        source_id: "great_weapon_master",
+        application_mode: "manual",
+        attack_roll_bonus: -5,
+        damage_bonus: 10
+      });
+    }
+    return {
+      auto_applied_modifiers: persistent.filter((row) => row.application_mode === "auto"),
+      suggested_modifiers: persistent.filter((row) => row.application_mode === "suggested"),
+      manual_options: optional.concat(persistent.filter((row) => row.application_mode === "manual"))
+    };
+  }
+  function resolveAdvantageState(mode, modifiers) {
+    if (mode === "advantage" || mode === "disadvantage") return mode;
+    let adv = 0;
+    let dis = 0;
+    for (const row of modifiers) {
+      if (row.advantage_state === "advantage") adv += 1;
+      if (row.advantage_state === "disadvantage") dis += 1;
+    }
+    if (adv && dis) return "normal";
+    if (adv) return "advantage";
+    if (dis) return "disadvantage";
+    return "normal";
+  }
+  function normalizeActiveEffectRow(row, idx = 0) {
+    const effect = row && typeof row === "object" ? row : {};
+    return {
+      id: effect.id || `effect_${idx + 1}`,
+      label: effect.label || `Effect ${idx + 1}`,
+      source: effect.source || "",
+      source_type: effect.source_type || "custom_effect",
+      source_id: effect.source_id || "",
+      effect_type: effect.effect_type || "",
+      category: effect.category || "",
+      active: effect.active !== false,
+      scope: effect.scope || "all_attacks",
+      timing: effect.timing || "persistent",
+      application_mode: effect.application_mode || "manual",
+      rounds_remaining: effect.rounds_remaining ?? "",
+      attack_roll_bonus: effect.attack_roll_bonus ?? 0,
+      attack_roll_dice: effect.attack_roll_dice || "",
+      advantage_state: effect.advantage_state || "none",
+      damage_bonus: effect.damage_bonus ?? 0,
+      damage_dice: effect.damage_dice || "",
+      damage_type_add: effect.damage_type_add || "",
+      damage_type_replace: effect.damage_type_replace || "",
+      crit_extra_dice: effect.crit_extra_dice || "",
+      resource_cost: effect.resource_cost || "",
+      notes: effect.notes || ""
+    };
+  }
   function lookupLabel(rows, id) {
     const key = norm(id);
     if (!key) return "";
@@ -5447,9 +6506,195 @@
     ${rows.map((row) => `<li><code>${esc(row.code || "note")}</code> ${esc(row.message || "")}</li>`).join("")}
   </ul>`;
   }
+  function renderHelpActions(items, helpController, extraClass = "") {
+    if (!items?.length) return "";
+    return `<div class="help-action-grid ${extraClass}">
+    ${items.map((row) => {
+      const meta = helpController.getFeatureMeta?.(row.featureId || "");
+      return `<button type="button" class="help-action-card" data-help-action="${esc(row.actionId || "")}" ${row.actionId ? "" : "disabled"}>
+        <strong>${esc(row.label || meta?.label || row.actionId || "Action")}</strong>
+        ${row.detail ? `<small>${esc(row.detail)}</small>` : ""}
+      </button>`;
+    }).join("")}
+  </div>`;
+  }
+  function renderHelpBlock(block, helpController) {
+    if (!block || !block.type) return "";
+    if (block.type === "paragraph") return `<p>${esc(block.text || "")}</p>`;
+    if (block.type === "steps") {
+      return `<div class="help-block">
+      ${block.title ? `<h4>${esc(block.title)}</h4>` : ""}
+      <ol class="help-steps">${(block.items || []).map((item) => `<li>${esc(item)}</li>`).join("")}</ol>
+    </div>`;
+    }
+    if (block.type === "bullets") {
+      return `<div class="help-block">
+      ${block.title ? `<h4>${esc(block.title)}</h4>` : ""}
+      <ul class="help-list">${(block.items || []).map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
+    </div>`;
+    }
+    if (block.type === "callout") {
+      return `<p class="help-note help-note-${esc(block.tone || "note")}">${esc(block.text || "")}</p>`;
+    }
+    if (block.type === "action_reference") {
+      return `<div class="help-block">
+      ${block.title ? `<h4>${esc(block.title)}</h4>` : ""}
+      ${renderHelpActions(block.actions || [], helpController)}
+    </div>`;
+    }
+    if (block.type === "term_definition") {
+      return `<div class="help-block">
+      ${block.title ? `<h4>${esc(block.title)}</h4>` : ""}
+      <div class="help-glossary-list">
+        ${(block.termIds || []).map((termId) => {
+        const term = HELP_GLOSSARY[termId];
+        if (!term) return "";
+        return `<article class="help-glossary-card" id="term-${esc(term.id)}">
+            <strong>${esc(term.title)}</strong>
+            <p>${esc(term.body)}</p>
+          </article>`;
+      }).join("")}
+      </div>
+    </div>`;
+    }
+    if (block.type === "shortcut_reference") {
+      return `<div class="help-block">
+      ${block.title ? `<h4>${esc(block.title)}</h4>` : ""}
+      <div class="help-shortcuts">
+        ${HELP_SHORTCUTS.map((row) => `<div class="shortcut-row"><span class="shortcut-chip">${esc(row.keys)}</span><p>${esc(row.detail)}</p></div>`).join("")}
+      </div>
+    </div>`;
+    }
+    if (block.type === "troubleshooting_case") {
+      return `<div class="help-block">
+      ${block.title ? `<h4>${esc(block.title)}</h4>` : ""}
+      <div class="help-troubleshooting-list">
+        ${(block.cases || []).map((row) => `<article class="help-troubleshooting-card">
+          <strong>${esc(row.issue || "")}</strong>
+          <p>${esc(row.fix || "")}</p>
+        </article>`).join("")}
+      </div>
+    </div>`;
+    }
+    return "";
+  }
+  function renderHelpGuide(helpController, activeSectionId, validationErrors = []) {
+    const sections = helpController.listHelpSections();
+    const activeId = helpController.openHelp(activeSectionId);
+    return `<div class="palette-overlay help-overlay" id="helpOverlay">
+    <section class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <button type="button" class="overlay-close" data-overlay-close="help" aria-label="Close overlay">\xD7</button>
+      <aside class="help-nav">
+        <p class="help-eyebrow">Guidebook</p>
+        <h2 id="helpTitle">The Living Codex Help Center</h2>
+        <p class="help-lead">Welcome to the The Living Codex help center. Use this guide to learn what each area does and how to keep your character safe.</p>
+        <div class="help-nav-links">
+          ${sections.map((section) => `<button type="button" class="${activeId === section.id ? "is-active" : ""}" data-help-jump="${esc(section.id)}">${esc(section.navLabel || section.title)}</button>`).join("")}
+        </div>
+        ${validationErrors.length ? `<div class="help-maintenance-note">
+          <strong>Maintenance note</strong>
+          <p>${esc(`${validationErrors.length} help reference issue${validationErrors.length === 1 ? "" : "s"} found. Check Diagnostics.`)}</p>
+        </div>` : ""}
+      </aside>
+      <div class="help-body">
+        ${sections.map((section, idx) => `<article class="help-card ${idx === 0 ? "help-card-hero" : ""}" id="${esc(section.id)}">
+          <p class="help-kicker">${esc(section.title)}</p>
+          <h3>${esc(section.title)}</h3>
+          ${section.summary ? `<p class="help-summary">${esc(section.summary)}</p>` : ""}
+          ${(section.blocks || []).map((block) => renderHelpBlock(block, helpController)).join("")}
+          ${(section.related || []).length ? `<div class="help-related">
+            <h4>Related topics</h4>
+            <div class="help-related-links">
+              ${section.related.map((relatedId) => {
+      const related = sections.find((row) => row.id === relatedId);
+      if (!related) return "";
+      return `<button type="button" data-help-jump="${esc(related.id)}">${esc(related.navLabel || related.title)}</button>`;
+    }).join("")}
+            </div>
+          </div>` : ""}
+        </article>`).join("")}
+      </div>
+    </section>
+  </div>`;
+  }
+  var ATTACK_HELP_TOPICS = {
+    attack_mode: {
+      title: "Attack Mode",
+      lines: [
+        "Choose whether this attack rolls normally, with advantage, or with disadvantage.",
+        "Auto follows the active combat effects on the sheet, but you can still override it if the table state is different."
+      ],
+      takeaway: "Leave it on Auto unless you need to correct the situation manually."
+    },
+    special_riders: {
+      title: "Special Riders",
+      lines: [
+        "Riders are optional add-ons such as Sneak Attack, Divine Smite, or versatile damage.",
+        "Turn on only the riders you are using for this one attack."
+      ],
+      takeaway: "Think of riders as tactical choices, not always-on bonuses."
+    },
+    criticals: {
+      title: "Critical Hits",
+      lines: [
+        "The sheet auto-arms a critical when its own hit roll lands on a natural 20.",
+        "If you rolled physical dice instead, you can confirm the critical manually before rolling damage."
+      ],
+      takeaway: "Once a crit is armed, the main action button switches to critical damage."
+    },
+    context_note: {
+      title: "Context Note",
+      lines: [
+        "Use this for a short table reminder such as cover, target, or a situational twist.",
+        "The note does not change rules on its own. It is saved into the play log for later reference."
+      ],
+      takeaway: "Log only the details you want to remember after the turn moves on."
+    }
+  };
+  function renderAttackHelpTrigger(topicId, label) {
+    const topic = ATTACK_HELP_TOPICS[norm(topicId)] || ATTACK_HELP_TOPICS.attack_mode;
+    return `<span class="attack-help-wrap">
+    <button type="button" class="attack-help-trigger" aria-label="${esc(label || `Help for ${topic.title}`)}" title="${esc(label || `Help for ${topic.title}`)}">?</button>
+    <span class="attack-help-pop" role="note">
+      <strong>${esc(topic.title)}</strong>
+      ${topic.lines.map((line) => `<span>${esc(line)}</span>`).join("")}
+      ${topic.takeaway ? `<small><strong>At the table:</strong> ${esc(topic.takeaway)}</small>` : ""}
+    </span>
+  </span>`;
+  }
+  function renderAttackSummaryHelp(attack) {
+    const details = [
+      attack?.abilityKey ? `Ability: ${attack.abilityKey.toUpperCase()}` : "",
+      attack?.rangeLabel ? `Range: ${attack.rangeLabel}` : "",
+      attack?.propertiesLabel ? `Properties: ${attack.propertiesLabel}` : "",
+      attack?.ammoInfo?.label ? `Ammo: ${attack.ammoInfo.label}` : "",
+      attack?.notes ? `Notes: ${attack.notes}` : ""
+    ].filter(Boolean);
+    if (!details.length) return "";
+    return `<span class="attack-help-wrap attack-help-wrap-inline">
+    <button type="button" class="attack-help-trigger" aria-label="Attack details" title="Attack details">?</button>
+    <span class="attack-help-pop" role="note">
+      <strong>Attack Details</strong>
+      ${details.map((line) => `<span>${esc(line)}</span>`).join("")}
+      <small><strong>At the table:</strong> Use this for the attack facts you may need to check mid-turn.</small>
+    </span>
+  </span>`;
+  }
+  function renderAttackInlineHelp(title, lines = [], takeaway = "") {
+    const safeLines = Array.isArray(lines) ? lines.filter(Boolean) : [];
+    if (!title || !safeLines.length) return "";
+    return `<span class="attack-help-wrap attack-help-wrap-inline">
+    <button type="button" class="attack-help-trigger" aria-label="${esc(title)}" title="${esc(title)}">?</button>
+    <span class="attack-help-pop" role="note">
+      <strong>${esc(title)}</strong>
+      ${safeLines.map((line) => `<span>${esc(line)}</span>`).join("")}
+      ${takeaway ? `<small><strong>At the table:</strong> ${esc(takeaway)}</small>` : ""}
+    </span>
+  </span>`;
+  }
   function renderLookup(state) {
     if (!state.open) return "";
-    const subtitle = state.type === "spell" ? "Search and insert spell records" : state.type === "class" ? "Choose a class" : "Choose a species";
+    const subtitle = state.type === "spell" ? "Search and insert spell records" : state.type === "class" ? "Choose a class" : state.type === "attack" ? "Choose a weapon or attack preset" : "Choose a species";
     return `<div class="lookup-overlay" id="lookupOverlay">
     <section class="card lookup-panel" id="lookupPanel" role="dialog" aria-modal="true">
       <button type="button" class="overlay-close" data-overlay-close="lookup" aria-label="Close overlay">\xD7</button>
@@ -5620,8 +6865,39 @@
       return diceRollState;
     })();
     const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
-    const logBudget = computeLogNotesChars(character);
+    const activeEffects = Array.isArray(character?.play_state?.active_effects) ? character.play_state.active_effects.map((row, idx) => normalizeActiveEffectRow(row, idx)) : [];
     const derived = deriveStats(character);
+    const attackCatalog = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
+    const attackProfiles = attacks.map((row) => {
+      const profile = deriveAttackProfile(row, character, derived, attackCatalog);
+      const buckets = buildAttackModifierBuckets(character, profile, derived);
+      return {
+        profile,
+        buckets,
+        summary: [
+          fmtSigned(profile.effectiveAttackBonus),
+          formatAttackDamageText(profile),
+          profile.rangeLabel
+        ].filter(Boolean).join(" \xB7 ")
+      };
+    });
+    const ammoProfiles = attackProfiles.filter(({ profile }) => profile.ammoInfo);
+    const attackCards = attackProfiles.filter(({ profile }) => !profile.ammoInfo).map((entry) => {
+      const { profile, buckets } = entry;
+      const linkedAmmo = ammoProfiles.filter(({ profile: ammoProfile }) => {
+        if (!ammoProfile.ammoInfo || !profile.ammoCompatibilityKey) return false;
+        return ammoProfile.ammoInfo.compatibleKinds.includes(profile.ammoCompatibilityKey);
+      });
+      return {
+        ...entry,
+        linkedAmmo
+      };
+    });
+    const looseAmmo = ammoProfiles.filter(({ profile }) => {
+      if (!profile.ammoInfo) return false;
+      return !attackCards.some((entry) => entry.linkedAmmo.some(({ profile: ammoProfile }) => ammoProfile.id === profile.id));
+    });
+    const logBudget = computeLogNotesChars(character);
     const bonusActions = collectBonusActions(character);
     const classActions = collectClassActionFeatures(character);
     const resolveFeatureUsage = (feature) => {
@@ -5691,9 +6967,42 @@
       </div>`}
     </div></article>`;
     const attacksPane = `<article class="card"><h2>Arsenal</h2><div class="card-body">
-      ${attacks.length === 0 ? `<p class="hint">No attacks added yet.</p>` : `<div class="attack-list">${attacks.slice(0, 8).map((a) => `<div class="attack-row"><strong>${esc(a.name || "Attack")}</strong><span>${esc(fmtSigned(asInt(a.atk_bonus, 0)))}</span><span>${esc([a.damage, a.damage_type].filter(Boolean).join(" "))}</span></div>`).join("")}</div>`}
+      ${attackCards.length === 0 ? `<p class="hint">No attacks added yet.</p>` : `<div class="attack-card-list attack-button-list">${attackCards.map(({ profile, buckets, linkedAmmo }) => {
+      const infoBits = [
+        profile.kindLabel,
+        formatAttackDamageText(profile),
+        profile.rangeLabel || "Melee"
+      ].filter(Boolean);
+      const effectBits = [
+        buckets.auto_applied_modifiers.length ? `${buckets.auto_applied_modifiers.length} in effect` : "",
+        buckets.suggested_modifiers.length ? `${buckets.suggested_modifiers.length} you can add` : "",
+        buckets.manual_options.length ? `${buckets.manual_options.length} riders` : ""
+      ].filter(Boolean);
+      return `<button type="button" class="attack-card attack-button" data-open-attack="${esc(profile.id)}" title="${esc(profile.name || "Attack")}">
+          <span class="attack-button-glyph" aria-hidden="true">${esc(attackGlyphForProfile(profile))}</span>
+          <span class="attack-button-copy">
+            <strong>${esc(profile.name || "Attack")}</strong>
+            <small>${esc(`${fmtSigned(profile.effectiveAttackBonus)} \u2022 ${formatAttackDamageText(profile) || "Manual damage"}`)}</small>
+          </span>
+          <span class="attack-button-caret" aria-hidden="true">\u203A</span>
+          <span class="attack-card-pop" role="note">
+            <strong>${esc(profile.name || "Attack")}</strong>
+            ${infoBits.map((bit) => `<span>${esc(bit)}</span>`).join("")}
+            ${linkedAmmo.length ? `<span>${esc(`Ammo: ${linkedAmmo.map(({ profile: ammoProfile }) => ammoProfile.name || ammoProfile.ammoInfo?.label || "Ammunition").join(", ")}`)}</span>` : ""}
+            ${effectBits.length ? `<em>${esc(effectBits.join(" \xB7 "))}</em>` : ""}
+          </span>
+        </button>`;
+    }).join("")}</div>`}
+      ${looseAmmo.length ? `<div class="attack-ammo-stash"><p class="hint">Loose ammunition</p><div class="attack-card-ammo">${looseAmmo.map(({ profile }) => `<span>${esc(profile.name || profile.ammoInfo?.label || "Ammunition")}</span>`).join("")}</div></div>` : ""}
     </div></article>`;
-    const trackersPane = `<article class="card"><h2>Trackers</h2><div class="card-body stack">
+    const effectScopeOptions = [
+      ["all_attacks", "All attacks"],
+      ["weapon_attacks", "Weapon attacks"],
+      ["melee_weapon", "Melee weapon"],
+      ["ranged_weapon", "Ranged weapon"],
+      ["spell_attacks", "Spell attacks"]
+    ];
+    const trackersPane = `<article class="card"><h2>Trackers & Effects</h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="playTrackerAdd">Add Tracker</button></div>
       ${trackers.length === 0 ? `<p class="hint">No trackers</p>` : trackers.map((t, idx) => `<div class="tracker-row">
         <input data-play-tracker-label="${idx}" value="${esc(t.label || "")}" placeholder="Tracker label" />
@@ -5701,6 +7010,51 @@
         <input data-play-tracker-max="${idx}" type="number" min="0" value="${esc(t.max ?? 0)}" />
         <button type="button" data-play-tracker="${idx}:down">-1</button><button type="button" data-play-tracker="${idx}:up">+1</button><button type="button" data-play-tracker="${idx}:reset">Reset</button><button type="button" data-play-tracker-del="${idx}">Delete</button>
       </div>`).join("")}
+      <section class="attack-effects-section">
+        <div class="attack-effects-head">
+          <div>
+            <h3>Combat Effects</h3>
+            <p class="hint">DM rulings, magical buffs, penalties, and battlefield effects that should modify attacks.</p>
+          </div>
+          <button type="button" id="playEffectAdd">Add Effect</button>
+        </div>
+        ${activeEffects.length === 0 ? `<p class="hint">No custom combat effects yet.</p>` : `<div class="attack-effects-list">${activeEffects.map((effect, idx) => `<article class="attack-effect-card">
+          <div class="attack-effect-head">
+            <label>Label<input data-play-effect-label="${idx}" value="${esc(effect.label)}" placeholder="e.g. Blessed Arrows" /></label>
+            <label>Source<input data-play-effect-source="${idx}" value="${esc(effect.source)}" placeholder="e.g. DM boon, item, spell" /></label>
+            <label class="check"><input type="checkbox" data-play-effect-active="${idx}" ${effect.active ? "checked" : ""}/>Active</label>
+            <button type="button" data-play-effect-del="${idx}">Delete</button>
+          </div>
+          <div class="attack-effect-grid">
+            <label>Scope
+              <select data-play-effect-scope="${idx}">
+                ${effectScopeOptions.map(([value, label]) => `<option value="${value}" ${effect.scope === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
+              </select>
+            </label>
+            <label>Rounds Remaining<input data-play-effect-rounds="${idx}" type="number" min="0" value="${esc(effect.rounds_remaining ?? "")}" placeholder="Blank if open-ended" /></label>
+            <label>Apply As
+              <select data-play-effect-mode="${idx}">
+                <option value="auto" ${effect.application_mode === "auto" ? "selected" : ""}>Applied automatically</option>
+                <option value="suggested" ${effect.application_mode === "suggested" ? "selected" : ""}>Suggested in drawer</option>
+                <option value="manual" ${effect.application_mode === "manual" ? "selected" : ""}>Optional toggle</option>
+              </select>
+            </label>
+            <label>Attack Bonus<input data-play-effect-atkbonus="${idx}" type="number" value="${esc(effect.attack_roll_bonus ?? 0)}" /></label>
+            <label>Attack Dice<input data-play-effect-atkdice="${idx}" value="${esc(effect.attack_roll_dice || "")}" placeholder="e.g. 1d4" /></label>
+            <label>Damage Bonus<input data-play-effect-dmgbonus="${idx}" type="number" value="${esc(effect.damage_bonus ?? 0)}" /></label>
+            <label>Damage Dice<input data-play-effect-dmgdice="${idx}" value="${esc(effect.damage_dice || "")}" placeholder="e.g. 1d6" /></label>
+            <label>Extra Damage Type<input data-play-effect-dmgtype="${idx}" value="${esc(effect.damage_type_add || "")}" placeholder="e.g. radiant" /></label>
+            <label>Advantage State
+              <select data-play-effect-adv="${idx}">
+                <option value="none" ${effect.advantage_state === "none" ? "selected" : ""}>Normal</option>
+                <option value="advantage" ${effect.advantage_state === "advantage" ? "selected" : ""}>Advantage</option>
+                <option value="disadvantage" ${effect.advantage_state === "disadvantage" ? "selected" : ""}>Disadvantage</option>
+              </select>
+            </label>
+            <label class="attack-effect-notes">Notes<textarea data-play-effect-notes="${idx}" placeholder="When it applies, special rulings, target limits, or reminders">${esc(effect.notes || "")}</textarea></label>
+          </div>
+        </article>`).join("")}</div>`}
+      </section>
     </div></article>`;
     const logPane = `<article class="card"><h2>Adventure Log</h2><div class="card-body stack">
       <div class="inline-actions"><button type="button" id="playLogAdd">Add Log Entry</button></div>
@@ -5861,6 +7215,178 @@
     </div>` : ""}
   </section>`;
   }
+  function renderAttackDrawer(character, uiState, actions) {
+    if (!uiState.attackDrawer?.open) return "";
+    const rows = Array.isArray(character?.attacks) ? character.attacks : [];
+    const attackRow = rows.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
+    if (!attackRow) return "";
+    const catalog2 = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
+    const derived = deriveStats(character);
+    const attack = deriveAttackProfile(attackRow, character, derived, catalog2);
+    const buckets = buildAttackModifierBuckets(character, attack, derived);
+    const selectedMap = uiState.attackDrawer.selected || {};
+    const selectedSuggested = buckets.suggested_modifiers.filter((row) => selectedMap[row.id]);
+    const selectedOptional = buckets.manual_options.filter((row) => selectedMap[row.id]);
+    const applied = [...buckets.auto_applied_modifiers, ...selectedSuggested, ...selectedOptional];
+    const persistentEffects = [...buckets.auto_applied_modifiers, ...selectedSuggested];
+    const selectedRollMode = uiState.attackDrawer.rollMode || "auto";
+    const effectiveMode = selectedRollMode === "auto" ? resolveAdvantageState("normal", [...buckets.auto_applied_modifiers, ...selectedSuggested]) : selectedRollMode;
+    const availableSlots = computeEffectiveSlots(character).levels;
+    const hasSmite = buckets.manual_options.some((row) => row.source_id === "divine_smite");
+    const smiteOptions = hasSmite ? Array.from({ length: 9 }, (_, idx) => idx + 1).filter((lvl) => (availableSlots[String(lvl)]?.max || 0) - (availableSlots[String(lvl)]?.used || 0) > 0) : [];
+    const lastHit = character?.play_state?.last_attack_roll || null;
+    const lastDamage = character?.play_state?.last_attack_damage_roll || null;
+    const localResult = uiState.attackDrawer?.lastResult || null;
+    const critArmed = Boolean(
+      uiState.attackDrawer.critical || lastHit?.attack_id === attack.id && lastHit?.nat20
+    );
+    const modeReasonRows = persistentEffects.filter((row) => row.advantage_state && row.advantage_state === effectiveMode);
+    const modeReason = modeReasonRows.length ? `${titleizeId(effectiveMode)} granted by ${modeReasonRows.map((row) => row.label).join(", ")}.` : "";
+    const awaitingDamage = Boolean(uiState.attackDrawer.awaitingDamage);
+    const manualCritRequested = Boolean(uiState.attackDrawer.critical && !(lastHit?.attack_id === attack.id && lastHit?.nat20));
+    const resolveAction = awaitingDamage || manualCritRequested ? { type: "damage", crit: critArmed, label: critArmed ? "Roll Crit Damage" : "Roll Damage" } : { type: "hit", crit: false, label: "Roll to Hit" };
+    const toneForEffect = (row) => {
+      if (row?.advantage_state === "advantage") return "is-positive";
+      if (row?.advantage_state === "disadvantage") return "is-negative";
+      return "is-neutral";
+    };
+    const renderRiderList = (rowsToRender) => {
+      if (!rowsToRender.length) return `<p class="hint attack-empty-state">No special riders available.</p>`;
+      return `<ul class="attack-rider-list">${rowsToRender.map((row) => {
+        const riderMeta = [
+          row.attack_roll_bonus ? `${fmtSigned(row.attack_roll_bonus)} to hit` : "",
+          row.damage_bonus ? `${fmtSigned(row.damage_bonus)} damage` : "",
+          row.damage_dice && !norm(row.label).includes(norm(row.damage_dice)) ? row.damage_dice : ""
+        ].filter(Boolean).join(" \u2022 ");
+        const riderHelp = row.notes ? renderAttackInlineHelp(row.label, [row.notes], "Turn it on only when you are using it for this attack.") : "";
+        return `<li class="attack-rider-row ${selectedMap[row.id] ? "is-selected" : ""}">
+        <div class="attack-rider-choice">
+          <label class="check attack-rider-label">
+            <input type="checkbox" data-attack-mod="${esc(row.id)}" ${selectedMap[row.id] ? "checked" : ""}/>
+            <span class="attack-rider-copy">
+              <span class="attack-rider-title"><strong>${esc(row.label)}</strong>${riderHelp}</span>
+              ${riderMeta && riderMeta !== row.label ? `<small>${esc(riderMeta)}</small>` : ""}
+            </span>
+          </label>
+        </div>
+      </li>`;
+      }).join("")}</ul>`;
+    };
+    const renderEffectPills = () => {
+      const allRows = [...buckets.auto_applied_modifiers, ...buckets.suggested_modifiers];
+      if (!allRows.length) return `<p class="hint attack-empty-state">No active combat effects on this attack.</p>`;
+      return `<div class="attack-effect-pill-row">${allRows.map((row) => {
+        const selected = row.application_mode === "auto" || Boolean(selectedMap[row.id]);
+        const label = row.label || "Effect";
+        const classes = [
+          "attack-effect-pill",
+          toneForEffect(row),
+          selected ? "is-active" : "is-available",
+          row.application_mode === "auto" ? "is-locked" : "is-toggle"
+        ].join(" ");
+        if (row.application_mode === "auto") {
+          return `<span class="${classes}" title="${esc(row.notes || label)}">${esc(label)}</span>`;
+        }
+        return `<button type="button" class="${classes}" data-attack-mod-pill="${esc(row.id)}" title="${esc(row.notes || label)}">${esc(label)}</button>`;
+      }).join("")}</div>`;
+    };
+    const riderRows = buckets.manual_options;
+    const attackSummary = [
+      fmtSigned(attack.effectiveAttackBonus) + " to hit",
+      formatAttackDamageText(attack, { versatile: uiState.attackDrawer.versatile })
+    ].filter(Boolean).join(" \u2022 ");
+    const visibleLocalResult = localResult?.attackId === attack.id ? localResult : null;
+    const contextSaved = Boolean(uiState.attackDrawer.contextSaved);
+    return `<div class="palette-overlay" id="attackDrawerOverlay">
+    <aside class="checks-drawer attack-drawer attack-sheet" role="dialog" aria-modal="true" aria-label="Attack drawer">
+      <button type="button" class="overlay-close" id="attackDrawerClose" data-overlay-close="attack" aria-label="Close attack drawer">\xD7</button>
+      <header class="attack-sheet-header">
+        <div class="attack-sheet-header-copy">
+          <p class="attack-sheet-kicker">Attack</p>
+          <div class="attack-sheet-title-row">
+            <h3>${esc(attack.name)}</h3>
+            ${renderAttackSummaryHelp(attack)}
+          </div>
+          <p class="checks-last-roll attack-sheet-summary">${esc(attackSummary)}</p>
+        </div>
+      </header>
+      <div class="checks-drawer-body">
+        <section class="attack-sheet-turnflow">
+          <div class="attack-sheet-flow-head">
+            <div class="attack-sheet-heading-wrap">
+              <p class="attack-flow-step">1. Roll State</p>
+              <div class="attack-sheet-heading-row">
+                <h4>Attack Mode</h4>
+                ${renderAttackHelpTrigger("attack_mode", "Help for attack mode")}
+              </div>
+            </div>
+            <label class="attack-mode-select">
+              <select id="attackRollModeSelect" aria-label="Attack mode">
+                <option value="auto" ${selectedRollMode === "auto" ? "selected" : ""}>Auto</option>
+                <option value="normal" ${selectedRollMode === "normal" ? "selected" : ""}>Normal</option>
+                <option value="advantage" ${selectedRollMode === "advantage" ? "selected" : ""}>Advantage</option>
+                <option value="disadvantage" ${selectedRollMode === "disadvantage" ? "selected" : ""}>Disadvantage</option>
+              </select>
+            </label>
+          </div>
+          ${modeReason ? `<p class="hint attack-mode-note">${esc(modeReason)}</p>` : ""}
+          <div class="attack-sheet-action-band">
+            <div class="attack-sheet-heading-wrap">
+              <p class="attack-flow-step">2. Resolve</p>
+            </div>
+            <div class="inline-actions attack-drawer-actions attack-sheet-actions attack-sheet-actions-single">
+              <button type="button" class="button-primary attack-resolve-button" id="attackResolveBtn" data-attack-resolve="${resolveAction.type}" data-attack-crit="${resolveAction.crit ? "1" : "0"}">${esc(resolveAction.label)}</button>
+            </div>
+            ${visibleLocalResult ? `<p class="checks-last-roll attack-receipt attack-inline-receipt ${visibleLocalResult.kind === "hit" ? `${visibleLocalResult.nat20 ? "is-nat20" : ""} ${visibleLocalResult.nat1 ? "is-nat1" : ""}` : ""}">${esc(visibleLocalResult.summary)}</p>` : ""}
+          </div>
+        </section>
+        <section class="attack-sheet-support">
+          <div class="attack-sheet-dual attack-sheet-support-grid">
+            <div class="attack-sheet-riders">
+              <div class="attack-sheet-section-head">
+                <div class="attack-sheet-heading-row">
+                  <h4>Special Riders</h4>
+                  ${renderAttackHelpTrigger("special_riders", "Help for special riders")}
+                </div>
+              </div>
+              <div class="attack-drawer-toggles attack-sheet-rider-strip">
+                ${attack.versatile_damage ? `<label class="check attack-inline-toggle"><input type="checkbox" id="attackUseVersatile" ${uiState.attackDrawer.versatile ? "checked" : ""}/>Versatile (${esc(attack.versatile_damage)})</label>` : ""}
+                <label class="check attack-inline-toggle attack-inline-toggle-subtle"><input type="checkbox" id="attackCriticalHit" ${critArmed ? "checked" : ""}/>Critical</label>${renderAttackHelpTrigger("criticals", "Help for critical hits")}
+                ${hasSmite ? `<label class="attack-inline-select">Smite<select id="attackSmiteLevel">${smiteOptions.length ? smiteOptions.map((lvl) => `<option value="${lvl}" ${asInt(uiState.attackDrawer.smiteLevel, 1) === lvl ? "selected" : ""}>Slot ${lvl}</option>`).join("") : `<option value="0">No slot</option>`}</select></label>` : ""}
+              </div>
+              ${renderRiderList(riderRows)}
+            </div>
+            <div class="attack-sheet-effects">
+              <div class="attack-sheet-section-head">
+                <div class="attack-sheet-heading-row">
+                  <h4>Conditions in Effect</h4>
+                </div>
+              </div>
+              ${renderEffectPills()}
+            </div>
+          </div>
+        </section>
+        <section class="attack-sheet-context">
+          <div class="attack-sheet-section-head">
+            <div class="attack-sheet-heading-row">
+              <h4>Context</h4>
+              ${renderAttackHelpTrigger("context_note", "Help for context note")}
+            </div>
+            <button type="button" class="button-ghost attack-context-toggle" id="toggleAttackContext">${uiState.attackDrawer.contextOpen ? "Hide" : "Add Note"}</button>
+          </div>
+          ${uiState.attackDrawer.contextOpen ? `<div class="attack-context-editor">
+            <input id="attackContextDraft" value="${esc(uiState.attackDrawer.contextDraft || "")}" placeholder="Add a short context note for this attack" />
+            <div class="attack-context-actions">
+              <button type="button" class="button-primary" id="saveAttackContext">Save Note</button>
+              <button type="button" class="button-ghost" id="cancelAttackContext">Cancel</button>
+            </div>
+          </div>` : ""}
+          ${contextSaved ? `<p class="hint attack-context-saved">Context note logged for this attack.</p>` : ""}
+        </section>
+      </div>
+    </aside>
+  </div>`;
+  }
   function cardTitle(label, isEdited) {
     return `${esc(label)}${isEdited ? ` <span class="card-change-badge">Changes not saved</span>` : ""}`;
   }
@@ -6004,14 +7530,16 @@
       </div>
       <h3>Saves</h3>
       <div class="saves-table">
-        ${["str", "dex", "con", "int", "wis", "cha"].map((k) => `<div class="save-row">
+        ${["str", "dex", "con", "int", "wis", "cha"].map((k) => {
+      return `<div class="save-row">
           <strong>${k.toUpperCase()}</strong>
           <label class="check"><input type="checkbox" data-save-prof="${k}" ${savingThrows?.[k]?.proficient ? "checked" : ""}/>Prof</label>
           <label class="check"><input type="checkbox" data-save-mode="${k}" ${(savingThrows?.[k]?.bonus_mode || "auto") === "manual" ? "checked" : ""}/>Manual</label>
           <input type="number" data-save-bonus="${k}" value="${esc(savingThrows?.[k]?.bonus ?? 0)}" aria-label="${k.toUpperCase()} bonus" title="${k.toUpperCase()} bonus" />
           <input type="number" data-save-manual="${k}" value="${esc(savingThrows?.[k]?.manual_total ?? derived.savingThrows[k].base)}" aria-label="${k.toUpperCase()} manual total" title="${k.toUpperCase()} manual total" />
           <span class="derived-chip" title="Computed total">${esc(fmtSigned(derived.savingThrows[k].total))}</span>
-        </div>`).join("")}
+        </div>`;
+    }).join("")}
       </div>
       <h3>Talents</h3>
       <div class="stack">
@@ -6029,17 +7557,42 @@
     }).join("")}
       </div>
       <h3>Arsenal</h3>
-      <div class="inline-actions"><button type="button" id="attackAdd">Add Attack</button></div>
+      <div class="inline-actions"><button type="button" id="attackAddCustom">Custom Attack</button><button type="button" data-open-lookup="attack">From Weapon List</button></div>
       <div class="stack">
-        ${attacks.length === 0 ? `<p class="hint">No attacks</p>` : attacks.map((a, idx) => `<div class="attack-edit-row">
-          <input data-attack-name="${idx}" value="${esc(a.name || "")}" placeholder="Name" />
-          <input data-attack-bonus="${idx}" type="number" value="${esc(a.atk_bonus ?? 0)}" placeholder="Atk bonus" />
-          <input data-attack-damage="${idx}" value="${esc(a.damage || "")}" placeholder="Damage dice" />
-          <input data-attack-damagetype="${idx}" value="${esc(a.damage_type || "")}" placeholder="Damage type" />
-          <input data-attack-range="${idx}" value="${esc(a.range || "")}" placeholder="Range/Reach" />
-          <input data-attack-notes="${idx}" value="${esc(a.notes || "")}" placeholder="Notes" />
-          <button type="button" data-attack-del="${idx}">Delete</button>
-        </div>`).join("")}
+        ${attacks.length === 0 ? `<p class="hint">No attacks</p>` : attacks.map((raw, idx) => {
+      const a = normalizeAttackForUi(raw);
+      return `<div class="attack-edit-card">
+          <div class="attack-edit-head">
+            <strong>${esc(a.name || `Attack ${idx + 1}`)}</strong>
+            <small>${esc(attackKindLabel(a.kind))}</small>
+            <button type="button" data-attack-del="${idx}">Delete</button>
+          </div>
+          <div class="attack-edit-grid">
+            <input data-attack-name="${idx}" value="${esc(a.name || "")}" placeholder="Name" />
+            <select data-attack-kind="${idx}">
+              ${["melee_weapon", "ranged_weapon", "spell_attack", "natural_weapon", "custom"].map((kind) => `<option value="${kind}" ${a.kind === kind ? "selected" : ""}>${esc(attackKindLabel(kind))}</option>`).join("")}
+            </select>
+            <select data-attack-ability="${idx}">
+              ${["auto", "str", "dex", "spell", "custom"].map((mode) => `<option value="${mode}" ${a.attack_ability === mode ? "selected" : ""}>${esc(mode === "auto" ? "Auto Ability" : mode === "spell" ? "Spellcasting Ability" : mode === "custom" ? "Manual Ability" : mode.toUpperCase())}</option>`).join("")}
+            </select>
+            <label class="check"><input type="checkbox" data-attack-prof="${idx}" ${a.proficient ? "checked" : ""}/>Proficient</label>
+            <label class="check"><input type="checkbox" data-attack-atkmode="${idx}" ${a.atk_bonus_mode === "manual" ? "checked" : ""}/>Manual to-hit</label>
+            <input data-attack-bonus="${idx}" type="number" value="${esc(a.atk_bonus_override ?? a.atk_bonus ?? 0)}" placeholder="To-hit bonus" />
+            <label class="check"><input type="checkbox" data-attack-dmgmode="${idx}" ${a.damage_mode === "manual" ? "checked" : ""}/>Manual damage</label>
+            <input data-attack-damage="${idx}" value="${esc(a.damage || "")}" placeholder="Damage dice" />
+            <input data-attack-damagetype="${idx}" value="${esc(a.damage_type || "")}" placeholder="Damage type" />
+            <input data-attack-versatile="${idx}" value="${esc(a.versatile_damage || "")}" placeholder="Versatile damage" />
+            <input data-attack-range="${idx}" value="${esc(a.range || "")}" placeholder="Range / reach text" />
+            <input data-attack-range-short="${idx}" type="number" min="0" value="${esc(a.range_short ?? 0)}" placeholder="Short" />
+            <input data-attack-range-long="${idx}" type="number" min="0" value="${esc(a.range_long ?? 0)}" placeholder="Long" />
+            <input data-attack-reach="${idx}" type="number" min="0" value="${esc(a.reach ?? 5)}" placeholder="Reach" />
+            <input data-attack-magic="${idx}" type="number" value="${esc(a.magic_bonus ?? 0)}" placeholder="Magic bonus" />
+            <input data-attack-properties="${idx}" value="${esc((a.properties || []).join(", "))}" placeholder="Properties (comma separated)" />
+            <input data-attack-tags="${idx}" value="${esc((a.tags || []).join(", "))}" placeholder="Tags (e.g. sharpshooter, great_weapon_master)" />
+            <input data-attack-notes="${idx}" value="${esc(a.notes || "")}" placeholder="Notes" />
+          </div>
+        </div>`;
+    }).join("")}
       </div>
     </div></article>
 
@@ -6125,6 +7678,9 @@
       policyMode: localStorage.getItem(POLICY_KEY) === "core_only" ? "core_only" : "all_official",
       showCreate: false,
       diagnosticsOpen: false,
+      helpOpen: false,
+      helpSectionId: HELP_SECTIONS[0]?.id || "help-start",
+      helpValidationErrors: [],
       edited: { core: false, classes: false, combat: false, spells: false, inventory: false, trackers: false },
       densityMode: localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable",
       activeEditTab: localStorage.getItem(EDIT_TAB_KEY) || "core",
@@ -6147,6 +7703,7 @@
       lastCastLevel: 0,
       lastAction: "",
       checksDrawerOpen: false,
+      attackDrawer: { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false },
       conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", rounds_remaining: "", notes: "", active: true } },
       diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
       portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
@@ -6162,6 +7719,7 @@
       palette: { open: false, query: "", selected: 0, recents: [] },
       lookup: { open: false, type: "spell", query: "", level: "", allowOffClassSpells: false, selected: 0, results: [], feedback: "", originSectionId: "", originScrollY: 0, cursor: 0 }
     };
+    let helpController = null;
     const sectionIds = ["sec-core", "sec-classes", "sec-combat", "sec-profile", "sec-mechanics", "sec-spells", "sec-inventory", "sec-trackers"];
     function captureFocusState() {
       const active = document.activeElement;
@@ -6305,6 +7863,22 @@
       }
       render();
     }
+    function openHelpGuide(target = "", options = {}) {
+      const nextSectionId = resolveHelpSectionTarget(target, options);
+      uiState.helpSectionId = nextSectionId;
+      uiState.helpOpen = true;
+      uiState.toolsMenuOpen = false;
+      uiState.exportMenuOpen = false;
+      render();
+      requestAnimationFrame(() => scrollHelpContentToSection(nextSectionId, options.immediate ? "auto" : "smooth"));
+    }
+    function openHelpForFeature(featureId) {
+      openHelpGuide(featureId, { feature: true });
+    }
+    function closeHelpGuide() {
+      uiState.helpOpen = false;
+      render();
+    }
     function policyAllows(row) {
       if (uiState.policyMode !== "core_only") return true;
       return (row?.availability?.default || "allowed") !== "requires_dm_approval";
@@ -6371,6 +7945,19 @@
       }
       localStorage.setItem(PLAY_BOARD_KEY, JSON.stringify(uiState.playBoard));
     }
+    function scrollHelpContentToSection(sectionId, behavior = "smooth") {
+      const id = helpController?.openHelp(sectionId) || HELP_SECTIONS[0]?.id || "help-start";
+      const body = root2.querySelector(".help-body");
+      const target = id ? root2.querySelector(`#${CSS.escape(id)}`) : null;
+      if (!body || !target) return;
+      body.scrollTo({ top: Math.max(0, target.offsetTop - 12), behavior });
+    }
+    function resolveHelpSectionTarget(target = "", { feature = false } = {}) {
+      if (feature) return helpController?.resolveHelpSection(target) || HELP_SECTIONS[0]?.id || "help-start";
+      const featureExists = HELP_FEATURE_REGISTRY.some((row) => row.featureId === target);
+      if (featureExists) return helpController?.resolveHelpSection(target) || HELP_SECTIONS[0]?.id || "help-start";
+      return helpController?.openHelp(target) || HELP_SECTIONS[0]?.id || "help-start";
+    }
     function persistPlayBoard() {
       localStorage.setItem(PLAY_BOARD_KEY, JSON.stringify(uiState.playBoard));
     }
@@ -6423,6 +8010,7 @@
       let changed = false;
       actions.updateCharacter((c) => {
         c.combat = c.combat || {};
+        c.play_state = c.play_state || {};
         c.combat.conditions = Array.isArray(c.combat.conditions) ? c.combat.conditions : [];
         c.combat.conditions = c.combat.conditions.map((row) => {
           if (!row || typeof row !== "object" || row.active === false) return row;
@@ -6450,6 +8038,15 @@
             c.combat.concentration.source = "";
           }
         }
+        c.play_state.active_effects = Array.isArray(c.play_state.active_effects) ? c.play_state.active_effects : [];
+        c.play_state.active_effects = c.play_state.active_effects.map((row) => {
+          if (!row || typeof row !== "object" || row.active === false) return row;
+          const rounds = asInt(row.rounds_remaining, NaN);
+          if (!Number.isFinite(rounds) || rounds <= 0) return row;
+          changed = true;
+          const next = Math.max(0, rounds - roundsToAdvance);
+          return { ...row, rounds_remaining: next, active: next > 0 };
+        });
       });
       const stateAfter = getState();
       const activeConcentration = Boolean(stateAfter?.character?.combat?.concentration?.active);
@@ -6479,16 +8076,40 @@
       uiState.checksDrawerOpen = false;
       render();
     }
-    function secureDieRoll(sides) {
-      const max = Math.max(2, asInt(sides, 20));
-      const span = Math.floor(4294967296 / max) * max;
-      const bucket = new Uint32Array(1);
-      let v = 0;
-      do {
-        crypto.getRandomValues(bucket);
-        v = bucket[0];
-      } while (v >= span);
-      return v % max + 1;
+    function openAttackDrawer(attackId) {
+      const state = getState();
+      const rows = Array.isArray(state.character?.attacks) ? state.character.attacks : [];
+      const row = rows.find((x) => norm(x?.id) === norm(attackId));
+      if (!row) return;
+      const attack = normalizeAttackForUi(row);
+      const catalog2 = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
+      const derived = deriveStats(state.character || {});
+      const profile = deriveAttackProfile(row, state.character || {}, derived, catalog2);
+      const buckets = buildAttackModifierBuckets(state.character || {}, profile, derived);
+      const defaultSelected = {};
+      buckets.suggested_modifiers.forEach((mod) => {
+        if (mod.advantage_state && mod.advantage_state !== "none") defaultSelected[mod.id] = true;
+      });
+      uiState.attackDrawer = {
+        open: true,
+        attackId: attack.id,
+        rollMode: "auto",
+        selected: defaultSelected,
+        critical: false,
+        versatile: false,
+        smiteLevel: 1,
+        targetNote: "",
+        lastResult: null,
+        awaitingDamage: false,
+        contextOpen: false,
+        contextDraft: "",
+        contextSaved: false
+      };
+      render();
+    }
+    function closeAttackDrawer() {
+      uiState.attackDrawer = { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", lastResult: null, awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false };
+      render();
     }
     function buildDicePayload(die, count, mod) {
       const rolls = Array.from({ length: count }, () => secureDieRoll(die));
@@ -6579,6 +8200,179 @@
       });
       recordPlayAction(`Rolled initiative: d20(${d20}) ${initiativeMod >= 0 ? "+" : "-"} ${Math.abs(initiativeMod)} = ${payload.total}`);
     }
+    function getOpenAttackContext() {
+      const state = getState();
+      const character = state.character || {};
+      const rows = Array.isArray(character.attacks) ? character.attacks : [];
+      const attackRow = rows.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
+      if (!attackRow) return null;
+      const catalog2 = actions.getCatalog ? actions.getCatalog() : { attacks: [] };
+      const derived = deriveStats(character);
+      const attack = deriveAttackProfile(attackRow, character, derived, catalog2);
+      const buckets = buildAttackModifierBuckets(character, attack, derived);
+      const selectedMap = uiState.attackDrawer.selected || {};
+      const applied = [
+        ...buckets.auto_applied_modifiers,
+        ...buckets.suggested_modifiers.filter((row) => selectedMap[row.id]),
+        ...buckets.manual_options.filter((row) => selectedMap[row.id])
+      ];
+      return { character, catalog: catalog2, derived, attack, buckets, applied };
+    }
+    function buildAttackD20Payload(mod, mode = "normal") {
+      const safeMod = clamp(asInt(mod, 0), -99, 99);
+      const left = secureDieRoll(20);
+      const right = mode === "normal" ? null : secureDieRoll(20);
+      const chosen = mode === "advantage" ? Math.max(left, right) : mode === "disadvantage" ? Math.min(left, right) : left;
+      return {
+        die: 20,
+        count: 1,
+        mod: safeMod,
+        rolls: right == null ? [left] : [left, right],
+        chosen,
+        total: chosen + safeMod,
+        mode,
+        utc: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
+    function performAttackHitRoll() {
+      const context = getOpenAttackContext();
+      if (!context) return;
+      const requestedMode = uiState.attackDrawer.rollMode || "auto";
+      const mode = requestedMode === "auto" ? resolveAdvantageState("normal", context.applied) : requestedMode;
+      const modBonus = context.applied.reduce((sum, row) => sum + asInt(row.attack_roll_bonus, 0), 0);
+      const modDice = context.applied.map((row) => (row.attack_roll_dice || "").toString().trim()).filter(Boolean);
+      const payload = buildAttackD20Payload(context.attack.effectiveAttackBonus + modBonus, mode);
+      const riderDice = modDice.map((formula) => rollDiceTerms(formula)).filter((row) => row.valid);
+      const riderTotal = riderDice.reduce((sum, row) => sum + row.total, 0);
+      const finalTotal = payload.total + riderTotal;
+      const chosen = payload.chosen;
+      const nat20 = chosen === 20;
+      const nat1 = chosen === 1;
+      const rollDisplay = payload.rolls.length === 2 ? `d20(${payload.rolls[0]}, ${payload.rolls[1]})` : `d20(${payload.rolls[0]})`;
+      const riderText = riderDice.length ? ` plus ${riderDice.map((row) => `${renderRolledFormula(row.detailed)} = ${row.total}`).join(" + ")}` : "";
+      const summary = `${context.attack.name} attack${mode !== "normal" ? ` with ${mode}` : ""}: ${rollDisplay} ${context.attack.effectiveAttackBonus + modBonus >= 0 ? "+" : "-"} ${Math.abs(context.attack.effectiveAttackBonus + modBonus)}${riderText} = ${finalTotal}`;
+      actions.updateCharacter((c) => {
+        c.play_state = c.play_state || {};
+        c.play_state.last_attack_roll = {
+          attack_id: context.attack.id,
+          label: context.attack.name,
+          total: finalTotal,
+          chosen,
+          rolls: payload.rolls,
+          mode,
+          nat20,
+          nat1,
+          summary,
+          utc: payload.utc
+        };
+        c.log = Array.isArray(c.log) ? c.log : [];
+        c.log.push({ id: crypto.randomUUID(), utc: payload.utc, tag: "attack", message: summary });
+      });
+      uiState.attackDrawer = uiState.attackDrawer || {};
+      uiState.attackDrawer.critical = nat20;
+      uiState.attackDrawer.awaitingDamage = true;
+      uiState.attackDrawer.contextSaved = false;
+      uiState.attackDrawer.lastResult = {
+        kind: "hit",
+        attackId: context.attack.id,
+        summary,
+        nat20,
+        nat1,
+        utc: payload.utc
+      };
+      recordPlayAction(summary + (nat20 ? " (nat 20)" : nat1 ? " (nat 1)" : ""));
+      render();
+    }
+    function performAttackDamageRoll({ crit = false } = {}) {
+      const context = getOpenAttackContext();
+      if (!context) return;
+      const selectedMap = uiState.attackDrawer.selected || {};
+      const useVersatile = Boolean(uiState.attackDrawer.versatile && context.attack.versatile_damage);
+      const damageFormula = useVersatile ? context.attack.versatile_damage : context.attack.damageFormula;
+      if (!damageFormula && !context.applied.some((row) => (row.damage_dice || "").toString().trim()) && !context.attack.damageBonusAuto) {
+        recordPlayAction(`${context.attack.name} has no damage roll configured.`);
+        return;
+      }
+      const flatBonus = context.attack.damageBonusAuto + context.applied.reduce((sum, row) => sum + asInt(row.damage_bonus, 0), 0);
+      const extraDice = context.applied.map((row) => (row.damage_dice || "").toString().trim()).filter(Boolean);
+      const smiteEnabled = selectedMap["class:divine_smite"];
+      let smiteFormula = "";
+      let smiteSpentLevel = 0;
+      if (smiteEnabled) {
+        smiteSpentLevel = clamp(asInt(uiState.attackDrawer.smiteLevel, 1), 1, 9);
+        smiteFormula = `${2 + Math.max(0, smiteSpentLevel - 1)}d8`;
+        extraDice.push(smiteFormula);
+      }
+      const lastHit = context.character?.play_state?.last_attack_roll || null;
+      const autoCrit = Boolean(lastHit?.attack_id === context.attack.id && lastHit?.nat20);
+      const critActive = Boolean(crit || uiState.attackDrawer.critical || autoCrit);
+      const result = rollDiceTerms(damageFormula, { crit: critActive, extraDice });
+      const total = result.total + flatBonus;
+      const parts = [];
+      if (result.detailed.length) parts.push(renderRolledFormula(result.detailed));
+      if (flatBonus) parts.push(flatBonus > 0 ? `+ ${flatBonus}` : `- ${Math.abs(flatBonus)}`);
+      const type = context.applied.find((row) => row.damage_type_replace)?.damage_type_replace || context.attack.damage_type;
+      const summary = `${context.attack.name} ${critActive ? "critical " : ""}damage: ${parts.join(" + ").replace(/\+\s-\s/g, "- ")}${type ? ` ${type}` : ""} = ${total}`;
+      actions.updateCharacter((c) => {
+        c.play_state = c.play_state || {};
+        const stamp = (/* @__PURE__ */ new Date()).toISOString();
+        c.play_state.last_attack_damage_roll = {
+          attack_id: context.attack.id,
+          label: context.attack.name,
+          total,
+          crit: critActive,
+          summary,
+          utc: stamp
+        };
+        c.log = Array.isArray(c.log) ? c.log : [];
+        c.log.push({ id: crypto.randomUUID(), utc: stamp, tag: "damage", message: summary });
+        if (smiteEnabled && smiteSpentLevel > 0) {
+          c.spell_slots = c.spell_slots || { levels: {} };
+          c.spell_slots.levels = c.spell_slots.levels || {};
+          const key = String(smiteSpentLevel);
+          const row = c.spell_slots.levels[key] || { max: 0, used: 0 };
+          if ((row.used || 0) < (row.max || 0)) row.used = Math.min(row.max || 0, (row.used || 0) + 1);
+          c.spell_slots.levels[key] = row;
+        }
+      });
+      uiState.attackDrawer = uiState.attackDrawer || {};
+      uiState.attackDrawer.awaitingDamage = false;
+      uiState.attackDrawer.lastResult = {
+        kind: "damage",
+        attackId: context.attack.id,
+        summary,
+        crit: critActive,
+        utc: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      recordPlayAction(summary);
+      render();
+    }
+    function saveAttackContextNote() {
+      const note = (uiState.attackDrawer?.contextDraft || "").toString().trim();
+      if (!note) {
+        uiState.attackDrawer.contextOpen = false;
+        uiState.attackDrawer.contextDraft = "";
+        render();
+        return;
+      }
+      const context = getOpenAttackContext();
+      const attackName = context?.attack?.name || "Attack";
+      const summary = `${attackName} context: ${note}`;
+      actions.updateCharacter((c) => {
+        c.log = Array.isArray(c.log) ? c.log : [];
+        c.log.push({
+          id: crypto.randomUUID(),
+          utc: (/* @__PURE__ */ new Date()).toISOString(),
+          tag: "attack_note",
+          message: summary
+        });
+      });
+      recordPlayAction(`Logged context for ${attackName}`);
+      uiState.attackDrawer.contextSaved = true;
+      uiState.attackDrawer.contextOpen = false;
+      uiState.attackDrawer.contextDraft = "";
+      render();
+    }
     function openPortraitCrop(src, iw, ih) {
       uiState.portraitCrop = { open: true, src, zoom: 1, x: 0, y: 0, iw, ih };
       render();
@@ -6651,6 +8445,7 @@
         { id: "ui.openDiagnosticsDrawer", label: "Open Diagnostics", hint: "Drawer", keywords: ["diagnostics", "report", "errors"], enabled: () => true, run: () => {
           uiState.diagnosticsOpen = true;
         } },
+        { id: "ui.openHelpGuide", label: "Open Help Guide", hint: "How to use the app", keywords: ["help", "guide", "manual", "how to"], enabled: () => true, run: () => openHelpGuide("help-start") },
         { id: "ui.openToolsMenu", label: "Open Tools Menu", hint: "Header tools", keywords: ["tools", "gear", "menu"], enabled: () => true, run: () => {
           uiState.toolsMenuOpen = true;
         } },
@@ -6670,6 +8465,7 @@
         { id: "jump-inventory", label: "Jump: Inventory", hint: "Ctrl/Cmd+5", keywords: ["jump", "inventory"], enabled: () => uiState.mode === "edit", run: () => jumpToSection(6) },
         { id: "jump-trackers", label: "Jump: Trackers & Log", hint: "Ctrl/Cmd+6", keywords: ["jump", "trackers", "log"], enabled: () => uiState.mode === "edit", run: () => jumpToSection(7) },
         { id: "lookup-spell", label: "Open Spell Lookup", hint: "Rules data", keywords: ["lookup", "spell"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("spell") },
+        { id: "lookup-attack", label: "Open Attack Lookup", hint: "Weapon presets", keywords: ["lookup", "attack", "weapon"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("attack") },
         { id: "lookup-class", label: "Open Class Lookup", hint: "Rules data", keywords: ["lookup", "class"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("class") },
         { id: "lookup-subclass", label: "Open Subclass Lookup", hint: "Rules data", keywords: ["lookup", "subclass"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("subclass") },
         { id: "lookup-species", label: "Open Species Lookup", hint: "Rules data", keywords: ["lookup", "species"], enabled: () => hasCharacter && uiState.mode === "edit", run: () => openLookup("species") },
@@ -6698,6 +8494,11 @@
         { id: "ui.play.focusCast", label: "Play Focus: Cast", hint: "Turn console", keywords: ["play", "cast", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("spells") },
         { id: "ui.play.focusBonus", label: "Play Focus: Bonus Actions", hint: "Turn console", keywords: ["play", "bonus", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("bonus") },
         { id: "ui.play.focusAttack", label: "Play Focus: Attack", hint: "Turn console", keywords: ["play", "attack", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("attacks") },
+        { id: "ui.play.openAttackDrawer", label: "Play: Open Attack Drawer", hint: "Selected attack", keywords: ["play", "attack", "drawer"], enabled: () => hasCharacter && uiState.mode === "play" && Array.isArray(state.character?.attacks) && state.character.attacks.length > 0, run: () => {
+          const first = (state.character?.attacks || [])[0];
+          if (first?.id) openAttackDrawer(first.id);
+        } },
+        { id: "ui.play.closeAttackDrawer", label: "Play: Close Attack Drawer", hint: "Selected attack", keywords: ["play", "attack", "drawer", "close"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.attackDrawer?.open, run: () => closeAttackDrawer() },
         { id: "ui.play.focusChecks", label: "Play Focus: Checks", hint: "Checks and saves", keywords: ["play", "checks", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openChecksDrawer() },
         { id: "ui.play.focusResources", label: "Play Focus: Resources", hint: "Turn console", keywords: ["play", "resources", "focus"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setActivePlayPane("trackers") },
         { id: "ui.play.toggleUtilityRail", label: uiState.playBoard?.utilityRailOpen !== false ? "Hide Utility Rail" : "Show Utility Rail", hint: "Play layout", keywords: ["play", "utility", "rail"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ utilityRailOpen: !(uiState.playBoard?.utilityRailOpen !== false) }) },
@@ -6705,6 +8506,9 @@
         { id: "ui.play.toggleHud", label: uiState.playBoard?.hudCollapsed ? "Expand Combat HUD" : "Collapse Combat HUD", hint: "Play layout", keywords: ["play", "hud", "collapse"], enabled: () => hasCharacter && uiState.mode === "play", run: () => setPlayBoard({ hudCollapsed: !uiState.playBoard?.hudCollapsed }) },
         { id: "play.openDiceTray", label: "Play: Roll Dice", hint: "Open dice tray", keywords: ["play", "dice", "roll", "d20"], enabled: () => hasCharacter && uiState.mode === "play", run: () => openDiceTray() },
         { id: "play.rollInitiative", label: "Play: Roll Initiative", hint: "1d20 + Dex", keywords: ["play", "initiative", "roll"], enabled: () => hasCharacter && uiState.mode === "play", run: () => performInitiativeRoll() },
+        { id: "play.rollAttackHit", label: "Play: Roll Attack To Hit", hint: "Attack drawer", keywords: ["play", "attack", "hit", "roll"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.attackDrawer?.open, run: () => performAttackHitRoll() },
+        { id: "play.rollAttackDamage", label: "Play: Roll Attack Damage", hint: "Attack drawer", keywords: ["play", "attack", "damage", "roll"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.attackDrawer?.open, run: () => performAttackDamageRoll() },
+        { id: "play.rollAttackCrit", label: "Play: Roll Critical Damage", hint: "Attack drawer", keywords: ["play", "attack", "crit", "roll"], enabled: () => hasCharacter && uiState.mode === "play" && uiState.attackDrawer?.open, run: () => performAttackDamageRoll({ crit: true }) },
         { id: "play.roll.d20", label: "Play: Quick Roll 1d20", hint: "Immediate roll", keywords: ["play", "quick", "d20"], enabled: () => hasCharacter && uiState.mode === "play", run: () => {
           uiState.diceTray = { ...uiState.diceTray, die: 20, count: 1, mod: 0 };
           performDiceRoll();
@@ -7013,6 +8817,39 @@
         uiState.lookup.feedback = `Added spell ${row.title}.`;
         return true;
       }
+      if (uiState.lookup.type === "attack") {
+        const raw = row.raw || {};
+        const rangeLabel = formatAttackRangeText(raw);
+        markEdited("combat");
+        actions.updateCharacter((c) => {
+          c.attacks = Array.isArray(c.attacks) ? c.attacks : [];
+          c.attacks.push({
+            id: crypto.randomUUID(),
+            catalog_id: raw.id || "",
+            name: raw.name || row.title || "Attack",
+            kind: raw.kind || "custom",
+            attack_ability: raw.kind === "ranged_weapon" ? "dex" : "auto",
+            proficient: true,
+            magic_bonus: 0,
+            atk_bonus_mode: "auto",
+            atk_bonus_override: 0,
+            atk_bonus: 0,
+            damage_mode: raw.damage_base ? "auto" : "manual",
+            damage: raw.damage_base || "",
+            damage_type: raw.damage_type || "",
+            versatile_damage: raw.versatile_damage || "",
+            range: rangeLabel,
+            range_short: asInt(raw.range_short, 0),
+            range_long: asInt(raw.range_long, 0),
+            reach: asInt(raw.reach, raw.kind === "melee_weapon" ? 5 : 0),
+            properties: Array.isArray(raw.properties) ? raw.properties : splitCsvLike(raw.properties),
+            notes: raw.notes || "",
+            tags: []
+          });
+        });
+        uiState.lookup.feedback = `Added attack preset ${row.title}.`;
+        return true;
+      }
       if (uiState.lookup.type === "subclass") {
         const classRows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
         const targetIdx = classRows.findIndex((x) => norm(x?.id) === norm(row.raw?.class_id));
@@ -7072,6 +8909,132 @@
         window.scrollTo({ top: scrollY, behavior: "smooth" });
       });
     }
+    const helpActionMap = {
+      openCreateCharacter: () => {
+        uiState.showCreate = true;
+        closeHelpGuide();
+      },
+      runImportZip: async () => {
+        closeHelpGuide();
+        await actions.importZip();
+        if (getState().character) {
+          uiState.showCreate = false;
+          render();
+        }
+        return true;
+      },
+      switchToEditMode: () => {
+        setMode("edit");
+        closeHelpGuide();
+      },
+      openSpellLookup: () => {
+        setMode("edit");
+        closeHelpGuide();
+        openLookup("spell");
+        return true;
+      },
+      openClassLookup: () => {
+        setMode("edit");
+        closeHelpGuide();
+        openLookup("class");
+        return true;
+      },
+      openSubclassLookup: () => {
+        setMode("edit");
+        closeHelpGuide();
+        openLookup("subclass");
+        return true;
+      },
+      openSpeciesLookup: () => {
+        setMode("edit");
+        closeHelpGuide();
+        openLookup("species");
+        return true;
+      },
+      openAttackLookup: () => {
+        setMode("edit");
+        closeHelpGuide();
+        openLookup("attack");
+        return true;
+      },
+      switchToPlayMode: () => {
+        setMode("play");
+        closeHelpGuide();
+      },
+      focusPlaySpells: () => {
+        setMode("play");
+        setActivePlayPane("spells");
+        closeHelpGuide();
+      },
+      focusPlayAttacks: () => {
+        setMode("play");
+        setActivePlayPane("attacks");
+        closeHelpGuide();
+      },
+      focusPlayTrackers: () => {
+        setMode("play");
+        setActivePlayPane("trackers");
+        closeHelpGuide();
+      },
+      focusPlayLog: () => {
+        setMode("play");
+        setActivePlayPane("log");
+        closeHelpGuide();
+      },
+      focusPlayNotes: () => {
+        setMode("play");
+        setActivePlayPane("notes");
+        closeHelpGuide();
+      },
+      saveNow: () => {
+        actions.saveNow();
+        closeHelpGuide();
+        return true;
+      },
+      runExportZip: async () => {
+        closeHelpGuide();
+        await actions.exportZip();
+        return true;
+      },
+      openDiagnostics: () => {
+        uiState.diagnosticsOpen = true;
+        closeHelpGuide();
+        return true;
+      },
+      switchEditTabCore: () => {
+        setMode("edit");
+        setActiveEditTab("core");
+        closeHelpGuide();
+      },
+      switchEditTabBattle: () => {
+        setMode("edit");
+        setActiveEditTab("battle");
+        closeHelpGuide();
+      },
+      switchEditTabSpellcraft: () => {
+        setMode("edit");
+        setActiveEditTab("spellcraft");
+        closeHelpGuide();
+      },
+      switchEditTabGear: () => {
+        setMode("edit");
+        setActiveEditTab("gear");
+        closeHelpGuide();
+      },
+      switchEditTabChronicle: () => {
+        setMode("edit");
+        setActiveEditTab("chronicle");
+        closeHelpGuide();
+      }
+    };
+    helpController = createHelpController({
+      sections: HELP_SECTIONS,
+      glossary: HELP_GLOSSARY,
+      registry: HELP_FEATURE_REGISTRY,
+      actionMap: helpActionMap,
+      getState
+    });
+    uiState.helpValidationErrors = helpController.validationErrors.slice();
     function cycleSections(step) {
       if (uiState.mode !== "edit") return;
       const ids = tabSections(uiState.activeEditTab || "core");
@@ -7129,6 +9092,7 @@
               <button type="button" id="toolsMenuBtn" title="Tools" aria-label="Tools">\u2699</button>
               ${uiState.toolsMenuOpen ? `<div class="tools-menu" id="toolsMenu">
                 <button type="button" id="toolsOpenPalette">Command Palette</button>
+                <button type="button" id="toolsOpenHelp">How to Use The Living Codex</button>
                 <button type="button" id="toolsExportPdf" ${character ? "" : "disabled"}>Export PDF</button>
                 <button type="button" id="toolsOpenAppearance">Customize Appearance</button>
                 <button type="button" id="toolsOpenDiagnostics">Diagnostics</button>
@@ -7257,9 +9221,15 @@
             ${rawCatalog.error ? `<p class="error">Rules data error: ${esc(rawCatalog.error)}</p>` : ""}
             ${state.app.lastError ? `<p class="error">App error: ${esc(state.app.lastError)}</p>` : ""}
             ${renderReport(state.importReport)}
+            ${uiState.helpValidationErrors.length ? `<div class="help-maintenance-note">
+              <strong>Help integrity checks</strong>
+              <ul class="diag-list">${uiState.helpValidationErrors.map((message) => `<li>${esc(message)}</li>`).join("")}</ul>
+            </div>` : ""}
           </div>
         </section>
       </div>` : ""}
+      ${uiState.helpOpen ? renderHelpGuide(helpController, uiState.helpSectionId, uiState.helpValidationErrors) : ""}
+      ${character && uiState.mode === "play" ? renderAttackDrawer(character, uiState, actions) : ""}
       ${uiState.portraitCrop.open ? `<div class="palette-overlay" id="portraitOverlay">
         <section class="palette cast-menu" role="dialog" aria-modal="true">
           <button type="button" class="overlay-close" data-overlay-close="portrait" aria-label="Close overlay">\xD7</button>
@@ -7310,6 +9280,15 @@
     function bindEvents() {
       const state = getState();
       const character = state.character;
+      const syncCreateDraft = () => {
+        draft.name = root2.querySelector("#newName")?.value || draft.name;
+        draft.rulesetId = root2.querySelector("#newRuleset")?.value || draft.rulesetId;
+        draft.classId = root2.querySelector("#newClass")?.value || "";
+        draft.speciesId = root2.querySelector("#newSpecies")?.value || "";
+        for (const k of ["str", "dex", "con", "int", "wis", "cha"]) {
+          draft[k] = asInt(root2.querySelector(`#new${k.toUpperCase()}`)?.value, 10);
+        }
+      };
       root2.querySelector("#toolsMenuBtn")?.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -7334,6 +9313,7 @@
         uiState.palette.selected = 0;
         render();
       });
+      root2.querySelector("#toolsOpenHelp")?.addEventListener("click", () => openHelpGuide("help-start"));
       root2.querySelector("#toolsExportPdf")?.addEventListener("click", async () => {
         uiState.toolsMenuOpen = false;
         render();
@@ -7360,7 +9340,9 @@
         setDensityMode(uiState.densityMode === "compact" ? "comfortable" : "compact");
         render();
       });
-      root2.querySelector("#newCharBtn")?.addEventListener("click", () => {
+      root2.querySelector("#newCharBtn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         uiState.showCreate = true;
         render();
       });
@@ -7368,7 +9350,9 @@
         setPolicyMode(e.target.checked ? "core_only" : "all_official");
         render();
       });
-      root2.querySelector("#importBtn")?.addEventListener("click", async () => {
+      root2.querySelector("#importBtn")?.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         await actions.importZip();
         if (getState().character) {
           uiState.showCreate = false;
@@ -7379,24 +9363,24 @@
         setMode(e.target.checked ? "play" : "edit");
         render();
       });
-      root2.querySelector("#createBtn")?.addEventListener("click", () => {
-        draft.name = root2.querySelector("#newName")?.value || draft.name;
-        draft.rulesetId = root2.querySelector("#newRuleset")?.value || draft.rulesetId;
-        draft.classId = root2.querySelector("#newClass")?.value || "";
-        draft.speciesId = root2.querySelector("#newSpecies")?.value || "";
-        for (const k of ["str", "dex", "con", "int", "wis", "cha"]) draft[k] = asInt(root2.querySelector(`#new${k.toUpperCase()}`)?.value, 10);
+      root2.querySelector("#createBtn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        syncCreateDraft();
         actions.newCharacter(draft);
         uiState.showCreate = false;
       });
-      root2.querySelector("#newSpecies")?.addEventListener("change", (e) => {
-        draft.speciesId = e.target.value || "";
+      root2.querySelector("#newSpecies")?.addEventListener("change", () => {
+        syncCreateDraft();
         render();
       });
-      root2.querySelector("#newClass")?.addEventListener("change", (e) => {
-        draft.classId = e.target.value || "";
+      root2.querySelector("#newClass")?.addEventListener("change", () => {
+        syncCreateDraft();
         render();
       });
-      root2.querySelector("#cancelCreateBtn")?.addEventListener("click", () => {
+      root2.querySelector("#cancelCreateBtn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         uiState.showCreate = false;
         render();
       });
@@ -7408,6 +9392,9 @@
       });
       root2.querySelector("#appearanceOverlay")?.addEventListener("click", (e) => {
         if (e.target?.id === "appearanceOverlay") closeAppearanceCustomizer({ revert: true });
+      });
+      root2.querySelector("#helpOverlay")?.addEventListener("click", (e) => {
+        if (e.target?.id === "helpOverlay") closeHelpGuide();
       });
       root2.querySelectorAll("[data-overlay-close]").forEach((el) => {
         el.addEventListener("click", (e) => {
@@ -7437,9 +9424,21 @@
             closeAppearanceCustomizer({ revert: true });
             return;
           }
+          if (type === "help") {
+            closeHelpGuide();
+            return;
+          }
           if (type === "diagnostics") {
             uiState.diagnosticsOpen = false;
             render();
+            return;
+          }
+          if (type === "attack") {
+            closeAttackDrawer();
+            return;
+          }
+          if (type === "attack-help") {
+            closeAttackHelp();
             return;
           }
           if (type === "portrait") {
@@ -7476,6 +9475,48 @@
         uiState.appearanceDraft[key] = e.target.value;
         applyAppearance(uiState.appearanceDraft);
       }));
+      root2.querySelectorAll("[data-help-jump]").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          const id = e.currentTarget.getAttribute("data-help-jump");
+          uiState.helpSectionId = helpController?.openHelp(id) || uiState.helpSectionId;
+          render();
+          requestAnimationFrame(() => scrollHelpContentToSection(uiState.helpSectionId, "smooth"));
+        });
+      });
+      root2.querySelectorAll("[data-help-action]").forEach((el) => {
+        el.addEventListener("click", async (e) => {
+          const actionId = e.currentTarget.getAttribute("data-help-action");
+          if (!actionId) return;
+          await helpController?.runHelpAction(actionId);
+          render();
+        });
+      });
+      root2.querySelectorAll("[data-help-feature]").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          const featureId = e.currentTarget.getAttribute("data-help-feature");
+          if (!featureId) return;
+          openHelpForFeature(featureId);
+        });
+      });
+      root2.querySelectorAll("[data-help-section]").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          const sectionId = e.currentTarget.getAttribute("data-help-section");
+          openHelpGuide(sectionId);
+        });
+      });
+      root2.querySelector(".help-body")?.addEventListener("scroll", (e) => {
+        const body = e.currentTarget;
+        const cards = [...body.querySelectorAll(".help-card[id]")];
+        if (!cards.length) return;
+        const activeCard = cards.find((card) => card.offsetTop - body.scrollTop >= -24) || cards[cards.length - 1];
+        const nextId = activeCard?.id || uiState.helpSectionId;
+        if (nextId && nextId !== uiState.helpSectionId) {
+          uiState.helpSectionId = nextId;
+          root2.querySelectorAll(".help-nav-links [data-help-jump]").forEach((button) => {
+            button.classList.toggle("is-active", button.getAttribute("data-help-jump") === nextId);
+          });
+        }
+      });
       root2.querySelector("#castOverlay")?.addEventListener("click", (e) => {
         if (e.target?.id === "castOverlay") closeCastMenu();
       });
@@ -7487,6 +9528,9 @@
       });
       root2.querySelector("#checksDrawerOverlay")?.addEventListener("click", (e) => {
         if (e.target?.id === "checksDrawerOverlay") closeChecksDrawer();
+      });
+      root2.querySelector("#attackDrawerOverlay")?.addEventListener("click", (e) => {
+        if (e.target?.id === "attackDrawerOverlay") closeAttackDrawer();
       });
       root2.querySelector("#diagnosticsOverlay")?.addEventListener("click", (e) => {
         if (e.target?.id === "diagnosticsOverlay") {
@@ -7715,6 +9759,60 @@
             render();
           });
         });
+        root2.querySelectorAll("[data-open-attack]").forEach((el) => el.addEventListener("click", (e) => {
+          const id = e.currentTarget.getAttribute("data-open-attack");
+          if (id) openAttackDrawer(id);
+        }));
+        root2.querySelector("#attackRollModeSelect")?.addEventListener("change", (e) => {
+          uiState.attackDrawer.rollMode = e.target.value || "auto";
+          render();
+        });
+        root2.querySelectorAll("[data-attack-mod]").forEach((el) => el.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-attack-mod");
+          if (!id) return;
+          uiState.attackDrawer.selected = { ...uiState.attackDrawer.selected || {}, [id]: Boolean(e.target.checked) };
+          render();
+        }));
+        root2.querySelectorAll("[data-attack-mod-pill]").forEach((el) => el.addEventListener("click", (e) => {
+          const id = e.currentTarget.getAttribute("data-attack-mod-pill");
+          if (!id) return;
+          const current = Boolean(uiState.attackDrawer.selected?.[id]);
+          uiState.attackDrawer.selected = { ...uiState.attackDrawer.selected || {}, [id]: !current };
+          render();
+        }));
+        root2.querySelector("#attackUseVersatile")?.addEventListener("change", (e) => {
+          uiState.attackDrawer.versatile = Boolean(e.target.checked);
+          render();
+        });
+        root2.querySelector("#attackCriticalHit")?.addEventListener("change", (e) => {
+          uiState.attackDrawer.critical = Boolean(e.target.checked);
+          render();
+        });
+        root2.querySelector("#attackSmiteLevel")?.addEventListener("change", (e) => {
+          uiState.attackDrawer.smiteLevel = asInt(e.target.value, 1);
+          render();
+        });
+        root2.querySelector("#toggleAttackContext")?.addEventListener("click", () => {
+          uiState.attackDrawer.contextOpen = !uiState.attackDrawer.contextOpen;
+          if (!uiState.attackDrawer.contextOpen) uiState.attackDrawer.contextDraft = "";
+          render();
+        });
+        root2.querySelector("#attackContextDraft")?.addEventListener("input", (e) => {
+          uiState.attackDrawer.contextDraft = e.target.value || "";
+        });
+        root2.querySelector("#saveAttackContext")?.addEventListener("click", () => saveAttackContextNote());
+        root2.querySelector("#cancelAttackContext")?.addEventListener("click", () => {
+          uiState.attackDrawer.contextOpen = false;
+          uiState.attackDrawer.contextDraft = "";
+          render();
+        });
+        root2.querySelector("#attackResolveBtn")?.addEventListener("click", (e) => {
+          const requestedType = e.currentTarget.getAttribute("data-attack-resolve") || "hit";
+          const crit = e.currentTarget.getAttribute("data-attack-crit") === "1" || Boolean(uiState.attackDrawer?.critical);
+          const shouldResolveDamage = requestedType === "damage" || Boolean(uiState.attackDrawer?.awaitingDamage);
+          if (shouldResolveDamage) performAttackDamageRoll({ crit });
+          else performAttackHitRoll();
+        });
         root2.querySelectorAll("[data-roll-save]").forEach((el) => {
           el.addEventListener("click", (e) => {
             const id = e.currentTarget.getAttribute("data-roll-save") || "";
@@ -7837,6 +9935,28 @@
           c.trackers = Array.isArray(c.trackers) ? c.trackers : [];
           c.trackers.push({ id: crypto.randomUUID(), label: "", type: "counter", reset: "none", max: 0, current: 0 });
         }));
+        root2.querySelector("#playEffectAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
+          c.play_state = c.play_state || {};
+          c.play_state.active_effects = Array.isArray(c.play_state.active_effects) ? c.play_state.active_effects : [];
+          c.play_state.active_effects.push({
+            id: crypto.randomUUID(),
+            label: "",
+            source: "",
+            source_type: "custom_effect",
+            scope: "all_attacks",
+            timing: "persistent",
+            application_mode: "manual",
+            active: true,
+            rounds_remaining: null,
+            attack_roll_bonus: 0,
+            attack_roll_dice: "",
+            advantage_state: "none",
+            damage_bonus: 0,
+            damage_dice: "",
+            damage_type_add: "",
+            notes: ""
+          });
+        }));
         root2.querySelector("#playLogAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
           const stats = computeLogNotesChars(c);
           if (stats.remaining <= 0) return;
@@ -7902,6 +10022,93 @@
           const i = asInt(e.currentTarget.getAttribute("data-play-tracker-del"), -1);
           actions.updateCharacter((c) => {
             if (Array.isArray(c.trackers)) c.trackers.splice(i, 1);
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-label]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-label"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].label = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-source]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-source"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].source = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-active]").forEach((el) => el.addEventListener("change", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-active"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].active = Boolean(e.target.checked);
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-scope]").forEach((el) => el.addEventListener("change", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-scope"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].scope = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-rounds]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-rounds"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) {
+              const raw = e.target.value;
+              c.play_state.active_effects[i].rounds_remaining = raw === "" ? null : Math.max(0, asInt(raw, 0));
+            }
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-mode]").forEach((el) => el.addEventListener("change", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-mode"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].application_mode = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-atkbonus]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-atkbonus"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].attack_roll_bonus = asInt(e.target.value, 0);
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-atkdice]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-atkdice"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].attack_roll_dice = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-dmgbonus]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-dmgbonus"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].damage_bonus = asInt(e.target.value, 0);
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-dmgdice]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-dmgdice"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].damage_dice = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-dmgtype]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-dmgtype"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].damage_type_add = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-adv]").forEach((el) => el.addEventListener("change", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-adv"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].advantage_state = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-notes]").forEach((el) => el.addEventListener("input", (e) => {
+          const i = asInt(e.target.getAttribute("data-play-effect-notes"), -1);
+          actions.updateCharacter((c) => {
+            if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].notes = e.target.value;
+          });
+        }));
+        root2.querySelectorAll("[data-play-effect-del]").forEach((el) => el.addEventListener("click", (e) => {
+          const i = asInt(e.currentTarget.getAttribute("data-play-effect-del"), -1);
+          actions.updateCharacter((c) => {
+            if (Array.isArray(c.play_state?.active_effects)) c.play_state.active_effects.splice(i, 1);
           });
         }));
         root2.querySelectorAll("[data-play-log-tag]").forEach((el) => el.addEventListener("change", (e) => {
@@ -8230,41 +10437,138 @@
           c.skills[key].manual_total = asInt(e.target.value, 0);
         });
       }));
-      root2.querySelector("#attackAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
+      root2.querySelector("#attackAddCustom")?.addEventListener("click", () => actions.updateCharacter((c) => {
         c.attacks = Array.isArray(c.attacks) ? c.attacks : [];
-        c.attacks.push({ id: crypto.randomUUID(), name: "", atk_bonus: 0, damage: "", damage_type: "", range: "", notes: "" });
+        c.attacks.push({
+          id: crypto.randomUUID(),
+          catalog_id: "",
+          name: "",
+          kind: "custom",
+          attack_ability: "auto",
+          proficient: false,
+          magic_bonus: 0,
+          atk_bonus_mode: "manual",
+          atk_bonus_override: 0,
+          atk_bonus: 0,
+          damage_mode: "manual",
+          damage: "",
+          damage_type: "",
+          versatile_damage: "",
+          range: "",
+          range_short: 0,
+          range_long: 0,
+          reach: 5,
+          properties: [],
+          notes: "",
+          tags: []
+        });
       }));
-      root2.querySelectorAll("[data-attack-name]").forEach((el) => el.addEventListener("change", (e) => {
+      root2.querySelectorAll("[data-attack-name]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-attack-name"), -1);
         actions.updateCharacter((c) => {
           if (c.attacks?.[i]) c.attacks[i].name = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("change", (e) => {
-        const i = asInt(e.target.getAttribute("data-attack-bonus"), -1);
+      root2.querySelectorAll("[data-attack-kind]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-kind"), -1);
         actions.updateCharacter((c) => {
-          if (c.attacks?.[i]) c.attacks[i].atk_bonus = asInt(e.target.value, 0);
+          if (c.attacks?.[i]) c.attacks[i].kind = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-attack-damage]").forEach((el) => el.addEventListener("change", (e) => {
+      root2.querySelectorAll("[data-attack-ability]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-ability"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].attack_ability = e.target.value;
+        });
+      }));
+      root2.querySelectorAll("[data-attack-prof]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-prof"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].proficient = Boolean(e.target.checked);
+        });
+      }));
+      root2.querySelectorAll("[data-attack-atkmode]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-atkmode"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].atk_bonus_mode = e.target.checked ? "manual" : "auto";
+        });
+      }));
+      root2.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-bonus"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) {
+            c.attacks[i].atk_bonus_override = asInt(e.target.value, 0);
+            c.attacks[i].atk_bonus = asInt(e.target.value, 0);
+          }
+        });
+      }));
+      root2.querySelectorAll("[data-attack-dmgmode]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-dmgmode"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].damage_mode = e.target.checked ? "manual" : "auto";
+        });
+      }));
+      root2.querySelectorAll("[data-attack-damage]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-attack-damage"), -1);
         actions.updateCharacter((c) => {
           if (c.attacks?.[i]) c.attacks[i].damage = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-attack-damagetype]").forEach((el) => el.addEventListener("change", (e) => {
+      root2.querySelectorAll("[data-attack-damagetype]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-attack-damagetype"), -1);
         actions.updateCharacter((c) => {
           if (c.attacks?.[i]) c.attacks[i].damage_type = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-attack-range]").forEach((el) => el.addEventListener("change", (e) => {
+      root2.querySelectorAll("[data-attack-range]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-attack-range"), -1);
         actions.updateCharacter((c) => {
           if (c.attacks?.[i]) c.attacks[i].range = e.target.value;
         });
       }));
-      root2.querySelectorAll("[data-attack-notes]").forEach((el) => el.addEventListener("change", (e) => {
+      root2.querySelectorAll("[data-attack-versatile]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-versatile"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].versatile_damage = e.target.value;
+        });
+      }));
+      root2.querySelectorAll("[data-attack-range-short]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-range-short"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].range_short = Math.max(0, asInt(e.target.value, 0));
+        });
+      }));
+      root2.querySelectorAll("[data-attack-range-long]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-range-long"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].range_long = Math.max(0, asInt(e.target.value, 0));
+        });
+      }));
+      root2.querySelectorAll("[data-attack-reach]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-reach"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].reach = Math.max(0, asInt(e.target.value, 0));
+        });
+      }));
+      root2.querySelectorAll("[data-attack-magic]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-magic"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].magic_bonus = asInt(e.target.value, 0);
+        });
+      }));
+      root2.querySelectorAll("[data-attack-properties]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-properties"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].properties = splitCsvLike(e.target.value);
+        });
+      }));
+      root2.querySelectorAll("[data-attack-tags]").forEach((el) => el.addEventListener("input", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-tags"), -1);
+        actions.updateCharacter((c) => {
+          if (c.attacks?.[i]) c.attacks[i].tags = splitCsvLike(e.target.value);
+        });
+      }));
+      root2.querySelectorAll("[data-attack-notes]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-attack-notes"), -1);
         actions.updateCharacter((c) => {
           if (c.attacks?.[i]) c.attacks[i].notes = e.target.value;
@@ -8411,6 +10715,11 @@
         closeAppearanceCustomizer({ revert: true });
         return;
       }
+      if (uiState.helpOpen && e.key === "Escape") {
+        e.preventDefault();
+        closeHelpGuide();
+        return;
+      }
       if (uiState.toolsMenuOpen && e.key === "Escape") {
         e.preventDefault();
         uiState.toolsMenuOpen = false;
@@ -8432,6 +10741,11 @@
       if (uiState.checksDrawerOpen && e.key === "Escape") {
         e.preventDefault();
         closeChecksDrawer();
+        return;
+      }
+      if (uiState.attackDrawer?.open && e.key === "Escape") {
+        e.preventDefault();
+        closeAttackDrawer();
         return;
       }
       if (uiState.palette.open) {
@@ -8641,6 +10955,13 @@
           e.preventDefault();
           e.stopPropagation();
           openAppearanceCustomizer();
+          return;
+        }
+        const openHelpBtn = typeof target.closest === "function" ? target.closest("#toolsOpenHelp") : null;
+        if (openHelpBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          openHelpGuide("help-start");
           return;
         }
         const openDiagnosticsBtn = typeof target.closest === "function" ? target.closest("#toolsOpenDiagnostics") : null;
@@ -21959,6 +24280,48 @@
     }
   ];
 
+  // data/dnd5e_2014/attacks.min.json
+  var attacks_min_default = [
+    { id: "club", name: "Club", kind: "melee_weapon", damage_base: "1d4", damage_type: "bludgeoning", range_short: 0, range_long: 0, reach: 5, properties: ["light"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "dagger", name: "Dagger", kind: "melee_weapon", damage_base: "1d4", damage_type: "piercing", range_short: 20, range_long: 60, reach: 5, properties: ["finesse", "light", "thrown"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "greatclub", name: "Greatclub", kind: "melee_weapon", damage_base: "1d8", damage_type: "bludgeoning", range_short: 0, range_long: 0, reach: 5, properties: ["two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "handaxe", name: "Handaxe", kind: "melee_weapon", damage_base: "1d6", damage_type: "slashing", range_short: 20, range_long: 60, reach: 5, properties: ["light", "thrown"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "javelin", name: "Javelin", kind: "melee_weapon", damage_base: "1d6", damage_type: "piercing", range_short: 30, range_long: 120, reach: 5, properties: ["thrown"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "light_hammer", name: "Light Hammer", kind: "melee_weapon", damage_base: "1d4", damage_type: "bludgeoning", range_short: 20, range_long: 60, reach: 5, properties: ["light", "thrown"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "mace", name: "Mace", kind: "melee_weapon", damage_base: "1d6", damage_type: "bludgeoning", range_short: 0, range_long: 0, reach: 5, properties: [], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "quarterstaff", name: "Quarterstaff", kind: "melee_weapon", damage_base: "1d6", damage_type: "bludgeoning", range_short: 0, range_long: 0, reach: 5, properties: ["versatile"], versatile_damage: "1d8", notes: "", source: "PHB" },
+    { id: "sickle", name: "Sickle", kind: "melee_weapon", damage_base: "1d4", damage_type: "slashing", range_short: 0, range_long: 0, reach: 5, properties: ["light"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "spear", name: "Spear", kind: "melee_weapon", damage_base: "1d6", damage_type: "piercing", range_short: 20, range_long: 60, reach: 5, properties: ["thrown", "versatile"], versatile_damage: "1d8", notes: "", source: "PHB" },
+    { id: "light_crossbow", name: "Light Crossbow", kind: "ranged_weapon", damage_base: "1d8", damage_type: "piercing", range_short: 80, range_long: 320, reach: 0, properties: ["ammunition", "loading", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "dart", name: "Dart", kind: "ranged_weapon", damage_base: "1d4", damage_type: "piercing", range_short: 20, range_long: 60, reach: 0, properties: ["finesse", "thrown"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "shortbow", name: "Shortbow", kind: "ranged_weapon", damage_base: "1d6", damage_type: "piercing", range_short: 80, range_long: 320, reach: 0, properties: ["ammunition", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "sling", name: "Sling", kind: "ranged_weapon", damage_base: "1d4", damage_type: "bludgeoning", range_short: 30, range_long: 120, reach: 0, properties: ["ammunition"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "battleaxe", name: "Battleaxe", kind: "melee_weapon", damage_base: "1d8", damage_type: "slashing", range_short: 0, range_long: 0, reach: 5, properties: ["versatile"], versatile_damage: "1d10", notes: "", source: "PHB" },
+    { id: "flail", name: "Flail", kind: "melee_weapon", damage_base: "1d8", damage_type: "bludgeoning", range_short: 0, range_long: 0, reach: 5, properties: [], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "glaive", name: "Glaive", kind: "melee_weapon", damage_base: "1d10", damage_type: "slashing", range_short: 0, range_long: 0, reach: 10, properties: ["heavy", "reach", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "greataxe", name: "Greataxe", kind: "melee_weapon", damage_base: "1d12", damage_type: "slashing", range_short: 0, range_long: 0, reach: 5, properties: ["heavy", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "greatsword", name: "Greatsword", kind: "melee_weapon", damage_base: "2d6", damage_type: "slashing", range_short: 0, range_long: 0, reach: 5, properties: ["heavy", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "halberd", name: "Halberd", kind: "melee_weapon", damage_base: "1d10", damage_type: "slashing", range_short: 0, range_long: 0, reach: 10, properties: ["heavy", "reach", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "lance", name: "Lance", kind: "melee_weapon", damage_base: "1d12", damage_type: "piercing", range_short: 0, range_long: 0, reach: 10, properties: ["reach", "special"], versatile_damage: "", notes: "Disadvantage within 5 feet unless mounted.", source: "PHB" },
+    { id: "longsword", name: "Longsword", kind: "melee_weapon", damage_base: "1d8", damage_type: "slashing", range_short: 0, range_long: 0, reach: 5, properties: ["versatile"], versatile_damage: "1d10", notes: "", source: "PHB" },
+    { id: "maul", name: "Maul", kind: "melee_weapon", damage_base: "2d6", damage_type: "bludgeoning", range_short: 0, range_long: 0, reach: 5, properties: ["heavy", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "morningstar", name: "Morningstar", kind: "melee_weapon", damage_base: "1d8", damage_type: "piercing", range_short: 0, range_long: 0, reach: 5, properties: [], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "pike", name: "Pike", kind: "melee_weapon", damage_base: "1d10", damage_type: "piercing", range_short: 0, range_long: 0, reach: 10, properties: ["heavy", "reach", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "rapier", name: "Rapier", kind: "melee_weapon", damage_base: "1d8", damage_type: "piercing", range_short: 0, range_long: 0, reach: 5, properties: ["finesse"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "scimitar", name: "Scimitar", kind: "melee_weapon", damage_base: "1d6", damage_type: "slashing", range_short: 0, range_long: 0, reach: 5, properties: ["finesse", "light"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "shortsword", name: "Shortsword", kind: "melee_weapon", damage_base: "1d6", damage_type: "piercing", range_short: 0, range_long: 0, reach: 5, properties: ["finesse", "light"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "trident", name: "Trident", kind: "melee_weapon", damage_base: "1d6", damage_type: "piercing", range_short: 20, range_long: 60, reach: 5, properties: ["thrown", "versatile"], versatile_damage: "1d8", notes: "", source: "PHB" },
+    { id: "war_pick", name: "War Pick", kind: "melee_weapon", damage_base: "1d8", damage_type: "piercing", range_short: 0, range_long: 0, reach: 5, properties: [], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "warhammer", name: "Warhammer", kind: "melee_weapon", damage_base: "1d8", damage_type: "bludgeoning", range_short: 0, range_long: 0, reach: 5, properties: ["versatile"], versatile_damage: "1d10", notes: "", source: "PHB" },
+    { id: "whip", name: "Whip", kind: "melee_weapon", damage_base: "1d4", damage_type: "slashing", range_short: 0, range_long: 0, reach: 10, properties: ["finesse", "reach"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "blowgun", name: "Blowgun", kind: "ranged_weapon", damage_base: "1", damage_type: "piercing", range_short: 25, range_long: 100, reach: 0, properties: ["ammunition", "loading"], versatile_damage: "", notes: "Typically used to deliver poison.", source: "PHB" },
+    { id: "hand_crossbow", name: "Hand Crossbow", kind: "ranged_weapon", damage_base: "1d6", damage_type: "piercing", range_short: 30, range_long: 120, reach: 0, properties: ["ammunition", "light", "loading"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "heavy_crossbow", name: "Heavy Crossbow", kind: "ranged_weapon", damage_base: "1d10", damage_type: "piercing", range_short: 100, range_long: 400, reach: 0, properties: ["ammunition", "heavy", "loading", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "longbow", name: "Longbow", kind: "ranged_weapon", damage_base: "1d8", damage_type: "piercing", range_short: 150, range_long: 600, reach: 0, properties: ["ammunition", "heavy", "two_handed"], versatile_damage: "", notes: "", source: "PHB" },
+    { id: "net", name: "Net", kind: "ranged_weapon", damage_base: "", damage_type: "", range_short: 5, range_long: 15, reach: 0, properties: ["special", "thrown"], versatile_damage: "", notes: "Restrains targets on a hit per weapon special rules.", source: "PHB" },
+    { id: "custom_attack", name: "Custom Attack", kind: "custom", damage_base: "", damage_type: "", range_short: 0, range_long: 0, reach: 5, properties: [], versatile_damage: "", notes: "Fully manual fallback row.", source: "Custom" }
+  ];
+
   // js/v2/catalog-standalone.js
   function asList(v) {
     return Array.isArray(v) ? v : [];
@@ -21969,14 +24332,16 @@
       classes: asList(classes_min_default),
       subclasses: asList(subclasses_min_default),
       species: asList(species_min_default),
-      spells: asList(spells_min_default)
+      spells: asList(spells_min_default),
+      attacks: asList(attacks_min_default)
     },
     dnd5e_2024: {
       rulesetId: "dnd5e_2024",
       classes: asList(classes_min_default),
       subclasses: asList(subclasses_min_default),
       species: asList(species_min_default),
-      spells: asList(spells_min_default)
+      spells: asList(spells_min_default),
+      attacks: asList(attacks_min_default)
     }
   };
 
@@ -21997,6 +24362,7 @@
     subclasses: [],
     species: [],
     spells: [],
+    attacks: [],
     error: ""
   };
   var runtimeStatus = {
@@ -22079,6 +24445,7 @@
       subclasses: selected.subclasses || [],
       species: selected.species,
       spells: selected.spells,
+      attacks: selected.attacks || [],
       error: ""
     };
     ui.render();
@@ -22118,6 +24485,22 @@
     if (policyMode !== "core_only") return true;
     return (row?.availability?.default || "allowed") !== "requires_dm_approval";
   }
+  function titleizeKind(kind) {
+    return (kind || "").toString().replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+  }
+  function formatAttackRange(row) {
+    const short = Number(row?.range_short || 0);
+    const long = Number(row?.range_long || 0);
+    const reach = Number(row?.reach || 0);
+    if (short > 0 && long > 0) return `Range ${short}/${long}`;
+    if (reach > 0) return `Reach ${reach} ft.`;
+    return "";
+  }
+  function formatAttackDamage(row) {
+    const base = (row?.damage_base || "").toString().trim();
+    const type = (row?.damage_type || "").toString().trim();
+    return [base, type].filter(Boolean).join(" ");
+  }
   ui = mountV2UI({
     root,
     getState: () => store.getState(),
@@ -22154,6 +24537,14 @@
             id: (row?.id || "").toString(),
             title: (row?.name || row?.id || "").toString(),
             subtitle: `${formatSubtitle("Subclass", row)} \xB7 ${row?.class_id || "class"}`,
+            raw: row
+          }));
+        }
+        if (type === "attack") {
+          return (catalog.attacks || []).filter((row) => !q || normText(row?.name || row?.id).includes(q)).slice(0, 80).map((row) => ({
+            id: (row?.id || "").toString(),
+            title: (row?.name || row?.id || "").toString(),
+            subtitle: [titleizeKind(row?.kind), formatAttackRange(row), formatAttackDamage(row)].filter(Boolean).join(" \xB7 "),
             raw: row
           }));
         }

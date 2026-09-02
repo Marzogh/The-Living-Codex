@@ -25,6 +25,7 @@ let catalog = {
   subclasses: [],
   species: [],
   spells: [],
+  attacks: [],
   error: ""
 };
 
@@ -117,6 +118,7 @@ async function ensureCatalog(rulesetId = "dnd5e_2014") {
     subclasses: selected.subclasses || [],
     species: selected.species,
     spells: selected.spells,
+    attacks: selected.attacks || [],
     error: ""
   };
   ui.render();
@@ -162,6 +164,28 @@ function formatSubtitle(kind, row) {
 function isAllowedByPolicy(row, policyMode) {
   if (policyMode !== "core_only") return true;
   return (row?.availability?.default || "allowed") !== "requires_dm_approval";
+}
+
+function titleizeKind(kind) {
+  return (kind || "")
+    .toString()
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function formatAttackRange(row) {
+  const short = Number(row?.range_short || 0);
+  const long = Number(row?.range_long || 0);
+  const reach = Number(row?.reach || 0);
+  if (short > 0 && long > 0) return `Range ${short}/${long}`;
+  if (reach > 0) return `Reach ${reach} ft.`;
+  return "";
+}
+
+function formatAttackDamage(row) {
+  const base = (row?.damage_base || "").toString().trim();
+  const type = (row?.damage_type || "").toString().trim();
+  return [base, type].filter(Boolean).join(" ");
 }
 
 ui = mountV2UI({
@@ -216,6 +240,19 @@ ui = mountV2UI({
             id: (row?.id || "").toString(),
             title: (row?.name || row?.id || "").toString(),
             subtitle: `${formatSubtitle("Subclass", row)} · ${row?.class_id || "class"}`,
+            raw: row
+          }));
+      }
+      if (type === "attack") {
+        return (catalog.attacks || [])
+          .filter((row) => !q || normText(row?.name || row?.id).includes(q))
+          .slice(0, 80)
+          .map((row) => ({
+            id: (row?.id || "").toString(),
+            title: (row?.name || row?.id || "").toString(),
+            subtitle: [titleizeKind(row?.kind), formatAttackRange(row), formatAttackDamage(row)]
+              .filter(Boolean)
+              .join(" · "),
             raw: row
           }));
       }

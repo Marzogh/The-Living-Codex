@@ -121,6 +121,15 @@ export function createDefaultCharacterV2({
     },
     skills: {},
     attacks: [],
+    play_state: {
+      active_effects: [],
+      recent_actions: [],
+      session_notes: "",
+      dice_last_roll: null,
+      last_check_roll: null,
+      last_attack_roll: null,
+      last_attack_damage_roll: null
+    },
     spellcasting: {
       class_id: classId || "",
       ability: "",

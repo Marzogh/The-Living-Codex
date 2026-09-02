@@ -606,6 +606,16 @@ function formatAttackDamageText(row, { versatile = false } = {}) {
   return [damage, type].filter(Boolean).join(" ");
 }
 
+function attackGlyphForProfile(row = {}) {
+  const kind = norm(row.kind || "");
+  if (kind === "ranged_weapon") return "➶";
+  if (kind === "spell_attack") return "✦";
+  if (kind === "ammunition") return "◎";
+  if (kind === "natural_weapon") return "✧";
+  if (kind === "melee_weapon") return "⚔";
+  return "◆";
+}
+
 function normalizeAttackForUi(row = {}) {
   const kind = norm(row.kind || (row.range_short || row.range_long ? "ranged_weapon" : "melee_weapon")) || "custom";
   const properties = splitCsvLike(row.properties).map((x) => norm(x));
@@ -659,6 +669,18 @@ function parseDiceTerms(formula) {
     valid = false;
   }
   return { dice, flat, valid };
+}
+
+function secureDieRoll(sides) {
+  const max = Math.max(2, asInt(sides, 20));
+  const span = Math.floor(0x100000000 / max) * max;
+  const bucket = new Uint32Array(1);
+  let v = 0;
+  do {
+    crypto.getRandomValues(bucket);
+    v = bucket[0];
+  } while (v >= span);
+  return (v % max) + 1;
 }
 
 function rollDiceTerms(formula, { crit = false, extraDice = [] } = {}) {
@@ -931,8 +953,19 @@ function deriveAttackProfile(attackRow, character, derived, catalog) {
   const catalogRows = Array.isArray(catalog?.attacks) ? catalog.attacks : [];
   const baseCatalog = findAttackCatalogMatch(catalogRows, attack);
   const fallback = inferAttackProfileFallback(attack);
+  const inferredKind = norm(baseCatalog?.kind || fallback?.kind || attack.kind);
+  const hasManualRangeText = Boolean((attackRow?.range || "").toString().trim());
+  const explicitRangeLooksGenericMelee = norm(attackRow?.range || "") === "melee";
+  const explicitReachLooksDefaultMelee = !hasManualRangeText
+    && asInt(attackRow?.reach, 0) === 5
+    && asInt(attackRow?.range_short, 0) === 0
+    && asInt(attackRow?.range_long, 0) === 0;
+  const shouldTrustExplicitRanges = !(
+    inferredKind === "ranged_weapon"
+    && (explicitRangeLooksGenericMelee || explicitReachLooksDefaultMelee)
+  );
   const hasExplicitKind = Boolean(norm(attackRow?.kind || ""));
-  const hasExplicitRanges = Boolean(attackRow?.range || attackRow?.range_short || attackRow?.range_long || attackRow?.reach);
+  const hasExplicitRanges = shouldTrustExplicitRanges && Boolean(attackRow?.range || attackRow?.range_short || attackRow?.range_long || attackRow?.reach);
   const hasExplicitProperties = Array.isArray(attackRow?.properties)
     ? attackRow.properties.length > 0
     : splitCsvLike(attackRow?.properties).length > 0;
@@ -1419,6 +1452,85 @@ function renderHelpGuide(helpController, activeSectionId, validationErrors = [])
   </div>`;
 }
 
+const ATTACK_HELP_TOPICS = {
+  attack_mode: {
+    title: "Attack Mode",
+    lines: [
+      "Choose whether this attack rolls normally, with advantage, or with disadvantage.",
+      "Auto follows the active combat effects on the sheet, but you can still override it if the table state is different."
+    ],
+    takeaway: "Leave it on Auto unless you need to correct the situation manually."
+  },
+  special_riders: {
+    title: "Special Riders",
+    lines: [
+      "Riders are optional add-ons such as Sneak Attack, Divine Smite, or versatile damage.",
+      "Turn on only the riders you are using for this one attack."
+    ],
+    takeaway: "Think of riders as tactical choices, not always-on bonuses."
+  },
+  criticals: {
+    title: "Critical Hits",
+    lines: [
+      "The sheet auto-arms a critical when its own hit roll lands on a natural 20.",
+      "If you rolled physical dice instead, you can confirm the critical manually before rolling damage."
+    ],
+    takeaway: "Once a crit is armed, the main action button switches to critical damage."
+  },
+  context_note: {
+    title: "Context Note",
+    lines: [
+      "Use this for a short table reminder such as cover, target, or a situational twist.",
+      "The note does not change rules on its own. It is saved into the play log for later reference."
+    ],
+    takeaway: "Log only the details you want to remember after the turn moves on."
+  }
+};
+
+function renderAttackHelpTrigger(topicId, label) {
+  const topic = ATTACK_HELP_TOPICS[norm(topicId)] || ATTACK_HELP_TOPICS.attack_mode;
+  return `<span class="attack-help-wrap">
+    <button type="button" class="attack-help-trigger" aria-label="${esc(label || `Help for ${topic.title}`)}" title="${esc(label || `Help for ${topic.title}`)}">?</button>
+    <span class="attack-help-pop" role="note">
+      <strong>${esc(topic.title)}</strong>
+      ${topic.lines.map((line) => `<span>${esc(line)}</span>`).join("")}
+      ${topic.takeaway ? `<small><strong>At the table:</strong> ${esc(topic.takeaway)}</small>` : ""}
+    </span>
+  </span>`;
+}
+
+function renderAttackSummaryHelp(attack) {
+  const details = [
+    attack?.abilityKey ? `Ability: ${attack.abilityKey.toUpperCase()}` : "",
+    attack?.rangeLabel ? `Range: ${attack.rangeLabel}` : "",
+    attack?.propertiesLabel ? `Properties: ${attack.propertiesLabel}` : "",
+    attack?.ammoInfo?.label ? `Ammo: ${attack.ammoInfo.label}` : "",
+    attack?.notes ? `Notes: ${attack.notes}` : ""
+  ].filter(Boolean);
+  if (!details.length) return "";
+  return `<span class="attack-help-wrap attack-help-wrap-inline">
+    <button type="button" class="attack-help-trigger" aria-label="Attack details" title="Attack details">?</button>
+    <span class="attack-help-pop" role="note">
+      <strong>Attack Details</strong>
+      ${details.map((line) => `<span>${esc(line)}</span>`).join("")}
+      <small><strong>At the table:</strong> Use this for the attack facts you may need to check mid-turn.</small>
+    </span>
+  </span>`;
+}
+
+function renderAttackInlineHelp(title, lines = [], takeaway = "") {
+  const safeLines = Array.isArray(lines) ? lines.filter(Boolean) : [];
+  if (!title || !safeLines.length) return "";
+  return `<span class="attack-help-wrap attack-help-wrap-inline">
+    <button type="button" class="attack-help-trigger" aria-label="${esc(title)}" title="${esc(title)}">?</button>
+    <span class="attack-help-pop" role="note">
+      <strong>${esc(title)}</strong>
+      ${safeLines.map((line) => `<span>${esc(line)}</span>`).join("")}
+      ${takeaway ? `<small><strong>At the table:</strong> ${esc(takeaway)}</small>` : ""}
+    </span>
+  </span>`;
+}
+
 function renderLookup(state) {
   if (!state.open) return "";
   const subtitle = state.type === "spell"
@@ -1441,7 +1553,6 @@ function renderLookup(state) {
           ${Array.from({ length: 10 }, (_, i) => `<option value="${i}" ${state.level === String(i) ? "selected" : ""}>Level ${i}</option>`).join("")}
         </select>
         <label class="check lookup-dm-override"><input type="checkbox" id="lookupDmSpellOverride" ${state.allowOffClassSpells ? "checked" : ""} />Allow other-class spells (DM approved)</label>` : ""}
-        <button type="button" data-help-feature="lookup.${esc(state.type)}">Help for this lookup</button>
         <button type="button" id="lookupCancel">Cancel</button>
         <button type="button" class="btn-primary" id="lookupSave">Save</button>
       </div>
@@ -1692,7 +1803,6 @@ function renderPlayMode(character, uiState, actions) {
   const activePane = uiState.activePlayPane || "spells";
   const paneNav = `<nav class="play-pane-tabs">${PLAY_PANES.map((p) => `<button type="button" class="${activePane === p.id ? "is-active" : ""}" data-play-pane="${p.id}">${esc(p.label)}</button>`).join("")}
       <button type="button" data-open-checks-drawer>Checks</button>
-      <button type="button" data-help-feature="play.pane.${esc(activePane)}">Help for this pane</button>
       <button type="button" data-toggle-utility>${uiState.playBoard?.utilityRailOpen !== false ? "Hide Utility Rail" : "Show Utility Rail"}</button>
       <button type="button" data-toggle-band>${uiState.playBoard?.bandCompact ? "Expand Combat Band" : "Compact Combat Band"}</button>
     </nav>`;
@@ -1722,20 +1832,32 @@ function renderPlayMode(character, uiState, actions) {
     </div></article>`;
 
   const attacksPane = `<article class="card"><h2>Arsenal</h2><div class="card-body">
-      ${attackCards.length === 0 ? `<p class="hint">No attacks added yet.</p>` : `<div class="attack-card-list">${attackCards.map(({ profile, buckets, linkedAmmo }) => `<button type="button" class="attack-card" data-open-attack="${esc(profile.id)}">
-        <strong>${esc(profile.name || "Attack")}</strong>
-        <small>${esc(profile.kindLabel)}</small>
-        <span>${esc(fmtSigned(profile.effectiveAttackBonus))}</span>
-        <span>${esc(formatAttackDamageText(profile))}</span>
-        <small>${esc(profile.rangeLabel || "Melee")}</small>
-        ${linkedAmmo.length ? `<div class="attack-card-ammo">${linkedAmmo.map(({ profile: ammoProfile }) => `<span>Ammo: ${esc(ammoProfile.name || ammoProfile.ammoInfo?.label || "Ammunition")}</span>`).join("")}</div>` : ""}
-        ${(buckets.auto_applied_modifiers.length || buckets.suggested_modifiers.length || buckets.manual_options.length) ? `<em>${esc([
+      ${attackCards.length === 0 ? `<p class="hint">No attacks added yet.</p>` : `<div class="attack-card-list attack-button-list">${attackCards.map(({ profile, buckets, linkedAmmo }) => {
+        const infoBits = [
+          profile.kindLabel,
+          formatAttackDamageText(profile),
+          profile.rangeLabel || "Melee"
+        ].filter(Boolean);
+        const effectBits = [
           buckets.auto_applied_modifiers.length ? `${buckets.auto_applied_modifiers.length} in effect` : "",
           buckets.suggested_modifiers.length ? `${buckets.suggested_modifiers.length} you can add` : "",
           buckets.manual_options.length ? `${buckets.manual_options.length} riders` : ""
-        ].filter(Boolean).join(" · "))}</em>` : ""}
-        <small class="attack-card-open">Open attack sheet</small>
-      </button>`).join("")}</div>`}
+        ].filter(Boolean);
+        return `<button type="button" class="attack-card attack-button" data-open-attack="${esc(profile.id)}" title="${esc(profile.name || "Attack")}">
+          <span class="attack-button-glyph" aria-hidden="true">${esc(attackGlyphForProfile(profile))}</span>
+          <span class="attack-button-copy">
+            <strong>${esc(profile.name || "Attack")}</strong>
+            <small>${esc(`${fmtSigned(profile.effectiveAttackBonus)} • ${formatAttackDamageText(profile) || "Manual damage"}`)}</small>
+          </span>
+          <span class="attack-button-caret" aria-hidden="true">›</span>
+          <span class="attack-card-pop" role="note">
+            <strong>${esc(profile.name || "Attack")}</strong>
+            ${infoBits.map((bit) => `<span>${esc(bit)}</span>`).join("")}
+            ${linkedAmmo.length ? `<span>${esc(`Ammo: ${linkedAmmo.map(({ profile: ammoProfile }) => ammoProfile.name || ammoProfile.ammoInfo?.label || "Ammunition").join(", ")}`)}</span>` : ""}
+            ${effectBits.length ? `<em>${esc(effectBits.join(" · "))}</em>` : ""}
+          </span>
+        </button>`;
+      }).join("")}</div>`}
       ${looseAmmo.length ? `<div class="attack-ammo-stash"><p class="hint">Loose ammunition</p><div class="attack-card-ammo">${looseAmmo.map(({ profile }) => `<span>${esc(profile.name || profile.ammoInfo?.label || "Ammunition")}</span>`).join("")}</div></div>` : ""}
     </div></article>`;
   const effectScopeOptions = [
@@ -1856,7 +1978,7 @@ function renderPlayMode(character, uiState, actions) {
   const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round((hp.current / hp.max) * 100))) : 0;
   return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
     <section class="play-hud card ${uiState.playBoard?.bandCompact ? "is-compact" : ""} ${uiState.playBoard?.hudCollapsed ? "is-collapsed" : ""}">
-      <h2>Combat HUD <button type="button" data-help-feature="play.mode">Play Mode Help</button> <button type="button" class="card-toggle" id="toggleHudCollapse">${uiState.playBoard?.hudCollapsed ? "Expand" : "Collapse"}</button></h2>
+      <h2>Combat HUD <button type="button" class="card-toggle" id="toggleHudCollapse">${uiState.playBoard?.hudCollapsed ? "Expand" : "Collapse"}</button></h2>
       <div class="card-body">
       <div class="hud-grid">
       <div class="hud-stat"><strong>AC</strong><p class="hud-value">${esc(character?.combat?.ac ?? 10)}</p></div>
@@ -1973,7 +2095,11 @@ function renderAttackDrawer(character, uiState, actions) {
   const selectedSuggested = buckets.suggested_modifiers.filter((row) => selectedMap[row.id]);
   const selectedOptional = buckets.manual_options.filter((row) => selectedMap[row.id]);
   const applied = [...buckets.auto_applied_modifiers, ...selectedSuggested, ...selectedOptional];
-  const effectiveMode = resolveAdvantageState(uiState.attackDrawer.rollMode || "normal", applied);
+  const persistentEffects = [...buckets.auto_applied_modifiers, ...selectedSuggested];
+  const selectedRollMode = uiState.attackDrawer.rollMode || "auto";
+  const effectiveMode = selectedRollMode === "auto"
+    ? resolveAdvantageState("normal", [...buckets.auto_applied_modifiers, ...selectedSuggested])
+    : selectedRollMode;
   const availableSlots = computeEffectiveSlots(character).levels;
   const hasSmite = buckets.manual_options.some((row) => row.source_id === "divine_smite");
   const smiteOptions = hasSmite
@@ -1981,118 +2107,160 @@ function renderAttackDrawer(character, uiState, actions) {
     : [];
   const lastHit = character?.play_state?.last_attack_roll || null;
   const lastDamage = character?.play_state?.last_attack_damage_roll || null;
+  const localResult = uiState.attackDrawer?.lastResult || null;
   const critArmed = Boolean(
     uiState.attackDrawer.critical
     || (lastHit?.attack_id === attack.id && lastHit?.nat20)
   );
-  const modeReasonRows = applied.filter((row) => row.advantage_state && row.advantage_state === effectiveMode);
+  const modeReasonRows = persistentEffects.filter((row) => row.advantage_state && row.advantage_state === effectiveMode);
   const modeReason = modeReasonRows.length
     ? `${titleizeId(effectiveMode)} granted by ${modeReasonRows.map((row) => row.label).join(", ")}.`
     : "";
+  const awaitingDamage = Boolean(uiState.attackDrawer.awaitingDamage);
+  const manualCritRequested = Boolean(uiState.attackDrawer.critical && !(lastHit?.attack_id === attack.id && lastHit?.nat20));
+  const resolveAction = awaitingDamage || manualCritRequested
+    ? { type: "damage", crit: critArmed, label: critArmed ? "Roll Crit Damage" : "Roll Damage" }
+    : { type: "hit", crit: false, label: "Roll to Hit" };
 
-  const renderModifierList = (rowsToRender, mode, emptyLabel = "None") => {
-    if (!rowsToRender.length) return `<p class="hint attack-empty-state">${esc(emptyLabel)}</p>`;
-    return `<ul class="attack-mod-list ${mode === "toggle" ? "attack-mod-list-toggle" : "attack-mod-list-active"}">${rowsToRender.map((row) => {
-      const meta = [
+  const toneForEffect = (row) => {
+    if (row?.advantage_state === "advantage") return "is-positive";
+    if (row?.advantage_state === "disadvantage") return "is-negative";
+    return "is-neutral";
+  };
+  const renderRiderList = (rowsToRender) => {
+    if (!rowsToRender.length) return `<p class="hint attack-empty-state">No special riders available.</p>`;
+    return `<ul class="attack-rider-list">${rowsToRender.map((row) => {
+      const riderMeta = [
         row.attack_roll_bonus ? `${fmtSigned(row.attack_roll_bonus)} to hit` : "",
-        row.attack_roll_dice ? row.attack_roll_dice : "",
         row.damage_bonus ? `${fmtSigned(row.damage_bonus)} damage` : "",
-        row.damage_dice ? row.damage_dice : ""
-      ].filter(Boolean).join(" · ");
-      const noteMarkup = row.notes && !row.advantage_state ? `<small>${esc(row.notes)}</small>` : "";
-      if (mode === "applied") {
-        return `<li class="attack-mod-card attack-mod-card-active"><strong>${esc(row.label)}</strong>${meta ? `<small>${esc(meta)}</small>` : ""}${noteMarkup}</li>`;
-      }
-      return `<li class="attack-mod-card attack-mod-card-toggle ${selectedMap[row.id] ? "is-selected" : ""}">
-        <label class="check attack-mod-choice"><input type="checkbox" data-attack-mod="${esc(row.id)}" ${selectedMap[row.id] ? "checked" : ""}/> <span class="attack-mod-choice-copy"><strong>${esc(row.label)}</strong>${meta ? `<small>${esc(meta)}</small>` : ""}${noteMarkup}</span></label>
+        row.damage_dice && !norm(row.label).includes(norm(row.damage_dice)) ? row.damage_dice : ""
+      ].filter(Boolean).join(" • ");
+      const riderHelp = row.notes ? renderAttackInlineHelp(row.label, [row.notes], "Turn it on only when you are using it for this attack.") : "";
+      return `<li class="attack-rider-row ${selectedMap[row.id] ? "is-selected" : ""}">
+        <div class="attack-rider-choice">
+          <label class="check attack-rider-label">
+            <input type="checkbox" data-attack-mod="${esc(row.id)}" ${selectedMap[row.id] ? "checked" : ""}/>
+            <span class="attack-rider-copy">
+              <span class="attack-rider-title"><strong>${esc(row.label)}</strong>${riderHelp}</span>
+              ${riderMeta && riderMeta !== row.label ? `<small>${esc(riderMeta)}</small>` : ""}
+            </span>
+          </label>
+        </div>
       </li>`;
     }).join("")}</ul>`;
   };
+  const renderEffectPills = () => {
+    const allRows = [...buckets.auto_applied_modifiers, ...buckets.suggested_modifiers];
+    if (!allRows.length) return `<p class="hint attack-empty-state">No active combat effects on this attack.</p>`;
+    return `<div class="attack-effect-pill-row">${allRows.map((row) => {
+      const selected = row.application_mode === "auto" || Boolean(selectedMap[row.id]);
+      const label = row.label || "Effect";
+      const classes = [
+        "attack-effect-pill",
+        toneForEffect(row),
+        selected ? "is-active" : "is-available",
+        row.application_mode === "auto" ? "is-locked" : "is-toggle"
+      ].join(" ");
+      if (row.application_mode === "auto") {
+        return `<span class="${classes}" title="${esc(row.notes || label)}">${esc(label)}</span>`;
+      }
+      return `<button type="button" class="${classes}" data-attack-mod-pill="${esc(row.id)}" title="${esc(row.notes || label)}">${esc(label)}</button>`;
+    }).join("")}</div>`;
+  };
 
-  const metaCells = [
-    ["Ability", attack.abilityKey ? attack.abilityKey.toUpperCase() : "Manual"],
-    ["Range", attack.rangeLabel || "Melee"],
-    ["Properties", attack.propertiesLabel || "No listed properties"]
-  ];
-  if (attack.notes) metaCells.push(["Notes", attack.notes, "is-notes"]);
-
-  const suggestedRows = buckets.suggested_modifiers.filter((row) => !row.advantage_state);
   const riderRows = buckets.manual_options;
   const attackSummary = [
     fmtSigned(attack.effectiveAttackBonus) + " to hit",
-    formatAttackDamageText(attack, { versatile: uiState.attackDrawer.versatile }),
-    attack.kindLabel.toLowerCase()
+    formatAttackDamageText(attack, { versatile: uiState.attackDrawer.versatile })
   ].filter(Boolean).join(" • ");
-  const showEffectsSection = applied.length || suggestedRows.length;
+  const visibleLocalResult = localResult?.attackId === attack.id ? localResult : null;
+  const contextSaved = Boolean(uiState.attackDrawer.contextSaved);
 
   return `<div class="palette-overlay" id="attackDrawerOverlay">
     <aside class="checks-drawer attack-drawer attack-sheet" role="dialog" aria-modal="true" aria-label="Attack drawer">
       <button type="button" class="overlay-close" id="attackDrawerClose" data-overlay-close="attack" aria-label="Close attack drawer">×</button>
       <header class="attack-sheet-header">
-        <div>
+        <div class="attack-sheet-header-copy">
           <p class="attack-sheet-kicker">Attack</p>
-          <h3>${esc(attack.name)}</h3>
+          <div class="attack-sheet-title-row">
+            <h3>${esc(attack.name)}</h3>
+            ${renderAttackSummaryHelp(attack)}
+          </div>
           <p class="checks-last-roll attack-sheet-summary">${esc(attackSummary)}</p>
         </div>
       </header>
       <div class="checks-drawer-body">
-        <section class="attack-sheet-meta">
-          <div class="attack-summary-grid attack-sheet-meta-grid">
-            ${metaCells.map(([label, value, extraClass = ""]) => `<div class="attack-meta-cell ${esc(extraClass)}"><strong>${esc(label)}</strong><small>${esc(value)}</small></div>`).join("")}
-          </div>
-        </section>
         <section class="attack-sheet-turnflow">
           <div class="attack-sheet-flow-head">
-            <div>
-              <h4>Attack Mode</h4>
-              <p class="hint">Choose your roll state, then fire the attack.</p>
+            <div class="attack-sheet-heading-wrap">
+              <p class="attack-flow-step">1. Roll State</p>
+              <div class="attack-sheet-heading-row">
+                <h4>Attack Mode</h4>
+                ${renderAttackHelpTrigger("attack_mode", "Help for attack mode")}
+              </div>
             </div>
-            <div class="attack-roll-mode">
-            ${["normal", "advantage", "disadvantage"].map((mode) => `<button type="button" class="${effectiveMode === mode ? "is-active" : ""}" data-attack-roll-mode="${mode}">${esc(titleizeId(mode))}</button>`).join("")}
-            </div>
+            <label class="attack-mode-select">
+              <select id="attackRollModeSelect" aria-label="Attack mode">
+                <option value="auto" ${selectedRollMode === "auto" ? "selected" : ""}>Auto</option>
+                <option value="normal" ${selectedRollMode === "normal" ? "selected" : ""}>Normal</option>
+                <option value="advantage" ${selectedRollMode === "advantage" ? "selected" : ""}>Advantage</option>
+                <option value="disadvantage" ${selectedRollMode === "disadvantage" ? "selected" : ""}>Disadvantage</option>
+              </select>
+            </label>
           </div>
           ${modeReason ? `<p class="hint attack-mode-note">${esc(modeReason)}</p>` : ""}
-          <div class="inline-actions attack-drawer-actions attack-sheet-actions">
-            <button type="button" class="button-primary" id="attackRollHit">Roll to Hit</button>
-            <button type="button" class="button-secondary" id="attackRollDamage">${critArmed ? "Roll Damage (Critical)" : "Roll Damage"}</button>
-            <button type="button" class="button-utility" id="attackRollCrit">Roll Crit Damage</button>
+          <div class="attack-sheet-action-band">
+            <div class="attack-sheet-heading-wrap">
+              <p class="attack-flow-step">2. Resolve</p>
+            </div>
+            <div class="inline-actions attack-drawer-actions attack-sheet-actions attack-sheet-actions-single">
+              <button type="button" class="button-primary attack-resolve-button" id="attackResolveBtn" data-attack-resolve="${resolveAction.type}" data-attack-crit="${resolveAction.crit ? "1" : "0"}">${esc(resolveAction.label)}</button>
+            </div>
+            ${visibleLocalResult ? `<p class="checks-last-roll attack-receipt attack-inline-receipt ${visibleLocalResult.kind === "hit" ? `${visibleLocalResult.nat20 ? "is-nat20" : ""} ${visibleLocalResult.nat1 ? "is-nat1" : ""}` : ""}">${esc(visibleLocalResult.summary)}</p>` : ""}
           </div>
         </section>
-        <section class="attack-sheet-riders">
-          <div class="attack-sheet-section-head">
-            <h4>Special Riders</h4>
-            <p class="hint">Toggle the tactical add-ons you want before rolling.</p>
+        <section class="attack-sheet-support">
+          <div class="attack-sheet-dual attack-sheet-support-grid">
+            <div class="attack-sheet-riders">
+              <div class="attack-sheet-section-head">
+                <div class="attack-sheet-heading-row">
+                  <h4>Special Riders</h4>
+                  ${renderAttackHelpTrigger("special_riders", "Help for special riders")}
+                </div>
+              </div>
+              <div class="attack-drawer-toggles attack-sheet-rider-strip">
+                ${attack.versatile_damage ? `<label class="check attack-inline-toggle"><input type="checkbox" id="attackUseVersatile" ${uiState.attackDrawer.versatile ? "checked" : ""}/>Versatile (${esc(attack.versatile_damage)})</label>` : ""}
+                <label class="check attack-inline-toggle attack-inline-toggle-subtle"><input type="checkbox" id="attackCriticalHit" ${critArmed ? "checked" : ""}/>Critical</label>${renderAttackHelpTrigger("criticals", "Help for critical hits")}
+                ${hasSmite ? `<label class="attack-inline-select">Smite<select id="attackSmiteLevel">${smiteOptions.length ? smiteOptions.map((lvl) => `<option value="${lvl}" ${asInt(uiState.attackDrawer.smiteLevel, 1) === lvl ? "selected" : ""}>Slot ${lvl}</option>`).join("") : `<option value="0">No slot</option>`}</select></label>` : ""}
+              </div>
+              ${renderRiderList(riderRows)}
+            </div>
+            <div class="attack-sheet-effects">
+              <div class="attack-sheet-section-head">
+                <div class="attack-sheet-heading-row">
+                  <h4>Conditions in Effect</h4>
+                </div>
+              </div>
+              ${renderEffectPills()}
+            </div>
           </div>
-          <div class="attack-drawer-toggles attack-sheet-rider-strip">
-            ${attack.versatile_damage ? `<label class="check attack-inline-toggle"><input type="checkbox" id="attackUseVersatile" ${uiState.attackDrawer.versatile ? "checked" : ""}/>Versatile (${esc(attack.versatile_damage)})</label>` : ""}
-            <label class="check attack-inline-toggle attack-inline-toggle-subtle"><input type="checkbox" id="attackCriticalHit" ${critArmed ? "checked" : ""}/>Critical confirmed</label>
-            ${hasSmite ? `<label class="attack-inline-select">Divine Smite<select id="attackSmiteLevel">${smiteOptions.length ? smiteOptions.map((lvl) => `<option value="${lvl}" ${asInt(uiState.attackDrawer.smiteLevel, 1) === lvl ? "selected" : ""}>Slot ${lvl}</option>`).join("") : `<option value="0">No slot</option>`}</select></label>` : ""}
-          </div>
-          ${riderRows.length ? renderModifierList(riderRows, "toggle", "No special riders available.") : `<p class="hint attack-empty-state">No special riders available.</p>`}
-          <p class="hint attack-crit-note">Criticals auto-arm on a natural 20 to hit. You can still confirm them manually for physical dice.</p>
         </section>
-        ${showEffectsSection ? `<section class="attack-sheet-effects">
-          <div class="attack-sheet-dual">
-            ${applied.length ? `<div>
-              <h4>In Effect</h4>
-              ${renderModifierList(applied, "applied", "Nothing active on this attack right now.")}
-            </div>` : ""}
-            ${suggestedRows.length ? `<div>
-              <h4>You Can Add</h4>
-              ${renderModifierList(suggestedRows, "toggle", "No extra suggested effects right now.")}
-            </div>` : ""}
-          </div>
-        </section>` : ""}
         <section class="attack-sheet-context">
           <div class="attack-sheet-section-head">
-            <h4>Context</h4>
-            <p class="hint">Optional table note for the current target or moment.</p>
+            <div class="attack-sheet-heading-row">
+              <h4>Context</h4>
+              ${renderAttackHelpTrigger("context_note", "Help for context note")}
+            </div>
+            <button type="button" class="button-ghost attack-context-toggle" id="toggleAttackContext">${uiState.attackDrawer.contextOpen ? "Hide" : "Add Note"}</button>
           </div>
-          <label class="attack-context-field">Target note<input id="attackTargetNote" value="${esc(uiState.attackDrawer.targetNote || "")}" placeholder="Optional target or context" /></label>
-          <div class="attack-receipts">
-            ${lastHit?.attack_id === attack.id ? `<p class="checks-last-roll attack-receipt ${lastHit?.nat20 ? "is-nat20" : ""} ${lastHit?.nat1 ? "is-nat1" : ""}">${esc(lastHit.summary || "Last hit roll ready.")}</p>` : ""}
-            ${lastDamage?.attack_id === attack.id ? `<p class="checks-last-roll attack-receipt">${esc(lastDamage.summary || "Last damage roll ready.")}</p>` : ""}
-          </div>
+          ${uiState.attackDrawer.contextOpen ? `<div class="attack-context-editor">
+            <input id="attackContextDraft" value="${esc(uiState.attackDrawer.contextDraft || "")}" placeholder="Add a short context note for this attack" />
+            <div class="attack-context-actions">
+              <button type="button" class="button-primary" id="saveAttackContext">Save Note</button>
+              <button type="button" class="button-ghost" id="cancelAttackContext">Cancel</button>
+            </div>
+          </div>` : ""}
+          ${contextSaved ? `<p class="hint attack-context-saved">Context note logged for this attack.</p>` : ""}
         </section>
       </div>
     </aside>
@@ -2138,7 +2306,6 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
           ${EDIT_TABS.map((t) => `<button type="button" class="${activeTab === t.id ? "is-active" : ""}" data-edit-tab="${t.id}">${esc(t.label)}</button>`).join("")}
         </nav>
         <p class="hint">${summaryByTab[activeTab] || ""}</p>
-        <div class="inline-actions"><button type="button" data-help-feature="edit.tab.${esc(activeTab)}">Help for this tab</button></div>
         <div class="edit-section-links">
           ${tabSections(activeTab).map((sid) => `<button type="button" data-jump-sec="${sid}">${esc((sid || "").replace("sec-", "").replaceAll("-", " "))}${edited.core || edited.classes || edited.combat || edited.spells || edited.inventory || edited.trackers ? "" : ""}</button>`).join("")}
         </div>
@@ -2415,7 +2582,7 @@ export function mountV2UI({ root, getState, actions }) {
     lastCastLevel: 0,
     lastAction: "",
     checksDrawerOpen: false,
-    attackDrawer: { open: false, attackId: "", rollMode: "normal", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "" },
+    attackDrawer: { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false },
     conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", rounds_remaining: "", notes: "", active: true } },
     diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
     portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
@@ -2847,31 +3014,24 @@ export function mountV2UI({ root, getState, actions }) {
     uiState.attackDrawer = {
       open: true,
       attackId: attack.id,
-      rollMode: "normal",
+      rollMode: "auto",
       selected: defaultSelected,
       critical: false,
       versatile: false,
       smiteLevel: 1,
-      targetNote: ""
+      targetNote: "",
+      lastResult: null,
+      awaitingDamage: false,
+      contextOpen: false,
+      contextDraft: "",
+      contextSaved: false
     };
     render();
   }
 
   function closeAttackDrawer() {
-    uiState.attackDrawer = { open: false, attackId: "", rollMode: "normal", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "" };
+    uiState.attackDrawer = { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", lastResult: null, awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false };
     render();
-  }
-
-  function secureDieRoll(sides) {
-    const max = Math.max(2, asInt(sides, 20));
-    const span = Math.floor(0x100000000 / max) * max;
-    const bucket = new Uint32Array(1);
-    let v = 0;
-    do {
-      crypto.getRandomValues(bucket);
-      v = bucket[0];
-    } while (v >= span);
-    return (v % max) + 1;
   }
 
   function buildDicePayload(die, count, mod) {
@@ -3012,7 +3172,8 @@ export function mountV2UI({ root, getState, actions }) {
   function performAttackHitRoll() {
     const context = getOpenAttackContext();
     if (!context) return;
-    const mode = resolveAdvantageState(uiState.attackDrawer.rollMode || "normal", context.applied);
+    const requestedMode = uiState.attackDrawer.rollMode || "auto";
+    const mode = requestedMode === "auto" ? resolveAdvantageState("normal", context.applied) : requestedMode;
     const modBonus = context.applied.reduce((sum, row) => sum + asInt(row.attack_roll_bonus, 0), 0);
     const modDice = context.applied.map((row) => (row.attack_roll_dice || "").toString().trim()).filter(Boolean);
     const payload = buildAttackD20Payload(context.attack.effectiveAttackBonus + modBonus, mode);
@@ -3046,7 +3207,18 @@ export function mountV2UI({ root, getState, actions }) {
     });
     uiState.attackDrawer = uiState.attackDrawer || {};
     uiState.attackDrawer.critical = nat20;
+    uiState.attackDrawer.awaitingDamage = true;
+    uiState.attackDrawer.contextSaved = false;
+    uiState.attackDrawer.lastResult = {
+      kind: "hit",
+      attackId: context.attack.id,
+      summary,
+      nat20,
+      nat1,
+      utc: payload.utc
+    };
     recordPlayAction(summary + (nat20 ? " (nat 20)" : nat1 ? " (nat 1)" : ""));
+    render();
   }
 
   function performAttackDamageRoll({ crit = false } = {}) {
@@ -3055,6 +3227,10 @@ export function mountV2UI({ root, getState, actions }) {
     const selectedMap = uiState.attackDrawer.selected || {};
     const useVersatile = Boolean(uiState.attackDrawer.versatile && context.attack.versatile_damage);
     const damageFormula = useVersatile ? context.attack.versatile_damage : context.attack.damageFormula;
+    if (!damageFormula && !context.applied.some((row) => (row.damage_dice || "").toString().trim()) && !context.attack.damageBonusAuto) {
+      recordPlayAction(`${context.attack.name} has no damage roll configured.`);
+      return;
+    }
     const flatBonus = context.attack.damageBonusAuto + context.applied.reduce((sum, row) => sum + asInt(row.damage_bonus, 0), 0);
     const extraDice = context.applied.map((row) => (row.damage_dice || "").toString().trim()).filter(Boolean);
     const smiteEnabled = selectedMap["class:divine_smite"];
@@ -3065,7 +3241,7 @@ export function mountV2UI({ root, getState, actions }) {
       smiteFormula = `${2 + Math.max(0, smiteSpentLevel - 1)}d8`;
       extraDice.push(smiteFormula);
     }
-    const lastHit = character.play_state?.last_attack_roll || null;
+    const lastHit = context.character?.play_state?.last_attack_roll || null;
     const autoCrit = Boolean(lastHit?.attack_id === context.attack.id && lastHit?.nat20);
     const critActive = Boolean(crit || uiState.attackDrawer.critical || autoCrit);
     const result = rollDiceTerms(damageFormula, { crit: critActive, extraDice });
@@ -3077,16 +3253,17 @@ export function mountV2UI({ root, getState, actions }) {
     const summary = `${context.attack.name} ${critActive ? "critical " : ""}damage: ${parts.join(" + ").replace(/\+\s-\s/g, "- ")}${type ? ` ${type}` : ""} = ${total}`;
     actions.updateCharacter((c) => {
       c.play_state = c.play_state || {};
+      const stamp = new Date().toISOString();
       c.play_state.last_attack_damage_roll = {
         attack_id: context.attack.id,
         label: context.attack.name,
         total,
         crit: critActive,
         summary,
-        utc: new Date().toISOString()
+        utc: stamp
       };
       c.log = Array.isArray(c.log) ? c.log : [];
-      c.log.push({ id: crypto.randomUUID(), utc: new Date().toISOString(), tag: "damage", message: summary });
+      c.log.push({ id: crypto.randomUUID(), utc: stamp, tag: "damage", message: summary });
       if (smiteEnabled && smiteSpentLevel > 0) {
         c.spell_slots = c.spell_slots || { levels: {} };
         c.spell_slots.levels = c.spell_slots.levels || {};
@@ -3096,7 +3273,44 @@ export function mountV2UI({ root, getState, actions }) {
         c.spell_slots.levels[key] = row;
       }
     });
+    uiState.attackDrawer = uiState.attackDrawer || {};
+    uiState.attackDrawer.awaitingDamage = false;
+    uiState.attackDrawer.lastResult = {
+      kind: "damage",
+      attackId: context.attack.id,
+      summary,
+      crit: critActive,
+      utc: new Date().toISOString()
+    };
     recordPlayAction(summary);
+    render();
+  }
+
+  function saveAttackContextNote() {
+    const note = (uiState.attackDrawer?.contextDraft || "").toString().trim();
+    if (!note) {
+      uiState.attackDrawer.contextOpen = false;
+      uiState.attackDrawer.contextDraft = "";
+      render();
+      return;
+    }
+    const context = getOpenAttackContext();
+    const attackName = context?.attack?.name || "Attack";
+    const summary = `${attackName} context: ${note}`;
+    actions.updateCharacter((c) => {
+      c.log = Array.isArray(c.log) ? c.log : [];
+      c.log.push({
+        id: crypto.randomUUID(),
+        utc: new Date().toISOString(),
+        tag: "attack_note",
+        message: summary
+      });
+    });
+    recordPlayAction(`Logged context for ${attackName}`);
+    uiState.attackDrawer.contextSaved = true;
+    uiState.attackDrawer.contextOpen = false;
+    uiState.attackDrawer.contextDraft = "";
+    render();
   }
 
   function openPortraitCrop(src, iw, ih) {
@@ -3871,14 +4085,12 @@ export function mountV2UI({ root, getState, actions }) {
                 <button type="button" id="exportPdfOption" ${character ? "" : "disabled"}>Export PDF</button>
               </div>` : ""}
             </div>
-            <button type="button" data-help-feature="save.export">Backups Help</button>
-            <button type="button" id="helpBtn">Help</button>
             <button type="button" id="newCharBtn">New Character</button>
           </div>
         </div>
       </header>
 
-      ${(!character || uiState.showCreate) ? `<section class="card"><h2>Create Character <button type="button" data-help-feature="create.panel">Need help?</button></h2><div class="card-body create-grid">
+      ${(!character || uiState.showCreate) ? `<section class="card"><h2>Create Character</h2><div class="card-body create-grid">
         <div class="create-portrait-preview">
           ${getDraftPortrait(draft.speciesId)
             ? `<img src="${esc(getDraftPortrait(draft.speciesId))}" alt="${esc(titleizeId(draft.speciesId || "species"))} portrait preview" />`
@@ -3985,7 +4197,6 @@ export function mountV2UI({ root, getState, actions }) {
           <button type="button" class="overlay-close" data-overlay-close="diagnostics" aria-label="Close overlay">×</button>
           <h3>Diagnostics</h3>
           <div class="diag-drawer-body">
-            <div class="inline-actions"><button type="button" data-help-feature="diagnostics.drawer">Help for diagnostics</button></div>
             ${runtime.message ? `<p class="tone tone-${esc(runtime.tone || "info")}">${esc(runtime.message)}</p>` : `<p class="hint">No recent runtime message.</p>`}
             ${rawCatalog.error ? `<p class="error">Rules data error: ${esc(rawCatalog.error)}</p>` : ""}
             ${state.app.lastError ? `<p class="error">App error: ${esc(state.app.lastError)}</p>` : ""}
@@ -4053,6 +4264,15 @@ export function mountV2UI({ root, getState, actions }) {
   function bindEvents() {
     const state = getState();
     const character = state.character;
+    const syncCreateDraft = () => {
+      draft.name = root.querySelector("#newName")?.value || draft.name;
+      draft.rulesetId = root.querySelector("#newRuleset")?.value || draft.rulesetId;
+      draft.classId = root.querySelector("#newClass")?.value || "";
+      draft.speciesId = root.querySelector("#newSpecies")?.value || "";
+      for (const k of ["str", "dex", "con", "int", "wis", "cha"]) {
+        draft[k] = asInt(root.querySelector(`#new${k.toUpperCase()}`)?.value, 10);
+      }
+    };
 
     root.querySelector("#toolsMenuBtn")?.addEventListener("click", (e) => {
       e.preventDefault();
@@ -4101,12 +4321,13 @@ export function mountV2UI({ root, getState, actions }) {
       render();
     });
     root.querySelector("#saveBtn")?.addEventListener("click", () => actions.saveNow());
-    root.querySelector("#helpBtn")?.addEventListener("click", () => openHelpGuide("help-start"));
     root.querySelector("#densityToggle")?.addEventListener("click", () => {
       setDensityMode(uiState.densityMode === "compact" ? "comfortable" : "compact");
       render();
     });
-    root.querySelector("#newCharBtn")?.addEventListener("click", () => {
+    root.querySelector("#newCharBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       uiState.showCreate = true;
       render();
     });
@@ -4114,7 +4335,9 @@ export function mountV2UI({ root, getState, actions }) {
       setPolicyMode(e.target.checked ? "core_only" : "all_official");
       render();
     });
-    root.querySelector("#importBtn")?.addEventListener("click", async () => {
+    root.querySelector("#importBtn")?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       await actions.importZip();
       if (getState().character) {
         uiState.showCreate = false;
@@ -4126,24 +4349,24 @@ export function mountV2UI({ root, getState, actions }) {
       render();
     });
 
-    root.querySelector("#createBtn")?.addEventListener("click", () => {
-      draft.name = root.querySelector("#newName")?.value || draft.name;
-      draft.rulesetId = root.querySelector("#newRuleset")?.value || draft.rulesetId;
-      draft.classId = root.querySelector("#newClass")?.value || "";
-      draft.speciesId = root.querySelector("#newSpecies")?.value || "";
-      for (const k of ["str", "dex", "con", "int", "wis", "cha"]) draft[k] = asInt(root.querySelector(`#new${k.toUpperCase()}`)?.value, 10);
+    root.querySelector("#createBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      syncCreateDraft();
       actions.newCharacter(draft);
       uiState.showCreate = false;
     });
-    root.querySelector("#newSpecies")?.addEventListener("change", (e) => {
-      draft.speciesId = e.target.value || "";
+    root.querySelector("#newSpecies")?.addEventListener("change", () => {
+      syncCreateDraft();
       render();
     });
-    root.querySelector("#newClass")?.addEventListener("change", (e) => {
-      draft.classId = e.target.value || "";
+    root.querySelector("#newClass")?.addEventListener("change", () => {
+      syncCreateDraft();
       render();
     });
-    root.querySelector("#cancelCreateBtn")?.addEventListener("click", () => {
+    root.querySelector("#cancelCreateBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       uiState.showCreate = false;
       render();
     });
@@ -4199,6 +4422,10 @@ export function mountV2UI({ root, getState, actions }) {
         }
         if (type === "attack") {
           closeAttackDrawer();
+          return;
+        }
+        if (type === "attack-help") {
+          closeAttackHelp();
           return;
         }
         if (type === "portrait") {
@@ -4520,14 +4747,21 @@ export function mountV2UI({ root, getState, actions }) {
         const id = e.currentTarget.getAttribute("data-open-attack");
         if (id) openAttackDrawer(id);
       }));
-      root.querySelectorAll("[data-attack-roll-mode]").forEach((el) => el.addEventListener("click", (e) => {
-        uiState.attackDrawer.rollMode = e.currentTarget.getAttribute("data-attack-roll-mode") || "normal";
+      root.querySelector("#attackRollModeSelect")?.addEventListener("change", (e) => {
+        uiState.attackDrawer.rollMode = e.target.value || "auto";
         render();
-      }));
+      });
       root.querySelectorAll("[data-attack-mod]").forEach((el) => el.addEventListener("change", (e) => {
         const id = e.target.getAttribute("data-attack-mod");
         if (!id) return;
         uiState.attackDrawer.selected = { ...(uiState.attackDrawer.selected || {}), [id]: Boolean(e.target.checked) };
+        render();
+      }));
+      root.querySelectorAll("[data-attack-mod-pill]").forEach((el) => el.addEventListener("click", (e) => {
+        const id = e.currentTarget.getAttribute("data-attack-mod-pill");
+        if (!id) return;
+        const current = Boolean(uiState.attackDrawer.selected?.[id]);
+        uiState.attackDrawer.selected = { ...(uiState.attackDrawer.selected || {}), [id]: !current };
         render();
       }));
       root.querySelector("#attackUseVersatile")?.addEventListener("change", (e) => {
@@ -4542,12 +4776,27 @@ export function mountV2UI({ root, getState, actions }) {
         uiState.attackDrawer.smiteLevel = asInt(e.target.value, 1);
         render();
       });
-      root.querySelector("#attackTargetNote")?.addEventListener("change", (e) => {
-        uiState.attackDrawer.targetNote = e.target.value || "";
+      root.querySelector("#toggleAttackContext")?.addEventListener("click", () => {
+        uiState.attackDrawer.contextOpen = !uiState.attackDrawer.contextOpen;
+        if (!uiState.attackDrawer.contextOpen) uiState.attackDrawer.contextDraft = "";
+        render();
       });
-      root.querySelector("#attackRollHit")?.addEventListener("click", () => performAttackHitRoll());
-      root.querySelector("#attackRollDamage")?.addEventListener("click", () => performAttackDamageRoll({ crit: false }));
-      root.querySelector("#attackRollCrit")?.addEventListener("click", () => performAttackDamageRoll({ crit: true }));
+      root.querySelector("#attackContextDraft")?.addEventListener("input", (e) => {
+        uiState.attackDrawer.contextDraft = e.target.value || "";
+      });
+      root.querySelector("#saveAttackContext")?.addEventListener("click", () => saveAttackContextNote());
+      root.querySelector("#cancelAttackContext")?.addEventListener("click", () => {
+        uiState.attackDrawer.contextOpen = false;
+        uiState.attackDrawer.contextDraft = "";
+        render();
+      });
+      root.querySelector("#attackResolveBtn")?.addEventListener("click", (e) => {
+        const requestedType = e.currentTarget.getAttribute("data-attack-resolve") || "hit";
+        const crit = e.currentTarget.getAttribute("data-attack-crit") === "1" || Boolean(uiState.attackDrawer?.critical);
+        const shouldResolveDamage = requestedType === "damage" || Boolean(uiState.attackDrawer?.awaitingDamage);
+        if (shouldResolveDamage) performAttackDamageRoll({ crit });
+        else performAttackHitRoll();
+      });
       root.querySelectorAll("[data-roll-save]").forEach((el) => {
         el.addEventListener("click", (e) => {
           const id = e.currentTarget.getAttribute("data-roll-save") || "";
@@ -4751,11 +5000,11 @@ export function mountV2UI({ root, getState, actions }) {
         const i = asInt(e.currentTarget.getAttribute("data-play-tracker-del"), -1);
         actions.updateCharacter((c) => { if (Array.isArray(c.trackers)) c.trackers.splice(i, 1); });
       }));
-      root.querySelectorAll("[data-play-effect-label]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-label]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-label"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].label = e.target.value; });
       }));
-      root.querySelectorAll("[data-play-effect-source]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-source]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-source"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].source = e.target.value; });
       }));
@@ -4767,7 +5016,7 @@ export function mountV2UI({ root, getState, actions }) {
         const i = asInt(e.target.getAttribute("data-play-effect-scope"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].scope = e.target.value; });
       }));
-      root.querySelectorAll("[data-play-effect-rounds]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-rounds]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-rounds"), -1);
         actions.updateCharacter((c) => {
           if (c.play_state?.active_effects?.[i]) {
@@ -4780,23 +5029,23 @@ export function mountV2UI({ root, getState, actions }) {
         const i = asInt(e.target.getAttribute("data-play-effect-mode"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].application_mode = e.target.value; });
       }));
-      root.querySelectorAll("[data-play-effect-atkbonus]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-atkbonus]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-atkbonus"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].attack_roll_bonus = asInt(e.target.value, 0); });
       }));
-      root.querySelectorAll("[data-play-effect-atkdice]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-atkdice]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-atkdice"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].attack_roll_dice = e.target.value; });
       }));
-      root.querySelectorAll("[data-play-effect-dmgbonus]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-dmgbonus]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-dmgbonus"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].damage_bonus = asInt(e.target.value, 0); });
       }));
-      root.querySelectorAll("[data-play-effect-dmgdice]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-dmgdice]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-dmgdice"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].damage_dice = e.target.value; });
       }));
-      root.querySelectorAll("[data-play-effect-dmgtype]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-dmgtype]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-dmgtype"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].damage_type_add = e.target.value; });
       }));
@@ -4804,7 +5053,7 @@ export function mountV2UI({ root, getState, actions }) {
         const i = asInt(e.target.getAttribute("data-play-effect-adv"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].advantage_state = e.target.value; });
       }));
-      root.querySelectorAll("[data-play-effect-notes]").forEach((el) => el.addEventListener("change", (e) => {
+      root.querySelectorAll("[data-play-effect-notes]").forEach((el) => el.addEventListener("input", (e) => {
         const i = asInt(e.target.getAttribute("data-play-effect-notes"), -1);
         actions.updateCharacter((c) => { if (c.play_state?.active_effects?.[i]) c.play_state.active_effects[i].notes = e.target.value; });
       }));
@@ -5031,7 +5280,7 @@ export function mountV2UI({ root, getState, actions }) {
         tags: []
       });
     }));
-    root.querySelectorAll("[data-attack-name]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-name]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-name"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].name = e.target.value; });
     }));
@@ -5051,7 +5300,7 @@ export function mountV2UI({ root, getState, actions }) {
       const i = asInt(e.target.getAttribute("data-attack-atkmode"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].atk_bonus_mode = e.target.checked ? "manual" : "auto"; });
     }));
-    root.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-bonus]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-bonus"), -1);
       actions.updateCharacter((c) => {
         if (c.attacks?.[i]) {
@@ -5064,47 +5313,47 @@ export function mountV2UI({ root, getState, actions }) {
       const i = asInt(e.target.getAttribute("data-attack-dmgmode"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].damage_mode = e.target.checked ? "manual" : "auto"; });
     }));
-    root.querySelectorAll("[data-attack-damage]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-damage]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-damage"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].damage = e.target.value; });
     }));
-    root.querySelectorAll("[data-attack-damagetype]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-damagetype]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-damagetype"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].damage_type = e.target.value; });
     }));
-    root.querySelectorAll("[data-attack-range]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-range]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-range"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].range = e.target.value; });
     }));
-    root.querySelectorAll("[data-attack-versatile]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-versatile]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-versatile"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].versatile_damage = e.target.value; });
     }));
-    root.querySelectorAll("[data-attack-range-short]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-range-short]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-range-short"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].range_short = Math.max(0, asInt(e.target.value, 0)); });
     }));
-    root.querySelectorAll("[data-attack-range-long]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-range-long]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-range-long"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].range_long = Math.max(0, asInt(e.target.value, 0)); });
     }));
-    root.querySelectorAll("[data-attack-reach]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-reach]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-reach"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].reach = Math.max(0, asInt(e.target.value, 0)); });
     }));
-    root.querySelectorAll("[data-attack-magic]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-magic]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-magic"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].magic_bonus = asInt(e.target.value, 0); });
     }));
-    root.querySelectorAll("[data-attack-properties]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-properties]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-properties"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].properties = splitCsvLike(e.target.value); });
     }));
-    root.querySelectorAll("[data-attack-tags]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-tags]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-tags"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].tags = splitCsvLike(e.target.value); });
     }));
-    root.querySelectorAll("[data-attack-notes]").forEach((el) => el.addEventListener("change", (e) => {
+    root.querySelectorAll("[data-attack-notes]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-notes"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].notes = e.target.value; });
     }));

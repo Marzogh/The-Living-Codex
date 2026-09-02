@@ -1,4 +1,3 @@
-import JSZipModule from "../../../vendor/jszip.min.js";
 import {
   fromInventoryRows,
   fromLogRows,
@@ -13,10 +12,9 @@ import { CSV_HEADERS } from "./headers.js";
 import { validateAndFixImportPayload } from "./validate.js";
 
 function assertJSZip() {
-  const zipLib =
-    (typeof JSZipModule === "function" ? JSZipModule : null) ||
-    (typeof JSZipModule?.default === "function" ? JSZipModule.default : null) ||
-    (typeof globalThis !== "undefined" && typeof globalThis.JSZip === "function" ? globalThis.JSZip : null);
+  const zipLib = typeof globalThis !== "undefined" && typeof globalThis.JSZip === "function"
+    ? globalThis.JSZip
+    : null;
   if (!zipLib) {
     throw new Error("JSZip is required for ZIP import/export.");
   }
