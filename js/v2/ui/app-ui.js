@@ -5,6 +5,18 @@ import {
   HELP_SHORTCUTS,
   createHelpController
 } from "./help/index.js";
+import { activeCompanionEffects, archiveCompanion, createCompanion, createCompanionFromTemplate, replaceCompanion, restoreCompanion } from "../core/companions.js";
+import {
+  attackUsesAmmunition,
+  compatibleAmmunitionItems,
+  consumeLinkedAmmunition,
+  inferInventoryAmmunitionType,
+  inferWeaponAmmunitionType,
+  linkedAmmunitionItems,
+  normalizeAmmunitionLinks,
+  normalizeAmmunitionType
+} from "../core/ammunition.js";
+import { createFeatureFromTemplate, featureToAttackModifier, normalizeCharacterFeature, resolveCharacterFeatures } from "../core/features.js";
 
 function esc(v) {
   return (v ?? "")
@@ -589,6 +601,21 @@ function attackKindLabel(kind) {
   return map[key] || titleizeId(key || "attack");
 }
 
+const AMMUNITION_TYPE_OPTIONS = [
+  ["", "Automatic"],
+  ["arrow", "Arrows"],
+  ["bolt", "Crossbow bolts"],
+  ["bullet", "Bullets / cartridges"],
+  ["cannonball", "Cannonballs"],
+  ["sling_bullet", "Sling bullets / stones"],
+  ["blowgun_needle", "Blowgun needles"],
+  ["custom", "Custom ammunition"]
+];
+
+function ammunitionTypeOptions(selected, emptyLabel = "Automatic") {
+  return AMMUNITION_TYPE_OPTIONS.map(([value, label]) => `<option value="${value}" ${value === (selected || "") ? "selected" : ""}>${esc(value ? label : emptyLabel)}</option>`).join("");
+}
+
 function formatAttackRangeText(row) {
   const explicit = (row?.range || "").toString().trim();
   if (explicit) return explicit;
@@ -641,7 +668,11 @@ function normalizeAttackForUi(row = {}) {
     reach: Math.max(0, asInt(row.reach, 5)),
     properties,
     notes: (row.notes || "").toString(),
-    tags
+    tags,
+    ammunition_type: normalizeAmmunitionType(row.ammunition_type),
+    ammunition_links: normalizeAmmunitionLinks(row.ammunition_links),
+    selected_ammunition_id: (row.selected_ammunition_id || "").toString(),
+    unlimited_ammunition: Boolean(row.unlimited_ammunition)
   };
 }
 
@@ -683,7 +714,7 @@ function secureDieRoll(sides) {
   return (v % max) + 1;
 }
 
-function rollDiceTerms(formula, { crit = false, extraDice = [] } = {}) {
+function rollDiceTerms(formula, { crit = false, extraDice = [], critExtraDice = [] } = {}) {
   const parsed = parseDiceTerms(formula);
   const detailed = [];
   let total = 0;
@@ -698,9 +729,19 @@ function rollDiceTerms(formula, { crit = false, extraDice = [] } = {}) {
     const parsedExtra = parseDiceTerms(extra);
     valid = valid && parsedExtra.valid;
     for (const die of parsedExtra.dice) {
-      const count = die.count;
+      const count = die.count * (crit ? 2 : 1);
       const payload = Array.from({ length: count }, () => secureDieRoll(die.sides));
       detailed.push({ sides: die.sides, sign: die.sign, rolls: payload, extra: true });
+      total += die.sign * payload.reduce((a, b) => a + b, 0);
+    }
+    total += parsedExtra.flat;
+  }
+  for (const extra of critExtraDice) {
+    const parsedExtra = parseDiceTerms(extra);
+    valid = valid && parsedExtra.valid;
+    for (const die of parsedExtra.dice) {
+      const payload = Array.from({ length: die.count }, () => secureDieRoll(die.sides));
+      detailed.push({ sides: die.sides, sign: die.sign, rolls: payload, extra: true, criticalOnly: true });
       total += die.sign * payload.reduce((a, b) => a + b, 0);
     }
     total += parsedExtra.flat;
@@ -1037,7 +1078,7 @@ function conditionToModifier(condition) {
   return null;
 }
 
-function buildAttackModifierBuckets(character, attack, derived) {
+function buildAttackModifierBuckets(character, attack, derived, featureTemplates = []) {
   const persistent = [];
   const optional = [];
   const activeEffects = Array.isArray(character?.play_state?.active_effects) ? character.play_state.active_effects : [];
@@ -1077,73 +1118,53 @@ function buildAttackModifierBuckets(character, attack, derived) {
     if (effect && attackMatchesScope(attack, effect.scope)) persistent.push({ id: `condition:${norm(row?.name || row)}`, ...effect });
   }
 
-  const rogueLevel = classLevel(character, "rogue");
-  const sneakEligibleByName = attackNameKeys(attack.name).some((key) => [
-    "dagger", "dart", "rapier", "scimitar", "shortsword", "shortbow",
-    "longbow", "lightcrossbow", "handcrossbow", "sling", "blowgun", "whip"
-  ].includes(key));
-  if (rogueLevel > 0 && (attack.kind === "ranged_weapon" || attack.properties.includes("finesse") || sneakEligibleByName)) {
-    optional.push({
-      id: "class:sneak_attack",
-      label: `Sneak Attack (${Math.ceil(rogueLevel / 2)}d6)`,
-      source_type: "class_feature",
-      source_id: "sneak_attack",
-      application_mode: "manual",
-      damage_dice: `${Math.ceil(rogueLevel / 2)}d6`,
-      notes: "Apply once per turn when Sneak Attack conditions are met."
-    });
-  }
-  const barbarianLevel = classLevel(character, "barbarian");
-  if (barbarianLevel > 0 && attack.kind === "melee_weapon" && attack.abilityKey === "str") {
-    const rageBonus = barbarianLevel >= 16 ? 4 : barbarianLevel >= 9 ? 3 : 2;
-    optional.push({
-      id: "class:rage",
-      label: `Rage (+${rageBonus} damage)`,
-      source_type: "class_feature",
-      source_id: "rage",
-      application_mode: "manual",
-      damage_bonus: rageBonus,
-      notes: "Use only while raging."
-    });
-  }
-  const paladinLevel = classLevel(character, "paladin");
-  if (paladinLevel >= 2 && attack.kind === "melee_weapon") {
-    optional.push({
-      id: "class:divine_smite",
-      label: "Divine Smite",
-      source_type: "class_feature",
-      source_id: "divine_smite",
-      application_mode: "manual",
-      notes: "Choose a spell slot in the attack drawer to add radiant damage."
-    });
-  }
-  if (attack.tags.includes("sharpshooter")) {
-    optional.push({
-      id: "feat:sharpshooter",
-      label: "Sharpshooter (-5 to hit, +10 damage)",
-      source_type: "class_feature",
-      source_id: "sharpshooter",
-      application_mode: "manual",
-      attack_roll_bonus: -5,
-      damage_bonus: 10
-    });
-  }
-  if (attack.tags.includes("great_weapon_master")) {
-    optional.push({
-      id: "feat:great_weapon_master",
-      label: "Great Weapon Master (-5 to hit, +10 damage)",
-      source_type: "class_feature",
-      source_id: "great_weapon_master",
-      application_mode: "manual",
-      attack_roll_bonus: -5,
-      damage_bonus: 10
-    });
+  for (const feature of resolveCharacterFeatures(character, featureTemplates, attack)) {
+    const modifier = featureToAttackModifier(feature);
+    if (modifier.application_mode === "auto" || modifier.application_mode === "suggested") persistent.push(modifier);
+    else optional.push(modifier);
   }
   return {
     auto_applied_modifiers: persistent.filter((row) => row.application_mode === "auto"),
     suggested_modifiers: persistent.filter((row) => row.application_mode === "suggested"),
     manual_options: optional.concat(persistent.filter((row) => row.application_mode === "manual"))
   };
+}
+
+function resolveAttackDrawerOwner(character, uiState, actions) {
+  const ownerType = uiState.attackDrawer?.ownerType === "companion" ? "companion" : "character";
+  if (ownerType === "companion") {
+    const companion = (Array.isArray(character?.companions) ? character.companions : []).find((row) => row.id === uiState.attackDrawer.ownerId);
+    const attackRow = companion?.attacks?.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
+    if (!companion || !attackRow) return null;
+    const base = normalizeAttackForUi(attackRow);
+    const attack = {
+      ...base,
+      kindLabel: attackKindLabel(base.kind),
+      abilityKey: "",
+      abilityMod: 0,
+      proficiency: asInt(companion.proficiency_bonus, 0),
+      autoAttackBonus: asInt(base.atk_bonus_override, 0),
+      effectiveAttackBonus: asInt(base.atk_bonus_override, 0),
+      damageFormula: base.damage,
+      damageBonusAuto: 0,
+      rangeLabel: formatAttackRangeText(base),
+      propertiesLabel: base.properties.map(titleizeId).join(", ")
+    };
+    const effectCharacter = {
+      play_state: { active_effects: activeCompanionEffects(companion) },
+      combat: { concentration: { active: false }, conditions: [] },
+      core: { classes: [] },
+      identity: { classes: [] }
+    };
+    return { ownerType, owner: companion, attack, buckets: buildAttackModifierBuckets(effectCharacter, attack, {}, []) };
+  }
+  const rows = Array.isArray(character?.attacks) ? character.attacks : [];
+  const attackRow = rows.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
+  if (!attackRow) return null;
+  const catalog = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
+  const derived = deriveStats(character);
+  const attack = deriveAttackProfile(attackRow, character, derived, catalog);
+  return { ownerType, owner: character, attack, buckets: buildAttackModifierBuckets(character, attack, derived, catalog.features || []), catalog, derived };
 }
 
 function resolveAdvantageState(mode, modifiers) {
@@ -1219,6 +1240,7 @@ const EDIT_TABS = [
   { id: "battle", label: "Battle", sections: ["sec-combat", "sec-mechanics"] },
   { id: "spellcraft", label: "Spellcraft", sections: ["sec-spells"] },
   { id: "gear", label: "Gear", sections: ["sec-inventory", "sec-trackers"] },
+  { id: "companions", label: "Companions", sections: ["sec-companions"] },
   { id: "chronicle", label: "Chronicle", sections: ["sec-profile"] }
 ];
 
@@ -1226,6 +1248,7 @@ const PLAY_PANES = [
   { id: "spells", label: "Spells" },
   { id: "bonus", label: "Bonus Actions" },
   { id: "attacks", label: "Attacks" },
+  { id: "companions", label: "Companions" },
   { id: "trackers", label: "Trackers" },
   { id: "log", label: "Log" },
   { id: "notes", label: "Notes" }
@@ -1650,6 +1673,30 @@ function inferConcentrationRoundsFromSource(sourceName, actions) {
   return parseRoundsFromDuration(row?.duration || "");
 }
 
+function renderCompanionsPlayPane(character, uiState) {
+  const rows = (Array.isArray(character?.companions) ? character.companions : []).filter((row) => row.status === "active");
+  const selected = rows.find((row) => row.id === uiState.selectedPlayCompanionId) || rows[0] || null;
+  if (selected) uiState.selectedPlayCompanionId = selected.id;
+  if (!selected) return `<article class="card"><h2>Companions & Summons</h2><div class="card-body"><p class="hint">No active companions. Add or activate one in Edit mode.</p></div></article>`;
+  const abilityLine = ABILITY_KEYS.map((key) => `${key.toUpperCase()} ${selected.abilities?.[key] ?? 10}`).join(" · ");
+  const movementLine = ["walk", "fly", "swim", "climb", "burrow"].filter((key) => (selected.movement?.[key] || 0) > 0).map((key) => `${titleizeId(key)} ${selected.movement[key]} ft.`).join(" · ");
+  const named = (label, values) => values?.length ? `<section><h3>${label}</h3>${values.map((row) => `<div class="companion-play-detail"><strong>${esc(row.name)}</strong><p>${esc(row.description)}</p></div>`).join("")}</section>` : "";
+  return `<article class="card companion-play"><h2>Companions & Summons</h2><div class="card-body stack">
+    ${rows.length > 1 ? `<label>Active Companion<select id="playCompanionSelect">${rows.map((row) => `<option value="${esc(row.id)}" ${row.id === selected.id ? "selected" : ""}>${esc(row.name)}</option>`).join("")}</select></label>` : ""}
+    <header class="companion-play-head"><div><h3>${esc(selected.name)}</h3><p>${esc([selected.role, selected.creature_type, selected.size].filter(Boolean).join(" · "))}</p></div><button type="button" id="playCompanionDeactivate">Deactivate</button></header>
+    <div class="companion-play-stats"><span><strong>AC</strong> ${esc(selected.ac)}</span><span><strong>HP</strong> ${esc(selected.hp?.current)}/${esc(selected.hp?.max)}</span><span><strong>Temp</strong> ${esc(selected.hp?.temp || 0)}</span><span><strong>Init</strong> ${esc(fmtSigned(selected.initiative_bonus || 0))}</span></div>
+    <div class="inline-actions"><button type="button" data-play-companion-hp="-5">-5 HP</button><button type="button" data-play-companion-hp="-1">-1 HP</button><input id="playCompanionHp" type="number" min="0" value="${esc(selected.hp?.current ?? 0)}"/><button type="button" id="playCompanionHpSet">Set HP</button><button type="button" data-play-companion-hp="1">+1 HP</button><button type="button" data-play-companion-hp="5">+5 HP</button></div>
+    ${selected.lifecycle === "temporary" ? `<label>Rounds Remaining<input id="playCompanionRounds" type="number" min="0" value="${esc(selected.rounds_remaining ?? "")}" placeholder="Open-ended"/></label>` : ""}
+    <p>${esc(abilityLine)}</p><p>${esc(movementLine || "No movement recorded")}</p>
+    <div class="grid2"><p><strong>Senses</strong><br/>${esc(selected.senses || "—")}</p><p><strong>Languages</strong><br/>${esc(selected.languages || "—")}</p></div>
+    <section><h3>Attacks</h3><div class="attack-card-list attack-button-list">${(selected.attacks || []).map((row) => `<button type="button" class="attack-card attack-button" data-open-companion-attack="${esc(row.id)}"><strong>${esc(row.name)}</strong><small>${esc(`${fmtSigned(row.atk_bonus_override || 0)} · ${row.damage || "Manual damage"}`)}</small></button>`).join("") || `<p class="hint">No attacks recorded.</p>`}</div></section>
+    <section><h3>Effects</h3>${(selected.effects || []).map((row, idx) => `<label class="check companion-play-effect"><input type="checkbox" data-play-companion-effect="${idx}" ${row.active ? "checked" : ""} ${row.pending ? "disabled" : ""}/>${esc(row.label)}${row.pending ? " (pending)" : ""}</label>`).join("") || `<p class="hint">No effects recorded.</p>`}</section>
+    ${named("Actions", selected.actions)}${named("Bonus Actions", selected.bonus_actions)}${named("Reactions", selected.reactions)}${named("Traits", selected.traits)}
+    ${selected.equipment?.length ? `<section><h3>Equipment</h3><ul>${selected.equipment.map((row) => `<li>${esc(row.name)}${row.equipped ? " (equipped)" : ""}${row.notes ? ` — ${esc(row.notes)}` : ""}</li>`).join("")}</ul></section>` : ""}
+    ${selected.notes ? `<section><h3>Notes</h3><p>${esc(selected.notes)}</p></section>` : ""}
+  </div></article>`;
+}
+
 function renderPlayMode(character, uiState, actions) {
   const hp = character?.combat?.hp || { max: 0, current: 0, temp: 0 };
   const trackers = Array.isArray(character?.trackers) ? character.trackers : [];
@@ -1730,7 +1777,7 @@ function renderPlayMode(character, uiState, actions) {
   const attackCatalog = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
   const attackProfiles = attacks.map((row) => {
     const profile = deriveAttackProfile(row, character, derived, attackCatalog);
-    const buckets = buildAttackModifierBuckets(character, profile, derived);
+    const buckets = buildAttackModifierBuckets(character, profile, derived, attackCatalog.features || []);
     return {
       profile,
       buckets,
@@ -1741,24 +1788,11 @@ function renderPlayMode(character, uiState, actions) {
       ].filter(Boolean).join(" · ")
     };
   });
-  const ammoProfiles = attackProfiles.filter(({ profile }) => profile.ammoInfo);
-  const attackCards = attackProfiles
-    .filter(({ profile }) => !profile.ammoInfo)
-    .map((entry) => {
-      const { profile, buckets } = entry;
-      const linkedAmmo = ammoProfiles.filter(({ profile: ammoProfile }) => {
-        if (!ammoProfile.ammoInfo || !profile.ammoCompatibilityKey) return false;
-        return ammoProfile.ammoInfo.compatibleKinds.includes(profile.ammoCompatibilityKey);
-      });
-      return {
-        ...entry,
-        linkedAmmo
-      };
-    });
-  const looseAmmo = ammoProfiles.filter(({ profile }) => {
-    if (!profile.ammoInfo) return false;
-    return !attackCards.some((entry) => entry.linkedAmmo.some(({ profile: ammoProfile }) => ammoProfile.id === profile.id));
-  });
+  const inventory = Array.isArray(character?.inventory) ? character.inventory : [];
+  const attackCards = attackProfiles.map((entry) => ({
+    ...entry,
+    linkedAmmo: linkedAmmunitionItems(entry.profile, inventory)
+  }));
   const logBudget = computeLogNotesChars(character);
   const bonusActions = collectBonusActions(character);
   const classActions = collectClassActionFeatures(character);
@@ -1853,13 +1887,13 @@ function renderPlayMode(character, uiState, actions) {
           <span class="attack-card-pop" role="note">
             <strong>${esc(profile.name || "Attack")}</strong>
             ${infoBits.map((bit) => `<span>${esc(bit)}</span>`).join("")}
-            ${linkedAmmo.length ? `<span>${esc(`Ammo: ${linkedAmmo.map(({ profile: ammoProfile }) => ammoProfile.name || ammoProfile.ammoInfo?.label || "Ammunition").join(", ")}`)}</span>` : ""}
+            ${linkedAmmo.length ? `<span>${esc(`Ammo: ${linkedAmmo.map((item) => `${item.name || "Ammunition"} (${item.unlimited_ammunition || profile.unlimited_ammunition ? "unlimited" : Math.max(0, asInt(item.qty, 0))})`).join(", ")}`)}</span>` : ""}
             ${effectBits.length ? `<em>${esc(effectBits.join(" · "))}</em>` : ""}
           </span>
         </button>`;
       }).join("")}</div>`}
-      ${looseAmmo.length ? `<div class="attack-ammo-stash"><p class="hint">Loose ammunition</p><div class="attack-card-ammo">${looseAmmo.map(({ profile }) => `<span>${esc(profile.name || profile.ammoInfo?.label || "Ammunition")}</span>`).join("")}</div></div>` : ""}
     </div></article>`;
+  const companionsPane = renderCompanionsPlayPane(character, uiState);
   const effectScopeOptions = [
     ["all_attacks", "All attacks"],
     ["weapon_attacks", "Weapon attacks"],
@@ -1973,7 +2007,7 @@ function renderPlayMode(character, uiState, actions) {
         ${classActions.reaction.map((row) => `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small></li>`).join("")}
       </ul></section>` : ""}
     </div></article>`;
-  const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, trackers: trackersPane, log: logPane, notes: notesPane };
+  const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, companions: companionsPane, trackers: trackersPane, log: logPane, notes: notesPane };
 
   const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round((hp.current / hp.max) * 100))) : 0;
   return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
@@ -2084,13 +2118,9 @@ function renderPlayMode(character, uiState, actions) {
 
 function renderAttackDrawer(character, uiState, actions) {
   if (!uiState.attackDrawer?.open) return "";
-  const rows = Array.isArray(character?.attacks) ? character.attacks : [];
-  const attackRow = rows.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
-  if (!attackRow) return "";
-  const catalog = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
-  const derived = deriveStats(character);
-  const attack = deriveAttackProfile(attackRow, character, derived, catalog);
-  const buckets = buildAttackModifierBuckets(character, attack, derived);
+  const context = resolveAttackDrawerOwner(character, uiState, actions);
+  if (!context) return "";
+  const { attack, buckets } = context;
   const selectedMap = uiState.attackDrawer.selected || {};
   const selectedSuggested = buckets.suggested_modifiers.filter((row) => selectedMap[row.id]);
   const selectedOptional = buckets.manual_options.filter((row) => selectedMap[row.id]);
@@ -2100,7 +2130,7 @@ function renderAttackDrawer(character, uiState, actions) {
   const effectiveMode = selectedRollMode === "auto"
     ? resolveAdvantageState("normal", [...buckets.auto_applied_modifiers, ...selectedSuggested])
     : selectedRollMode;
-  const availableSlots = computeEffectiveSlots(character).levels;
+  const availableSlots = context.ownerType === "character" ? computeEffectiveSlots(character).levels : {};
   const hasSmite = buckets.manual_options.some((row) => row.source_id === "divine_smite");
   const smiteOptions = hasSmite
     ? Array.from({ length: 9 }, (_, idx) => idx + 1).filter((lvl) => ((availableSlots[String(lvl)]?.max || 0) - (availableSlots[String(lvl)]?.used || 0)) > 0)
@@ -2110,7 +2140,7 @@ function renderAttackDrawer(character, uiState, actions) {
   const localResult = uiState.attackDrawer?.lastResult || null;
   const critArmed = Boolean(
     uiState.attackDrawer.critical
-    || (lastHit?.attack_id === attack.id && lastHit?.nat20)
+    || (lastHit?.attack_id === attack.id && (lastHit?.owner_type || "character") === context.ownerType && lastHit?.nat20)
   );
   const modeReasonRows = persistentEffects.filter((row) => row.advantage_state && row.advantage_state === effectiveMode);
   const modeReason = modeReasonRows.length
@@ -2173,6 +2203,13 @@ function renderAttackDrawer(character, uiState, actions) {
     fmtSigned(attack.effectiveAttackBonus) + " to hit",
     formatAttackDamageText(attack, { versatile: uiState.attackDrawer.versatile })
   ].filter(Boolean).join(" • ");
+  const drawerAmmo = context.ownerType === "character" ? linkedAmmunitionItems(attack, character?.inventory) : [];
+  const selectedAmmoId = drawerAmmo.some((item) => item.id === uiState.attackDrawer.ammunitionId)
+    ? uiState.attackDrawer.ammunitionId
+    : (drawerAmmo[0]?.id || "");
+  const selectedAmmo = drawerAmmo.find((item) => item.id === selectedAmmoId) || null;
+  const selectedAmmoUnlimited = Boolean(selectedAmmo?.unlimited_ammunition || attack.unlimited_ammunition);
+  const ammoEmpty = Boolean(selectedAmmo && !selectedAmmoUnlimited && Math.max(0, asInt(selectedAmmo.qty, 0)) <= 0);
   const visibleLocalResult = localResult?.attackId === attack.id ? localResult : null;
   const contextSaved = Boolean(uiState.attackDrawer.contextSaved);
 
@@ -2181,7 +2218,7 @@ function renderAttackDrawer(character, uiState, actions) {
       <button type="button" class="overlay-close" id="attackDrawerClose" data-overlay-close="attack" aria-label="Close attack drawer">×</button>
       <header class="attack-sheet-header">
         <div class="attack-sheet-header-copy">
-          <p class="attack-sheet-kicker">Attack</p>
+          <p class="attack-sheet-kicker">${context.ownerType === "companion" ? esc(context.owner.name) : "Attack"}</p>
           <div class="attack-sheet-title-row">
             <h3>${esc(attack.name)}</h3>
             ${renderAttackSummaryHelp(attack)}
@@ -2190,6 +2227,11 @@ function renderAttackDrawer(character, uiState, actions) {
         </div>
       </header>
       <div class="checks-drawer-body">
+        ${context.ownerType === "character" && attackUsesAmmunition(attack) ? `<section class="attack-sheet-ammunition">
+          <div class="attack-sheet-section-head"><div><h4>Ammunition</h4><p class="hint">${selectedAmmoUnlimited ? "The selected ammunition stack is unlimited." : drawerAmmo.length ? "One unit is used when you roll to hit." : "No inventory ammunition is linked to this weapon."}</p></div></div>
+          ${drawerAmmo.length ? `<label>Selected ammunition<select id="attackAmmunitionSelect">${drawerAmmo.map((item) => `<option value="${esc(item.id)}" ${item.id === selectedAmmoId ? "selected" : ""}>${esc(item.name || "Ammunition")} (${item.unlimited_ammunition || attack.unlimited_ammunition ? "unlimited" : `${Math.max(0, asInt(item.qty, 0))} remaining`})</option>`).join("")}</select></label>` : ""}
+          ${ammoEmpty ? `<p class="play-feedback">${esc(selectedAmmo.name || "Ammunition")} is empty. Choose another stack or mark that ammunition as unlimited in Edit mode.</p>` : ""}
+        </section>` : ""}
         <section class="attack-sheet-turnflow">
           <div class="attack-sheet-flow-head">
             <div class="attack-sheet-heading-wrap">
@@ -2271,7 +2313,62 @@ function cardTitle(label, isEdited) {
   return `${esc(label)}${isEdited ? ` <span class="card-change-badge">Changes not saved</span>` : ""}`;
 }
 
-function renderEditMode(character, catalog, lookupState, edited = {}, uiState = {}) {
+function renderCompanionEditor(character, catalog, uiState) {
+  const rows = Array.isArray(character?.companions) ? character.companions : [];
+  const templates = Array.isArray(catalog?.companions) ? catalog.companions : [];
+  const chosenTemplate = templates.find((row) => row.id === uiState.companionTemplateId) || null;
+  const newOverride = uiState.newCompanionDmOverride === true;
+  const needsSpellLevel = chosenTemplate?.scaling?.type === "spell_slot";
+  const visible = uiState.showArchivedCompanions ? rows : rows.filter((row) => row.status !== "archived");
+  const selected = rows.find((row) => row.id === uiState.selectedCompanionId && (uiState.showArchivedCompanions || row.status !== "archived")) || visible[0] || null;
+  if (selected) uiState.selectedCompanionId = selected.id;
+  const csv = (value) => Array.isArray(value) ? value.join(", ") : "";
+  const simpleRows = (key, label) => `<section class="companion-subsection"><h3>${label}</h3><button type="button" data-companion-add-row="${key}">Add</button>
+    ${(selected?.[key] || []).map((row, idx) => `<div class="companion-repeat-row"><input data-companion-row-field="${key}:${idx}:name" value="${esc(row.name || "")}" placeholder="Name"/><textarea data-companion-row-field="${key}:${idx}:description" placeholder="Description">${esc(row.description || "")}</textarea><button type="button" data-companion-del-row="${key}:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>`;
+
+  const baseLocked = Boolean(selected?.template_id && !selected?.dm_override);
+  return `<article class="card ${uiState.activeEditTab === "companions" ? "" : "is-hidden"}" id="sec-companions"><h2>${cardTitle("Companions & Summons", uiState.edited?.companions)}</h2><div class="card-body companion-editor">
+    <aside class="companion-list"><section class="companion-template-picker"><h3>Add Companion</h3>
+      <div class="companion-template-control"><span>Rules template</span><button type="button" class="companion-template-toggle" id="companionTemplateToggle" aria-haspopup="listbox" aria-expanded="${uiState.companionTemplateOpen ? "true" : "false"}">${chosenTemplate ? esc(chosenTemplate.name) : newOverride ? "Blank custom companion" : "Choose a companion…"}<span aria-hidden="true">⌄</span></button>
+      ${uiState.companionTemplateOpen ? `<div class="companion-template-menu" role="listbox" aria-label="Rules companion templates"><input id="companionTemplateSearch" type="search" placeholder="Search companions…" autocomplete="off"/><div class="companion-template-options">${newOverride ? `<button type="button" data-companion-template-id="" data-companion-template-search="blank custom companion">Blank custom companion</button>` : ""}${templates.map((row) => `<button type="button" role="option" aria-selected="${chosenTemplate?.id === row.id ? "true" : "false"}" class="${chosenTemplate?.id === row.id ? "is-selected" : ""}" data-companion-template-id="${esc(row.id)}" data-companion-template-search="${esc(`${row.name} ${(row.tags || []).join(" ")}`.toLowerCase())}">${esc(row.name)}</button>`).join("")}</div><p class="hint companion-template-empty" hidden>No matching companions.</p></div>` : ""}</div>
+      ${needsSpellLevel ? `<label>Spell Slot Level<input id="companionTemplateLevel" type="number" min="${esc(chosenTemplate.scaling?.level_min || 2)}" value="${esc(uiState.companionTemplateLevel || chosenTemplate.scaling?.level_min || 2)}"/></label>` : ""}
+      <label class="check"><input id="companionNewDmOverride" type="checkbox" ${newOverride ? "checked" : ""}/>DM Override</label>
+      <p class="hint">Choose a rules entry for one-click stats. DM Override permits a blank companion or editable template stats.</p>
+      <button type="button" id="companionAdd" ${!chosenTemplate && !newOverride ? "disabled" : ""}>${chosenTemplate ? "Add from Rules" : "Add Custom"}</button>
+    </section><label class="check"><input id="companionShowArchived" type="checkbox" ${uiState.showArchivedCompanions ? "checked" : ""}/>Show archived</label>
+      ${visible.map((row) => `<button type="button" class="companion-list-item ${selected?.id === row.id ? "is-active" : ""}" data-companion-select="${esc(row.id)}"><strong>${esc(row.name || "Unnamed")}</strong><small>${esc(row.role || "companion")} · ${esc(row.status || "active")}</small></button>`).join("") || `<p class="hint">No companions yet.</p>`}
+    </aside>
+    ${selected ? `<section class="companion-sheet"><div class="inline-actions">${selected.status === "archived" ? `<button type="button" id="companionRestore">Restore</button>` : `<button type="button" id="companionArchive">Archive</button><button type="button" id="companionReplace">Replace</button>`}<button type="button" id="companionDelete">Permanently Delete</button></div>
+      ${selected.template_id ? `<div class="companion-template-status"><div><strong>Rules template</strong><small>Base statistics are ${baseLocked ? "locked" : "editable under DM Override"}.</small></div><label class="check"><input id="companionDmOverride" type="checkbox" ${selected.dm_override ? "checked" : ""}/>DM Override</label></div>` : `<div class="companion-template-status"><div><strong>Custom companion</strong><small>Custom records are always editable under DM Override.</small></div><label class="check"><input type="checkbox" checked disabled/>DM Override</label></div>`}
+      <fieldset class="companion-stat-fields" ${baseLocked ? "disabled" : ""}>
+      <div class="grid2">
+        ${[["name","Name"],["role","Role"],["creature_type","Creature Type"],["size","Size"],["alignment","Alignment"],["challenge_rating","Challenge Rating"],["hit_dice","Hit Dice"],["duration","Duration"],["replacement.cost","Replacement Cost"]].map(([path,label]) => `<label>${label}<input data-companion-field="${path}" value="${esc(path.split(".").reduce((value, key) => value?.[key], selected) || "")}"/></label>`).join("")}
+        <label>Lifecycle<select data-companion-field="lifecycle"><option value="persistent" ${selected.lifecycle === "persistent" ? "selected" : ""}>Persistent</option><option value="temporary" ${selected.lifecycle === "temporary" ? "selected" : ""}>Temporary</option></select></label>
+        <label>Status<select data-companion-field="status">${["active","inactive","archived"].map((value) => `<option value="${value}" ${selected.status === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+        <label>Rounds Remaining<input type="number" min="0" data-companion-nullable-number="rounds_remaining" value="${esc(selected.rounds_remaining ?? "")}"/></label>
+        <label>Replacement Notes<textarea data-companion-field="replacement.notes">${esc(selected.replacement?.notes || "")}</textarea></label>
+      </div>
+      <h3>Combat Statistics</h3><div class="grid2">
+        ${[["ac","Armor Class"],["initiative_bonus","Initiative Bonus"],["proficiency_bonus","Proficiency Bonus"],["hp.current","HP Current"],["hp.max","HP Maximum"],["hp.temp","Temporary HP"]].map(([path,label]) => `<label>${label}<input type="number" data-companion-number="${path}" value="${esc(path.split(".").reduce((value, key) => value?.[key], selected) ?? 0)}"/></label>`).join("")}
+      </div><div class="six-grid">${ABILITY_KEYS.map((key) => `<label>${key.toUpperCase()}<input type="number" min="1" data-companion-number="abilities.${key}" value="${esc(selected.abilities?.[key] ?? 10)}"/></label>`).join("")}</div>
+      <h3>Movement & Saves</h3><div class="grid2">
+        ${["walk","fly","swim","climb","burrow"].map((key) => `<label>${titleizeId(key)}<input type="number" min="0" data-companion-number="movement.${key}" value="${esc(selected.movement?.[key] ?? 0)}"/></label>`).join("")}
+        <label>Movement Notes<input data-companion-field="movement.notes" value="${esc(selected.movement?.notes || "")}"/></label>
+        ${ABILITY_KEYS.map((key) => `<label>${key.toUpperCase()} Save<input type="number" data-companion-nullable-number="saves.${key}" value="${esc(selected.saves?.[key] ?? "")}" placeholder="—"/></label>`).join("")}
+      </div>
+      <h3>Details</h3><div class="grid2"><label>Senses<textarea data-companion-field="senses">${esc(selected.senses)}</textarea></label><label>Languages<textarea data-companion-field="languages">${esc(selected.languages)}</textarea></label>
+        ${["vulnerabilities","resistances","immunities","condition_immunities"].map((key) => `<label>${titleizeId(key)}<input data-companion-list-field="defenses.${key}" value="${esc(csv(selected.defenses?.[key]))}" placeholder="Comma separated"/></label>`).join("")}</div>
+      <section class="companion-subsection"><h3>Skills</h3><button type="button" data-companion-add-row="skills">Add</button>${(selected.skills || []).map((row, idx) => `<div class="companion-repeat-row"><input data-companion-row-field="skills:${idx}:name" value="${esc(row.name)}" placeholder="Skill"/><input type="number" data-companion-row-number="skills:${idx}:bonus" value="${esc(row.bonus)}"/><button type="button" data-companion-del-row="skills:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      <section class="companion-subsection"><h3>Attacks</h3><button type="button" data-companion-add-row="attacks">Add</button>${(selected.attacks || []).map((row, idx) => `<div class="companion-repeat-row companion-attack-row"><input data-companion-row-field="attacks:${idx}:name" value="${esc(row.name)}" placeholder="Name"/><select data-companion-row-field="attacks:${idx}:kind">${["natural_weapon","melee_weapon","ranged_weapon","spell_attack","custom"].map((value) => `<option value="${value}" ${row.kind === value ? "selected" : ""}>${attackKindLabel(value)}</option>`).join("")}</select><input type="number" data-companion-row-number="attacks:${idx}:atk_bonus_override" value="${esc(row.atk_bonus_override)}" placeholder="To hit"/><input data-companion-row-field="attacks:${idx}:damage" value="${esc(row.damage)}" placeholder="Damage formula"/><input data-companion-row-field="attacks:${idx}:damage_type" value="${esc(row.damage_type)}" placeholder="Damage type"/><input data-companion-row-field="attacks:${idx}:range" value="${esc(row.range)}" placeholder="Range / reach"/><input type="number" min="0" data-companion-row-number="attacks:${idx}:reach" value="${esc(row.reach)}" placeholder="Reach"/><input data-companion-row-list="attacks:${idx}:properties" value="${esc(csv(row.properties))}" placeholder="Properties, comma separated"/><input data-companion-row-list="attacks:${idx}:tags" value="${esc(csv(row.tags))}" placeholder="Tags, comma separated"/><textarea data-companion-row-field="attacks:${idx}:notes" placeholder="Notes">${esc(row.notes)}</textarea><button type="button" data-companion-del-row="attacks:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      ${simpleRows("actions", "Actions")}${simpleRows("bonus_actions", "Bonus Actions")}${simpleRows("reactions", "Reactions")}${simpleRows("traits", "Traits")}
+      <section class="companion-subsection"><h3>Equipment</h3><button type="button" data-companion-add-row="equipment">Add</button>${(selected.equipment || []).map((row, idx) => `<div class="companion-repeat-row"><input data-companion-row-field="equipment:${idx}:name" value="${esc(row.name)}" placeholder="Item"/><input type="number" min="0" data-companion-row-number="equipment:${idx}:quantity" value="${esc(row.quantity)}"/><label class="check"><input type="checkbox" data-companion-row-check="equipment:${idx}:equipped" ${row.equipped ? "checked" : ""}/>Equipped</label><input data-companion-row-field="equipment:${idx}:notes" value="${esc(row.notes)}" placeholder="Notes"/><button type="button" data-companion-del-row="equipment:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      <section class="companion-subsection"><h3>Effects</h3><button type="button" data-companion-add-row="effects">Add</button>${(selected.effects || []).map((row, idx) => `<div class="companion-repeat-row companion-effect-row"><input data-companion-row-field="effects:${idx}:label" value="${esc(row.label)}" placeholder="Effect"/><input data-companion-row-field="effects:${idx}:source" value="${esc(row.source)}" placeholder="Source"/><select data-companion-row-field="effects:${idx}:source_id"><option value="">No linked item</option>${(selected.equipment || []).map((item) => `<option value="${esc(item.id)}" ${row.source_id === item.id ? "selected" : ""}>${esc(item.name || "Unnamed item")}</option>`).join("")}</select><select data-companion-row-field="effects:${idx}:application_mode">${["auto","suggested","manual"].map((value) => `<option value="${value}" ${row.application_mode === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select><select data-companion-row-field="effects:${idx}:scope">${["all_attacks","melee_weapon","ranged_weapon","spell_attacks"].map((value) => `<option value="${value}" ${row.scope === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select><label class="check"><input type="checkbox" data-companion-row-check="effects:${idx}:active" ${row.active ? "checked" : ""} ${row.pending ? "disabled" : ""}/>Active</label><label class="check"><input type="checkbox" data-companion-row-check="effects:${idx}:pending" ${row.pending ? "checked" : ""}/>Pending</label><input type="number" data-companion-row-number="effects:${idx}:attack_roll_bonus" value="${esc(row.attack_roll_bonus)}" placeholder="Attack bonus"/><input data-companion-row-field="effects:${idx}:attack_roll_dice" value="${esc(row.attack_roll_dice)}" placeholder="Attack dice"/><select data-companion-row-field="effects:${idx}:advantage_state">${["none","advantage","disadvantage"].map((value) => `<option value="${value}" ${row.advantage_state === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select><input type="number" data-companion-row-number="effects:${idx}:damage_bonus" value="${esc(row.damage_bonus)}" placeholder="Damage bonus"/><input data-companion-row-field="effects:${idx}:damage_dice" value="${esc(row.damage_dice)}" placeholder="Damage dice"/><input data-companion-row-field="effects:${idx}:damage_type_add" value="${esc(row.damage_type_add)}" placeholder="Extra damage type"/><textarea data-companion-row-field="effects:${idx}:notes" placeholder="Notes">${esc(row.notes)}</textarea><button type="button" data-companion-del-row="effects:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      <label>Notes<textarea rows="6" data-companion-field="notes">${esc(selected.notes)}</textarea></label></fieldset>
+    </section>` : `<section><p class="hint">Add a companion to begin.</p></section>`}
+  </div></article>`;
+}
+
+export function renderEditMode(character, catalog, lookupState, edited = {}, uiState = {}) {
   const classes = Array.isArray(character?.core?.classes) ? character.core.classes : [];
   const inventory = Array.isArray(character?.inventory) ? character.inventory : [];
   const spells = Array.isArray(character?.spells_known) ? character.spells_known : [];
@@ -2282,6 +2379,9 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
   const skills = character?.skills || {};
   const savingThrows = character?.saving_throws || {};
   const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
+  const featureTemplates = Array.isArray(catalog?.features) ? catalog.features : [];
+  const storedFeatures = Array.isArray(character?.features) ? character.features : [];
+  const characterFeatures = resolveCharacterFeatures(character, featureTemplates, null, { includeDisabled: true });
   const derived = deriveStats(character);
   const spellcasting = character?.spellcasting || {};
   const portrait = getEffectivePortrait(character);
@@ -2295,6 +2395,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
     battle: `AC ${esc(character?.combat?.ac ?? 10)} · HP ${esc(character?.combat?.hp?.current ?? 0)}/${esc(character?.combat?.hp?.max ?? 0)} · Prof ${esc(fmtSigned(derived.proficiency.value))}`,
     spellcraft: `Save DC ${esc(derived.spellcasting.spellSaveDc)} · Spell Attack ${esc(fmtSigned(derived.spellcasting.spellAttackBonus))}`,
     gear: `${esc(inventory.length)} items · ${esc(trackers.length)} trackers`,
+    companions: `${esc(Array.isArray(character?.companions) ? character.companions.filter((row) => row.status !== "archived").length : 0)} companions`,
     chronicle: `${esc(character?.meta?.name || "Adventurer")} · Chronicle entries ready`
   };
 
@@ -2313,6 +2414,7 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
       </div>
     </aside>
     <section class="edit-content edit-stack">
+    ${renderCompanionEditor(character, catalog, uiState)}
     <article class="card ${sectionClass("sec-core")}" id="sec-core"><h2>${cardTitle("Core", edited.core)} <button type="button" class="card-toggle" data-toggle-sec="sec-core">${collapsed["sec-core"] ? "Expand" : "Collapse"}</button></h2><div class="card-body grid2">
       <label>Name<input id="charName" value="${esc(character?.meta?.name || "")}" /></label>
       <label>Ruleset<input id="charRuleset" value="${esc(character?.meta?.ruleset_id || "")}" /></label>
@@ -2443,6 +2545,10 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
       <div class="stack">
         ${attacks.length === 0 ? `<p class="hint">No attacks</p>` : attacks.map((raw, idx) => {
           const a = normalizeAttackForUi(raw);
+          const compatibleAmmo = compatibleAmmunitionItems(a, inventory);
+          const linkedIds = a.ammunition_links.filter((id) => inventory.some((item) => item.id === id));
+          const ammoSelectors = attackUsesAmmunition(a) ? [...linkedIds, ""] : [];
+          const defaultNewAmmoType = a.ammunition_type || inferWeaponAmmunitionType(a) || "custom";
           return `<div class="attack-edit-card">
           <div class="attack-edit-head">
             <strong>${esc(a.name || `Attack ${idx + 1}`)}</strong>
@@ -2450,32 +2556,86 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
             <button type="button" data-attack-del="${idx}">Delete</button>
           </div>
           <div class="attack-edit-grid">
-            <input data-attack-name="${idx}" value="${esc(a.name || "")}" placeholder="Name" />
-            <select data-attack-kind="${idx}">
+            <label><span>Name</span><input data-attack-name="${idx}" value="${esc(a.name || "")}" /></label>
+            <label><span>Attack type</span><select data-attack-kind="${idx}">
               ${["melee_weapon", "ranged_weapon", "spell_attack", "natural_weapon", "custom"].map((kind) => `<option value="${kind}" ${a.kind === kind ? "selected" : ""}>${esc(attackKindLabel(kind))}</option>`).join("")}
-            </select>
-            <select data-attack-ability="${idx}">
+            </select></label>
+            <label><span>Attack ability</span><select data-attack-ability="${idx}">
               ${["auto", "str", "dex", "spell", "custom"].map((mode) => `<option value="${mode}" ${a.attack_ability === mode ? "selected" : ""}>${esc(mode === "auto" ? "Auto Ability" : mode === "spell" ? "Spellcasting Ability" : mode === "custom" ? "Manual Ability" : mode.toUpperCase())}</option>`).join("")}
-            </select>
-            <label class="check"><input type="checkbox" data-attack-prof="${idx}" ${a.proficient ? "checked" : ""}/>Proficient</label>
-            <label class="check"><input type="checkbox" data-attack-atkmode="${idx}" ${a.atk_bonus_mode === "manual" ? "checked" : ""}/>Manual to-hit</label>
-            <input data-attack-bonus="${idx}" type="number" value="${esc(a.atk_bonus_override ?? a.atk_bonus ?? 0)}" placeholder="To-hit bonus" />
-            <label class="check"><input type="checkbox" data-attack-dmgmode="${idx}" ${a.damage_mode === "manual" ? "checked" : ""}/>Manual damage</label>
-            <input data-attack-damage="${idx}" value="${esc(a.damage || "")}" placeholder="Damage dice" />
-            <input data-attack-damagetype="${idx}" value="${esc(a.damage_type || "")}" placeholder="Damage type" />
-            <input data-attack-versatile="${idx}" value="${esc(a.versatile_damage || "")}" placeholder="Versatile damage" />
-            <input data-attack-range="${idx}" value="${esc(a.range || "")}" placeholder="Range / reach text" />
-            <input data-attack-range-short="${idx}" type="number" min="0" value="${esc(a.range_short ?? 0)}" placeholder="Short" />
-            <input data-attack-range-long="${idx}" type="number" min="0" value="${esc(a.range_long ?? 0)}" placeholder="Long" />
-            <input data-attack-reach="${idx}" type="number" min="0" value="${esc(a.reach ?? 5)}" placeholder="Reach" />
-            <input data-attack-magic="${idx}" type="number" value="${esc(a.magic_bonus ?? 0)}" placeholder="Magic bonus" />
-            <input data-attack-properties="${idx}" value="${esc((a.properties || []).join(", "))}" placeholder="Properties (comma separated)" />
-            <input data-attack-tags="${idx}" value="${esc((a.tags || []).join(", "))}" placeholder="Tags (e.g. sharpshooter, great_weapon_master)" />
-            <input data-attack-notes="${idx}" value="${esc(a.notes || "")}" placeholder="Notes" />
+            </select></label>
+            <label class="check attack-check-field"><input type="checkbox" data-attack-prof="${idx}" ${a.proficient ? "checked" : ""}/><span>Proficient</span></label>
+            <label class="check attack-check-field"><input type="checkbox" data-attack-atkmode="${idx}" ${a.atk_bonus_mode === "manual" ? "checked" : ""}/><span>Use manual to-hit</span></label>
+            <label><span>To-hit override</span><input data-attack-bonus="${idx}" type="number" value="${esc(a.atk_bonus_override ?? a.atk_bonus ?? 0)}" /></label>
+            <label class="check attack-check-field"><input type="checkbox" data-attack-dmgmode="${idx}" ${a.damage_mode === "manual" ? "checked" : ""}/><span>Use manual damage</span></label>
+            <label><span>Damage dice</span><input data-attack-damage="${idx}" value="${esc(a.damage || "")}" placeholder="e.g. 1d8" /></label>
+            <label><span>Damage type</span><input data-attack-damagetype="${idx}" value="${esc(a.damage_type || "")}" placeholder="e.g. slashing" /></label>
+            <label><span>Versatile damage dice</span><input data-attack-versatile="${idx}" value="${esc(a.versatile_damage || "")}" placeholder="e.g. 1d10" /></label>
+            <label><span>Range / reach description</span><input data-attack-range="${idx}" value="${esc(a.range || "")}" placeholder="e.g. 20/60 ft." /></label>
+            <label><span>Normal range (ft.)</span><input data-attack-range-short="${idx}" type="number" min="0" value="${esc(a.range_short ?? 0)}" /></label>
+            <label><span>Long range (ft.)</span><input data-attack-range-long="${idx}" type="number" min="0" value="${esc(a.range_long ?? 0)}" /></label>
+            <label><span>Melee reach (ft.)</span><input data-attack-reach="${idx}" type="number" min="0" value="${esc(a.reach ?? 5)}" /></label>
+            <label><span>Magic bonus</span><input data-attack-magic="${idx}" type="number" value="${esc(a.magic_bonus ?? 0)}" /></label>
+            <label><span>Properties</span><input data-attack-properties="${idx}" value="${esc((a.properties || []).join(", "))}" placeholder="Comma separated" /></label>
+            <label><span>Effect tags</span><input data-attack-tags="${idx}" value="${esc((a.tags || []).join(", "))}" placeholder="e.g. sharpshooter" /></label>
+            <label class="attack-field-wide"><span>Notes</span><input data-attack-notes="${idx}" value="${esc(a.notes || "")}" /></label>
           </div>
+          ${attackUsesAmmunition(a) ? `<div class="attack-ammunition-editor">
+            <div class="attack-ammunition-heading"><strong>Ammunition</strong><span>Link one or more inventory stacks.</span></div>
+            <div class="attack-ammunition-controls">
+              <label>Ammo kind<select data-attack-ammo-type="${idx}">${ammunitionTypeOptions(a.ammunition_type, `Automatic (${inferWeaponAmmunitionType(a) || "any ammunition"})`)}</select></label>
+            </div>
+            <div class="attack-ammunition-links">${ammoSelectors.map((selectedId, linkIndex) => {
+              const selectedItem = inventory.find((item) => item.id === selectedId);
+              const choices = [...compatibleAmmo, ...(selectedItem ? [selectedItem] : [])]
+                .filter((item, choiceIndex, rows) => rows.findIndex((row) => row.id === item.id) === choiceIndex)
+                .filter((item) => item.id === selectedId || !linkedIds.includes(item.id));
+              const blankLabel = compatibleAmmo.length ? "Choose ammunition…" : "No ammunition yet — create some below";
+              return `<div class="attack-ammunition-link-row">
+                <label>Ammunition ${linkIndex + 1}<select data-attack-ammo-link="${idx}:${linkIndex}"><option value="">${selectedId ? "Remove link" : blankLabel}</option>${choices.map((item) => `<option value="${esc(item.id)}" ${item.id === selectedId ? "selected" : ""}>${esc(item.name || "Ammunition")} (${item.unlimited_ammunition ? "unlimited" : Math.max(0, asInt(item.qty, 0))})</option>`).join("")}</select></label>
+                ${selectedItem ? `<label>Quantity<input type="number" min="0" data-attack-ammo-qty="${esc(selectedItem.id)}" value="${Math.max(0, asInt(selectedItem.qty, 0))}" ${selectedItem.unlimited_ammunition ? "disabled" : ""}/></label><label class="check"><input type="checkbox" data-attack-ammo-item-unlimited="${esc(selectedItem.id)}" ${selectedItem.unlimited_ammunition ? "checked" : ""}/>Unlimited</label>` : ""}
+              </div>`;
+            }).join("")}</div>
+            <div class="attack-ammunition-create">
+              <strong>Create &amp; link ammunition</strong>
+              <label><span>Name</span><input data-attack-new-ammo-name="${idx}" placeholder="e.g. Silvered Bolts" /></label>
+              <label><span>Quantity</span><input data-attack-new-ammo-qty="${idx}" type="number" min="0" value="1" /></label>
+              <label><span>Type</span><select data-attack-new-ammo-type="${idx}">${ammunitionTypeOptions(defaultNewAmmoType, "Automatic")}</select></label>
+              <label class="check"><input type="checkbox" data-attack-new-ammo-unlimited="${idx}"/>Unlimited</label>
+              <button type="button" data-attack-new-ammo-add="${idx}">Add &amp; Link</button>
+            </div>
+          </div>` : ""}
         </div>`;
         }).join("")}
       </div>
+      <h3>Character Features</h3>
+      <p class="hint">Book templates supply the mechanics. Eligibility is advisory; DM Override unlocks every value.</p>
+      <div class="inline-actions feature-add-row">
+        <select id="featureTemplateSelect"><option value="">Choose PHB feature…</option>${featureTemplates.map((row) => `<option value="${esc(row.id)}">${esc(row.name)}</option>`).join("")}</select>
+        <button type="button" id="featureAddTemplate">Add from Rules</button>
+        <button type="button" id="featureAddCustom">Add Custom Feature</button>
+      </div>
+      <div class="character-feature-list">${characterFeatures.length ? characterFeatures.map((feature) => {
+        const key = feature.template_id || feature.id;
+        const template = feature.template_id ? featureTemplates.find((row) => row.id === feature.template_id) : null;
+        const stored = storedFeatures.find((row) => row.id === feature.id || (feature.template_id && row.template_id === feature.template_id));
+        const locked = Boolean(feature.template_id && !feature.dm_override);
+        return `<section class="character-feature-card">
+          <header><div><strong>${esc(feature.name)}</strong><small>${esc([feature.source || "Custom", feature.class_id ? `${titleizeId(feature.class_id)} ${feature.min_level}+` : ""].filter(Boolean).join(" · "))}</small></div><div class="inline-actions"><label class="check"><input type="checkbox" data-feature-enabled="${esc(key)}" ${feature.enabled ? "checked" : ""}/>Enabled</label><label class="check"><input type="checkbox" data-feature-override="${esc(key)}" ${feature.dm_override ? "checked" : ""}/>DM Override</label><button type="button" data-feature-delete="${esc(key)}">${template?.auto_grant ? "Reset" : "Delete"}</button></div></header>
+          <fieldset ${locked ? "disabled" : ""}><div class="character-feature-grid">
+            <label>Name<input data-feature-field="${esc(key)}:name" value="${esc(feature.name)}"/></label>
+            <label>Application<select data-feature-field="${esc(key)}:application_mode">${["auto","suggested","manual"].map((value) => `<option value="${value}" ${feature.application_mode === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+            <label>Attack scope<select data-feature-field="${esc(key)}:scope">${["all_attacks","weapon_attacks","melee_weapon","ranged_weapon","spell_attacks"].map((value) => `<option value="${value}" ${feature.scope === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+            <label>Roll state<select data-feature-field="${esc(key)}:advantage_state">${["none","advantage","disadvantage"].map((value) => `<option value="${value}" ${feature.advantage_state === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+            <label>To-hit bonus<input type="number" data-feature-number="${esc(key)}:attack_roll_bonus" value="${esc(feature.attack_roll_bonus)}"/></label>
+            <label>To-hit dice<input data-feature-field="${esc(key)}:attack_roll_dice" value="${esc(feature.attack_roll_dice)}" placeholder="e.g. 1d4"/></label>
+            <label>Damage bonus<input type="number" data-feature-number="${esc(key)}:damage_bonus" value="${esc(feature.damage_bonus)}"/></label>
+            <label>Damage dice<input data-feature-field="${esc(key)}:damage_dice" value="${esc(feature.damage_dice)}" placeholder="e.g. 3d6"/></label>
+            <label>Additional damage type<input data-feature-field="${esc(key)}:damage_type_add" value="${esc(feature.damage_type_add)}"/></label>
+            <label>Critical-only dice<input data-feature-field="${esc(key)}:crit_extra_dice" value="${esc(feature.crit_extra_dice)}"/></label>
+            <label class="feature-notes">Notes<textarea data-feature-field="${esc(key)}:notes">${esc(feature.notes)}</textarea></label>
+          </div></fieldset>
+        </section>`;
+      }).join("") : `<p class="hint">No attack features are active for this character.</p>`}</div>
     </div></article>
 
     <article class="card ${sectionClass("sec-spells")}" id="sec-spells"><h2>${cardTitle("Spells", edited.spells)} <button type="button" class="card-toggle" data-toggle-sec="sec-spells">${collapsed["sec-spells"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
@@ -2493,7 +2653,10 @@ function renderEditMode(character, catalog, lookupState, edited = {}, uiState = 
       <button type="button" id="invAdd">Add Item</button>
       ${inventory.length === 0 ? `<p class="hint">No inventory items</p>` : inventory.map((r, idx) => `<div class="inv-row">
         <input data-inv-name="${idx}" value="${esc(r.name || "")}" placeholder="Item" />
-        <input data-inv-qty="${idx}" type="number" min="0" value="${esc(r.qty ?? 1)}" />
+        <input data-inv-qty="${idx}" type="number" min="0" value="${esc(r.qty ?? 1)}" ${r.unlimited_ammunition ? "disabled" : ""}/>
+        <select data-inv-item-type="${idx}" title="Item category"><option value="item" ${r.item_type !== "ammunition" ? "selected" : ""}>Item</option><option value="ammunition" ${r.item_type === "ammunition" ? "selected" : ""}>Ammunition</option></select>
+        ${r.item_type === "ammunition" ? `<select data-inv-ammo-type="${idx}" title="Ammunition kind">${ammunitionTypeOptions(normalizeAmmunitionType(r.ammunition_type), inferInventoryAmmunitionType(r) && inferInventoryAmmunitionType(r) !== "custom" ? `Automatic (${AMMUNITION_TYPE_OPTIONS.find(([value]) => value === inferInventoryAmmunitionType(r))?.[1] || inferInventoryAmmunitionType(r)})` : "Automatic / custom")}</select>` : `<span class="inv-ammo-placeholder">—</span>`}
+        ${r.item_type === "ammunition" ? `<label class="check inv-ammo-unlimited"><input type="checkbox" data-inv-ammo-unlimited="${idx}" ${r.unlimited_ammunition ? "checked" : ""}/>Unlimited</label>` : `<span></span>`}
         <input data-inv-notes="${idx}" value="${esc(r.notes || "")}" placeholder="Notes" />
         <button type="button" data-inv-del="${idx}">Delete</button>
       </div>`).join("")}
@@ -2560,10 +2723,17 @@ export function mountV2UI({ root, getState, actions }) {
     helpOpen: false,
     helpSectionId: HELP_SECTIONS[0]?.id || "help-start",
     helpValidationErrors: [],
-    edited: { core: false, classes: false, combat: false, spells: false, inventory: false, trackers: false },
+    edited: { core: false, classes: false, combat: false, spells: false, inventory: false, trackers: false, companions: false },
     densityMode: localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable",
     activeEditTab: localStorage.getItem(EDIT_TAB_KEY) || "core",
     activePlayPane: readInitialPlayPane(),
+    selectedCompanionId: "",
+    selectedPlayCompanionId: "",
+    showArchivedCompanions: false,
+    companionTemplateId: "",
+    companionTemplateLevel: 2,
+    newCompanionDmOverride: false,
+    companionTemplateOpen: false,
     playBoard: (() => {
       try {
         const raw = JSON.parse(localStorage.getItem(PLAY_BOARD_KEY) || "{}");
@@ -2582,7 +2752,7 @@ export function mountV2UI({ root, getState, actions }) {
     lastCastLevel: 0,
     lastAction: "",
     checksDrawerOpen: false,
-    attackDrawer: { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false },
+    attackDrawer: { open: false, attackId: "", ownerType: "character", ownerId: "", ammunitionId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false },
     conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", rounds_remaining: "", notes: "", active: true } },
     diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
     portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
@@ -2601,7 +2771,7 @@ export function mountV2UI({ root, getState, actions }) {
 
   let helpController = null;
 
-  const sectionIds = ["sec-core", "sec-classes", "sec-combat", "sec-profile", "sec-mechanics", "sec-spells", "sec-inventory", "sec-trackers"];
+  const sectionIds = ["sec-core", "sec-classes", "sec-combat", "sec-profile", "sec-mechanics", "sec-spells", "sec-inventory", "sec-trackers", "sec-companions"];
 
   function captureFocusState() {
     const active = document.activeElement;
@@ -2849,6 +3019,29 @@ export function mountV2UI({ root, getState, actions }) {
     localStorage.setItem(PLAY_BOARD_KEY, JSON.stringify(uiState.playBoard));
   }
 
+  function setNestedValue(target, path, value) {
+    const keys = (path || "").split(".").filter(Boolean);
+    if (!keys.length) return;
+    let cursor = target;
+    keys.slice(0, -1).forEach((key) => {
+      if (!cursor[key] || typeof cursor[key] !== "object") cursor[key] = {};
+      cursor = cursor[key];
+    });
+    cursor[keys.at(-1)] = value;
+  }
+
+  function updateSelectedCompanion(mutator, { play = false } = {}) {
+    const selectedId = play ? uiState.selectedPlayCompanionId : uiState.selectedCompanionId;
+    actions.updateCharacter((character) => {
+      character.companions = Array.isArray(character.companions) ? character.companions : [];
+      const row = character.companions.find((companion) => companion.id === selectedId);
+      if (row) {
+        mutator(row, character);
+        row.modified_utc = new Date().toISOString();
+      }
+    });
+  }
+
   function scrollHelpContentToSection(sectionId, behavior = "smooth") {
     const id = helpController?.openHelp(sectionId) || HELP_SECTIONS[0]?.id || "help-start";
     const body = root.querySelector(".help-body");
@@ -2961,6 +3154,15 @@ export function mountV2UI({ root, getState, actions }) {
         const next = Math.max(0, rounds - roundsToAdvance);
         return { ...row, rounds_remaining: next, active: next > 0 };
       });
+      c.companions = Array.isArray(c.companions) ? c.companions : [];
+      c.companions = c.companions.map((row) => {
+        if (!row || row.status !== "active" || row.lifecycle !== "temporary") return row;
+        const rounds = asInt(row.rounds_remaining, NaN);
+        if (!Number.isFinite(rounds) || rounds <= 0) return row;
+        changed = true;
+        const next = Math.max(0, rounds - roundsToAdvance);
+        return { ...row, rounds_remaining: next, status: next > 0 ? "active" : "inactive" };
+      });
     });
     const stateAfter = getState();
     const activeConcentration = Boolean(stateAfter?.character?.combat?.concentration?.active);
@@ -2997,16 +3199,19 @@ export function mountV2UI({ root, getState, actions }) {
     render();
   }
 
-  function openAttackDrawer(attackId) {
+  function openAttackDrawer(attackId, ownerType = "character", ownerId = "") {
     const state = getState();
-    const rows = Array.isArray(state.character?.attacks) ? state.character.attacks : [];
+    const companion = ownerType === "companion"
+      ? (state.character?.companions || []).find((row) => row.id === ownerId)
+      : null;
+    const rows = ownerType === "companion" ? (companion?.attacks || []) : (Array.isArray(state.character?.attacks) ? state.character.attacks : []);
     const row = rows.find((x) => norm(x?.id) === norm(attackId));
     if (!row) return;
     const attack = normalizeAttackForUi(row);
-    const catalog = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
-    const derived = deriveStats(state.character || {});
-    const profile = deriveAttackProfile(row, state.character || {}, derived, catalog);
-    const buckets = buildAttackModifierBuckets(state.character || {}, profile, derived);
+    const contextState = { attackDrawer: { attackId: attack.id, ownerType, ownerId } };
+    const context = resolveAttackDrawerOwner(state.character || {}, contextState, actions);
+    if (!context) return;
+    const buckets = context.buckets;
     const defaultSelected = {};
     buckets.suggested_modifiers.forEach((mod) => {
       if (mod.advantage_state && mod.advantage_state !== "none") defaultSelected[mod.id] = true;
@@ -3014,6 +3219,9 @@ export function mountV2UI({ root, getState, actions }) {
     uiState.attackDrawer = {
       open: true,
       attackId: attack.id,
+      ownerType,
+      ownerId,
+      ammunitionId: ownerType === "character" ? (attack.selected_ammunition_id || attack.ammunition_links?.[0] || "") : "",
       rollMode: "auto",
       selected: defaultSelected,
       critical: false,
@@ -3030,7 +3238,7 @@ export function mountV2UI({ root, getState, actions }) {
   }
 
   function closeAttackDrawer() {
-    uiState.attackDrawer = { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", lastResult: null, awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false };
+    uiState.attackDrawer = { open: false, attackId: "", ownerType: "character", ownerId: "", ammunitionId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", lastResult: null, awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false };
     render();
   }
 
@@ -3132,20 +3340,16 @@ export function mountV2UI({ root, getState, actions }) {
   function getOpenAttackContext() {
     const state = getState();
     const character = state.character || {};
-    const rows = Array.isArray(character.attacks) ? character.attacks : [];
-    const attackRow = rows.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
-    if (!attackRow) return null;
-    const catalog = actions.getCatalog ? actions.getCatalog() : { attacks: [] };
-    const derived = deriveStats(character);
-    const attack = deriveAttackProfile(attackRow, character, derived, catalog);
-    const buckets = buildAttackModifierBuckets(character, attack, derived);
+    const ownerContext = resolveAttackDrawerOwner(character, uiState, actions);
+    if (!ownerContext) return null;
+    const { attack, buckets } = ownerContext;
     const selectedMap = uiState.attackDrawer.selected || {};
     const applied = [
       ...buckets.auto_applied_modifiers,
       ...buckets.suggested_modifiers.filter((row) => selectedMap[row.id]),
       ...buckets.manual_options.filter((row) => selectedMap[row.id])
     ];
-    return { character, catalog, derived, attack, buckets, applied };
+    return { character, ...ownerContext, attack, buckets, applied };
   }
 
   function buildAttackD20Payload(mod, mode = "normal") {
@@ -3172,6 +3376,16 @@ export function mountV2UI({ root, getState, actions }) {
   function performAttackHitRoll() {
     const context = getOpenAttackContext();
     if (!context) return;
+    const selectedAmmoId = uiState.attackDrawer.ammunitionId || context.attack.selected_ammunition_id || context.attack.ammunition_links?.[0] || "";
+    const ammunitionUse = context.ownerType === "character"
+      ? consumeLinkedAmmunition(context.character.inventory, context.attack, selectedAmmoId)
+      : { ok: true, consumed: false, inventory: context.character.inventory, item: null, remaining: null };
+    if (!ammunitionUse.ok) {
+      uiState.attackDrawer.lastResult = { kind: "hit", attackId: context.attack.id, summary: ammunitionUse.reason || "Ammunition is unavailable." };
+      recordPlayAction(ammunitionUse.reason || "Ammunition is unavailable.");
+      render();
+      return;
+    }
     const requestedMode = uiState.attackDrawer.rollMode || "auto";
     const mode = requestedMode === "auto" ? resolveAdvantageState("normal", context.applied) : requestedMode;
     const modBonus = context.applied.reduce((sum, row) => sum + asInt(row.attack_roll_bonus, 0), 0);
@@ -3187,11 +3401,23 @@ export function mountV2UI({ root, getState, actions }) {
       ? `d20(${payload.rolls[0]}, ${payload.rolls[1]})`
       : `d20(${payload.rolls[0]})`;
     const riderText = riderDice.length ? ` plus ${riderDice.map((row) => `${renderRolledFormula(row.detailed)} = ${row.total}`).join(" + ")}` : "";
-    const summary = `${context.attack.name} attack${mode !== "normal" ? ` with ${mode}` : ""}: ${rollDisplay} ${context.attack.effectiveAttackBonus + modBonus >= 0 ? "+" : "-"} ${Math.abs(context.attack.effectiveAttackBonus + modBonus)}${riderText} = ${finalTotal}`;
+    const ammoSuffix = ammunitionUse.consumed
+      ? ` · ${ammunitionUse.item?.name || "Ammunition"}: ${ammunitionUse.remaining} left`
+      : ammunitionUse.item && (ammunitionUse.item.unlimited_ammunition || context.attack.unlimited_ammunition)
+        ? ` · ${ammunitionUse.item.name || "Ammunition"}: unlimited`
+        : "";
+    const summary = `${context.attack.name} attack${mode !== "normal" ? ` with ${mode}` : ""}: ${rollDisplay} ${context.attack.effectiveAttackBonus + modBonus >= 0 ? "+" : "-"} ${Math.abs(context.attack.effectiveAttackBonus + modBonus)}${riderText} = ${finalTotal}${ammoSuffix}`;
     actions.updateCharacter((c) => {
+      if (context.ownerType === "character") {
+        c.inventory = ammunitionUse.inventory;
+        const rawAttack = (c.attacks || []).find((row) => row.id === context.attack.id);
+        if (rawAttack && selectedAmmoId) rawAttack.selected_ammunition_id = selectedAmmoId;
+      }
       c.play_state = c.play_state || {};
       c.play_state.last_attack_roll = {
         attack_id: context.attack.id,
+        owner_type: context.ownerType,
+        owner_id: context.ownerType === "companion" ? context.owner.id : "",
         label: context.attack.name,
         total: finalTotal,
         chosen,
@@ -3233,29 +3459,34 @@ export function mountV2UI({ root, getState, actions }) {
     }
     const flatBonus = context.attack.damageBonusAuto + context.applied.reduce((sum, row) => sum + asInt(row.damage_bonus, 0), 0);
     const extraDice = context.applied.map((row) => (row.damage_dice || "").toString().trim()).filter(Boolean);
-    const smiteEnabled = selectedMap["class:divine_smite"];
+    const smiteEnabled = context.applied.some((row) => row.source_id === "divine_smite");
     let smiteFormula = "";
     let smiteSpentLevel = 0;
     if (smiteEnabled) {
       smiteSpentLevel = clamp(asInt(uiState.attackDrawer.smiteLevel, 1), 1, 9);
-      smiteFormula = `${2 + Math.max(0, smiteSpentLevel - 1)}d8`;
+      smiteFormula = `${Math.min(5, 2 + Math.max(0, smiteSpentLevel - 1))}d8`;
       extraDice.push(smiteFormula);
     }
     const lastHit = context.character?.play_state?.last_attack_roll || null;
-    const autoCrit = Boolean(lastHit?.attack_id === context.attack.id && lastHit?.nat20);
+    const autoCrit = Boolean(lastHit?.attack_id === context.attack.id && (lastHit?.owner_type || "character") === context.ownerType && lastHit?.nat20);
     const critActive = Boolean(crit || uiState.attackDrawer.critical || autoCrit);
-    const result = rollDiceTerms(damageFormula, { crit: critActive, extraDice });
+    const critExtraDice = critActive ? context.applied.map((row) => (row.crit_extra_dice || "").toString().trim()).filter(Boolean) : [];
+    const result = rollDiceTerms(damageFormula, { crit: critActive, extraDice, critExtraDice });
     const total = result.total + flatBonus;
     const parts = [];
     if (result.detailed.length) parts.push(renderRolledFormula(result.detailed));
     if (flatBonus) parts.push(flatBonus > 0 ? `+ ${flatBonus}` : `- ${Math.abs(flatBonus)}`);
-    const type = context.applied.find((row) => row.damage_type_replace)?.damage_type_replace || context.attack.damage_type;
+    const replacementType = context.applied.find((row) => row.damage_type_replace)?.damage_type_replace || "";
+    const addedTypes = [...new Set(context.applied.map((row) => (row.damage_type_add || "").toString().trim()).filter(Boolean))];
+    const type = replacementType || [context.attack.damage_type, ...addedTypes].filter(Boolean).join(" + ");
     const summary = `${context.attack.name} ${critActive ? "critical " : ""}damage: ${parts.join(" + ").replace(/\+\s-\s/g, "- ")}${type ? ` ${type}` : ""} = ${total}`;
     actions.updateCharacter((c) => {
       c.play_state = c.play_state || {};
       const stamp = new Date().toISOString();
       c.play_state.last_attack_damage_roll = {
         attack_id: context.attack.id,
+        owner_type: context.ownerType,
+        owner_id: context.ownerType === "companion" ? context.owner.id : "",
         label: context.attack.name,
         total,
         crit: critActive,
@@ -3805,7 +4036,11 @@ export function mountV2UI({ root, getState, actions }) {
           reach: asInt(raw.reach, raw.kind === "melee_weapon" ? 5 : 0),
           properties: Array.isArray(raw.properties) ? raw.properties : splitCsvLike(raw.properties),
           notes: raw.notes || "",
-          tags: []
+          tags: [],
+          ammunition_type: "",
+          ammunition_links: [],
+          selected_ammunition_id: "",
+          unlimited_ammunition: false
         });
       });
       uiState.lookup.feedback = `Added attack preset ${row.title}.`;
@@ -4264,6 +4499,19 @@ export function mountV2UI({ root, getState, actions }) {
   function bindEvents() {
     const state = getState();
     const character = state.character;
+    const featureCatalog = Array.isArray(actions.getCatalog?.()?.features) ? actions.getCatalog().features : [];
+    const updateFeatureByKey = (key, mutate) => actions.updateCharacter((c) => {
+      c.features = Array.isArray(c.features) ? c.features : [];
+      let feature = c.features.find((row) => row.id === key || row.template_id === key);
+      if (!feature) {
+        const template = featureCatalog.find((row) => row.id === key);
+        if (!template) return;
+        const resolvedTemplate = resolveCharacterFeatures(c, featureCatalog, null, { includeDisabled: true }).find((row) => row.template_id === key);
+        feature = normalizeCharacterFeature({ ...(resolvedTemplate || template), id: crypto.randomUUID(), template_id: template.id, auto_grant: false });
+        c.features.push(feature);
+      }
+      mutate(feature);
+    });
     const syncCreateDraft = () => {
       draft.name = root.querySelector("#newName")?.value || draft.name;
       draft.rulesetId = root.querySelector("#newRuleset")?.value || draft.rulesetId;
@@ -4747,9 +4995,48 @@ export function mountV2UI({ root, getState, actions }) {
         const id = e.currentTarget.getAttribute("data-open-attack");
         if (id) openAttackDrawer(id);
       }));
+      root.querySelectorAll("[data-open-companion-attack]").forEach((el) => el.addEventListener("click", (e) => {
+        const id = e.currentTarget.getAttribute("data-open-companion-attack");
+        if (id) openAttackDrawer(id, "companion", uiState.selectedPlayCompanionId);
+      }));
+      root.querySelector("#playCompanionSelect")?.addEventListener("change", (e) => {
+        uiState.selectedPlayCompanionId = e.target.value;
+        render();
+      });
+      root.querySelector("#playCompanionDeactivate")?.addEventListener("click", () => {
+        const selectedId = uiState.selectedPlayCompanionId;
+        uiState.selectedPlayCompanionId = "";
+        uiState.selectedCompanionId = selectedId;
+        actions.updateCharacter((character) => {
+          const row = (character.companions || []).find((companion) => companion.id === selectedId);
+          if (row) { row.status = "inactive"; row.modified_utc = new Date().toISOString(); }
+        });
+      });
+      root.querySelectorAll("[data-play-companion-hp]").forEach((el) => el.addEventListener("click", (e) => {
+        const delta = asInt(e.currentTarget.getAttribute("data-play-companion-hp"), 0);
+        updateSelectedCompanion((row) => { row.hp.current = Math.max(0, Math.min(row.hp.max || 0, (row.hp.current || 0) + delta)); }, { play: true });
+      }));
+      root.querySelector("#playCompanionHpSet")?.addEventListener("click", () => {
+        const value = Math.max(0, asInt(root.querySelector("#playCompanionHp")?.value, 0));
+        updateSelectedCompanion((row) => { row.hp.current = Math.min(row.hp.max || 0, value); }, { play: true });
+      });
+      root.querySelector("#playCompanionRounds")?.addEventListener("change", (e) => {
+        updateSelectedCompanion((row) => { row.rounds_remaining = e.target.value === "" ? null : Math.max(0, asInt(e.target.value, 0)); }, { play: true });
+      });
+      root.querySelectorAll("[data-play-companion-effect]").forEach((el) => el.addEventListener("change", (e) => {
+        const index = asInt(e.target.getAttribute("data-play-companion-effect"), -1);
+        updateSelectedCompanion((row) => { if (row.effects?.[index] && !row.effects[index].pending) row.effects[index].active = Boolean(e.target.checked); }, { play: true });
+      }));
       root.querySelector("#attackRollModeSelect")?.addEventListener("change", (e) => {
         uiState.attackDrawer.rollMode = e.target.value || "auto";
         render();
+      });
+      root.querySelector("#attackAmmunitionSelect")?.addEventListener("change", (e) => {
+        uiState.attackDrawer.ammunitionId = e.target.value || "";
+        actions.updateCharacter((c) => {
+          const attack = (c.attacks || []).find((row) => row.id === uiState.attackDrawer.attackId);
+          if (attack) attack.selected_ammunition_id = uiState.attackDrawer.ammunitionId;
+        });
       });
       root.querySelectorAll("[data-attack-mod]").forEach((el) => el.addEventListener("change", (e) => {
         const id = e.target.getAttribute("data-attack-mod");
@@ -5080,6 +5367,145 @@ export function mountV2UI({ root, getState, actions }) {
       return;
     }
 
+    root.querySelector("#companionTemplateToggle")?.addEventListener("click", () => {
+      uiState.companionTemplateOpen = !uiState.companionTemplateOpen;
+      render();
+      if (uiState.companionTemplateOpen) root.querySelector("#companionTemplateSearch")?.focus();
+    });
+    root.querySelector("#companionTemplateSearch")?.addEventListener("input", (e) => {
+      const query = norm(e.target.value);
+      const options = [...root.querySelectorAll("[data-companion-template-id]")];
+      let visible = 0;
+      options.forEach((option) => {
+        const matches = !query || norm(option.getAttribute("data-companion-template-search") || option.textContent).includes(query);
+        option.hidden = !matches;
+        if (matches) visible += 1;
+      });
+      const empty = root.querySelector(".companion-template-empty");
+      if (empty) empty.hidden = visible > 0;
+    });
+    root.querySelectorAll("[data-companion-template-id]").forEach((option) => option.addEventListener("click", (e) => {
+      uiState.companionTemplateId = e.currentTarget.getAttribute("data-companion-template-id") || "";
+      const template = (actions.getCatalog()?.companions || []).find((row) => row.id === uiState.companionTemplateId);
+      if (template?.scaling?.type === "spell_slot") {
+        uiState.companionTemplateLevel = Math.max(asInt(template.scaling.level_min, 2), asInt(uiState.companionTemplateLevel, 2));
+      }
+      uiState.companionTemplateOpen = false;
+      render();
+    }));
+    root.querySelector("#companionTemplateLevel")?.addEventListener("input", (e) => {
+      uiState.companionTemplateLevel = Math.max(1, asInt(e.target.value, 2));
+    });
+    root.querySelector("#companionNewDmOverride")?.addEventListener("change", (e) => {
+      uiState.newCompanionDmOverride = Boolean(e.target.checked);
+      render();
+    });
+    root.querySelector("#companionAdd")?.addEventListener("click", () => {
+      const character = getState().character;
+      const template = (actions.getCatalog()?.companions || []).find((row) => row.id === uiState.companionTemplateId);
+      if (!template && !uiState.newCompanionDmOverride) return;
+      const derived = deriveStats(character);
+      const next = template ? createCompanionFromTemplate(template, {
+        proficiencyBonus: derived.proficiency.value,
+        rangerLevel: classLevel(character, "ranger") || derived.level,
+        characterLevel: derived.level,
+        spellAttackBonus: derived.spellcasting.spellAttackBonus,
+        spellLevel: uiState.companionTemplateLevel
+      }, { dm_override: uiState.newCompanionDmOverride }) : createCompanion({ dm_override: true });
+      uiState.selectedCompanionId = next.id;
+      actions.updateCharacter((draft) => {
+        draft.companions = Array.isArray(draft.companions) ? draft.companions : [];
+        draft.companions.push(next);
+      });
+    });
+    root.querySelector("#companionDmOverride")?.addEventListener("change", (e) => {
+      updateSelectedCompanion((row) => { row.dm_override = Boolean(e.target.checked); });
+    });
+    root.querySelector("#companionShowArchived")?.addEventListener("change", (e) => {
+      uiState.showArchivedCompanions = Boolean(e.target.checked);
+      render();
+    });
+    root.querySelectorAll("[data-companion-select]").forEach((el) => el.addEventListener("click", (e) => {
+      uiState.selectedCompanionId = e.currentTarget.getAttribute("data-companion-select") || "";
+      render();
+    }));
+    root.querySelector("#companionArchive")?.addEventListener("click", () => {
+      actions.updateCharacter((character) => { character.companions = archiveCompanion(character.companions, uiState.selectedCompanionId); });
+    });
+    root.querySelector("#companionRestore")?.addEventListener("click", () => {
+      actions.updateCharacter((character) => { character.companions = restoreCompanion(character.companions, uiState.selectedCompanionId); });
+    });
+    root.querySelector("#companionReplace")?.addEventListener("click", () => {
+      if (!globalThis.confirm("Archive this companion and create a blank linked replacement?")) return;
+      const result = replaceCompanion(getState().character?.companions, uiState.selectedCompanionId);
+      if (!result.replacement) return;
+      uiState.selectedCompanionId = result.replacement.id;
+      actions.updateCharacter((character) => { character.companions = result.companions; });
+    });
+    root.querySelector("#companionDelete")?.addEventListener("click", () => {
+      if (!globalThis.confirm("Permanently delete this companion record? This cannot be undone after saving.")) return;
+      const selectedId = uiState.selectedCompanionId;
+      uiState.selectedCompanionId = "";
+      actions.updateCharacter((character) => { character.companions = (character.companions || []).filter((row) => row.id !== selectedId); });
+    });
+    root.querySelectorAll("[data-companion-field]").forEach((el) => el.addEventListener("input", (e) => {
+      const path = e.target.getAttribute("data-companion-field");
+      updateSelectedCompanion((row) => setNestedValue(row, path, e.target.value));
+    }));
+    root.querySelectorAll("[data-companion-number]").forEach((el) => el.addEventListener("input", (e) => {
+      const path = e.target.getAttribute("data-companion-number");
+      updateSelectedCompanion((row) => {
+        const signed = path.includes("initiative") || path.includes("proficiency");
+        const value = path.startsWith("abilities.") ? Math.max(1, asInt(e.target.value, 10)) : signed ? asInt(e.target.value, 0) : Math.max(0, asInt(e.target.value, 0));
+        setNestedValue(row, path, value);
+        if (path === "hp.max") row.hp.current = Math.min(row.hp.current || 0, value);
+        if (path === "hp.current") row.hp.current = Math.min(row.hp.max || 0, value);
+      });
+    }));
+    root.querySelectorAll("[data-companion-nullable-number]").forEach((el) => el.addEventListener("input", (e) => {
+      const path = e.target.getAttribute("data-companion-nullable-number");
+      updateSelectedCompanion((row) => setNestedValue(row, path, e.target.value === "" ? null : path === "rounds_remaining" ? Math.max(0, asInt(e.target.value, 0)) : asInt(e.target.value, 0)));
+    }));
+    root.querySelectorAll("[data-companion-list-field]").forEach((el) => el.addEventListener("input", (e) => {
+      const path = e.target.getAttribute("data-companion-list-field");
+      updateSelectedCompanion((row) => setNestedValue(row, path, splitCsvLike(e.target.value)));
+    }));
+    root.querySelectorAll("[data-companion-row-field], [data-companion-row-number], [data-companion-row-check], [data-companion-row-list]").forEach((el) => el.addEventListener("input", (e) => {
+      const spec = e.target.getAttribute("data-companion-row-field") || e.target.getAttribute("data-companion-row-number") || e.target.getAttribute("data-companion-row-check") || e.target.getAttribute("data-companion-row-list") || "";
+      const [collection, indexRaw, field] = spec.split(":");
+      const index = asInt(indexRaw, -1);
+      updateSelectedCompanion((row) => {
+        const target = row?.[collection]?.[index];
+        if (!target) return;
+        const isNumber = e.target.hasAttribute("data-companion-row-number");
+        const isCheck = e.target.hasAttribute("data-companion-row-check");
+        const isList = e.target.hasAttribute("data-companion-row-list");
+        target[field] = isNumber ? asInt(e.target.value, 0) : isCheck ? Boolean(e.target.checked) : isList ? splitCsvLike(e.target.value) : e.target.value;
+        if (collection === "effects" && field === "pending" && target.pending) target.active = false;
+        if (collection === "effects" && field === "source_id") target.source_type = target.source_id ? "item" : "custom_effect";
+      });
+    }));
+    root.querySelectorAll("[data-companion-add-row]").forEach((el) => el.addEventListener("click", (e) => {
+      const collection = e.currentTarget.getAttribute("data-companion-add-row");
+      const defaults = {
+        skills: { id: crypto.randomUUID(), name: "", bonus: 0 },
+        attacks: { id: crypto.randomUUID(), name: "New Attack", kind: "natural_weapon", atk_bonus_mode: "manual", atk_bonus_override: 0, damage_mode: "manual", damage: "", damage_type: "", range: "", reach: 5, properties: [], tags: [], notes: "" },
+        actions: { id: crypto.randomUUID(), name: "", description: "" },
+        bonus_actions: { id: crypto.randomUUID(), name: "", description: "" },
+        reactions: { id: crypto.randomUUID(), name: "", description: "" },
+        traits: { id: crypto.randomUUID(), name: "", description: "" },
+        equipment: { id: crypto.randomUUID(), name: "", quantity: 1, equipped: true, notes: "" },
+        effects: { id: crypto.randomUUID(), label: "New Effect", source: "", source_type: "custom_effect", source_id: "", active: true, pending: false, scope: "all_attacks", application_mode: "manual", attack_roll_bonus: 0, attack_roll_dice: "", advantage_state: "none", damage_bonus: 0, damage_dice: "", damage_type_add: "", notes: "" }
+      };
+      if (!defaults[collection]) return;
+      updateSelectedCompanion((row) => { row[collection] = Array.isArray(row[collection]) ? row[collection] : []; row[collection].push(defaults[collection]); });
+    }));
+    root.querySelectorAll("[data-companion-del-row]").forEach((el) => el.addEventListener("click", (e) => {
+      const [collection, indexRaw] = (e.currentTarget.getAttribute("data-companion-del-row") || "").split(":");
+      const index = asInt(indexRaw, -1);
+      updateSelectedCompanion((row) => { if (Array.isArray(row[collection]) && index >= 0) row[collection].splice(index, 1); });
+    }));
+
     root.querySelector("#charName")?.addEventListener("change", (e) => actions.updateCharacter((c) => { c.meta.name = e.target.value; }));
     root.querySelector("#charRuleset")?.addEventListener("change", (e) => {
       actions.updateCharacter((c) => {
@@ -5277,8 +5703,41 @@ export function mountV2UI({ root, getState, actions }) {
         reach: 5,
         properties: [],
         notes: "",
-        tags: []
+        tags: [],
+        ammunition_type: "",
+        ammunition_links: [],
+        selected_ammunition_id: "",
+        unlimited_ammunition: false
       });
+    }));
+    root.querySelector("#featureAddTemplate")?.addEventListener("click", () => {
+      const templateId = root.querySelector("#featureTemplateSelect")?.value || "";
+      const template = featureCatalog.find((row) => row.id === templateId);
+      if (!template) return;
+      actions.updateCharacter((c) => {
+        c.features = Array.isArray(c.features) ? c.features : [];
+        if (!c.features.some((row) => row.template_id === templateId)) c.features.push(createFeatureFromTemplate(template));
+      });
+    });
+    root.querySelector("#featureAddCustom")?.addEventListener("click", () => actions.updateCharacter((c) => {
+      c.features = Array.isArray(c.features) ? c.features : [];
+      c.features.push(normalizeCharacterFeature({ name: "Custom Feature", source: "DM / Custom", enabled: true, dm_override: true, scope: "all_attacks", application_mode: "manual" }));
+    }));
+    root.querySelectorAll("[data-feature-enabled]").forEach((el) => el.addEventListener("change", (e) => updateFeatureByKey(e.target.getAttribute("data-feature-enabled") || "", (feature) => { feature.enabled = Boolean(e.target.checked); })));
+    root.querySelectorAll("[data-feature-override]").forEach((el) => el.addEventListener("change", (e) => updateFeatureByKey(e.target.getAttribute("data-feature-override") || "", (feature) => { feature.dm_override = Boolean(e.target.checked); })));
+    root.querySelectorAll("[data-feature-field]").forEach((el) => el.addEventListener("change", (e) => {
+      const raw = e.target.getAttribute("data-feature-field") || "";
+      const splitAt = raw.lastIndexOf(":");
+      updateFeatureByKey(raw.slice(0, splitAt), (feature) => { feature[raw.slice(splitAt + 1)] = e.target.value; });
+    }));
+    root.querySelectorAll("[data-feature-number]").forEach((el) => el.addEventListener("change", (e) => {
+      const raw = e.target.getAttribute("data-feature-number") || "";
+      const splitAt = raw.lastIndexOf(":");
+      updateFeatureByKey(raw.slice(0, splitAt), (feature) => { feature[raw.slice(splitAt + 1)] = asInt(e.target.value, 0); });
+    }));
+    root.querySelectorAll("[data-feature-delete]").forEach((el) => el.addEventListener("click", (e) => {
+      const key = e.currentTarget.getAttribute("data-feature-delete") || "";
+      actions.updateCharacter((c) => { c.features = (c.features || []).filter((row) => row.id !== key && row.template_id !== key); });
     }));
     root.querySelectorAll("[data-attack-name]").forEach((el) => el.addEventListener("input", (e) => {
       const i = asInt(e.target.getAttribute("data-attack-name"), -1);
@@ -5357,6 +5816,65 @@ export function mountV2UI({ root, getState, actions }) {
       const i = asInt(e.target.getAttribute("data-attack-notes"), -1);
       actions.updateCharacter((c) => { if (c.attacks?.[i]) c.attacks[i].notes = e.target.value; });
     }));
+    root.querySelectorAll("[data-attack-ammo-type]").forEach((el) => el.addEventListener("change", (e) => {
+      const i = asInt(e.target.getAttribute("data-attack-ammo-type"), -1);
+      actions.updateCharacter((c) => {
+        if (!c.attacks?.[i]) return;
+        c.attacks[i].ammunition_type = normalizeAmmunitionType(e.target.value);
+        const validIds = new Set(compatibleAmmunitionItems(c.attacks[i], c.inventory).map((item) => item.id));
+        c.attacks[i].ammunition_links = normalizeAmmunitionLinks(c.attacks[i].ammunition_links).filter((id) => validIds.has(id));
+        if (!c.attacks[i].ammunition_links.includes(c.attacks[i].selected_ammunition_id)) c.attacks[i].selected_ammunition_id = c.attacks[i].ammunition_links[0] || "";
+      });
+    }));
+    root.querySelectorAll("[data-attack-ammo-qty]").forEach((el) => el.addEventListener("change", (e) => {
+      const itemId = e.target.getAttribute("data-attack-ammo-qty") || "";
+      actions.updateCharacter((c) => { const item = (c.inventory || []).find((row) => row.id === itemId); if (item) item.qty = Math.max(0, asInt(e.target.value, 0)); });
+    }));
+    root.querySelectorAll("[data-attack-ammo-item-unlimited]").forEach((el) => el.addEventListener("change", (e) => {
+      const itemId = e.target.getAttribute("data-attack-ammo-item-unlimited") || "";
+      actions.updateCharacter((c) => { const item = (c.inventory || []).find((row) => row.id === itemId); if (item) item.unlimited_ammunition = Boolean(e.target.checked); });
+    }));
+    root.querySelectorAll("[data-attack-ammo-link]").forEach((el) => el.addEventListener("change", (e) => {
+      const [attackIndexRaw, linkIndexRaw] = (e.target.getAttribute("data-attack-ammo-link") || "").split(":");
+      const attackIndex = asInt(attackIndexRaw, -1);
+      const linkIndex = asInt(linkIndexRaw, -1);
+      actions.updateCharacter((c) => {
+        const attack = c.attacks?.[attackIndex];
+        if (!attack || linkIndex < 0) return;
+        const links = normalizeAmmunitionLinks(attack.ammunition_links);
+        if (e.target.value) links[linkIndex] = e.target.value;
+        else if (linkIndex < links.length) links.splice(linkIndex, 1);
+        attack.ammunition_links = normalizeAmmunitionLinks(links);
+        if (!attack.ammunition_links.includes(attack.selected_ammunition_id)) attack.selected_ammunition_id = attack.ammunition_links[0] || "";
+      });
+    }));
+    root.querySelectorAll("[data-attack-new-ammo-add]").forEach((el) => el.addEventListener("click", (e) => {
+      const attackIndex = asInt(e.currentTarget.getAttribute("data-attack-new-ammo-add"), -1);
+      const nameInput = root.querySelector(`[data-attack-new-ammo-name="${attackIndex}"]`);
+      const quantityInput = root.querySelector(`[data-attack-new-ammo-qty="${attackIndex}"]`);
+      const typeInput = root.querySelector(`[data-attack-new-ammo-type="${attackIndex}"]`);
+      const unlimitedInput = root.querySelector(`[data-attack-new-ammo-unlimited="${attackIndex}"]`);
+      const name = (nameInput?.value || "").trim();
+      if (!name) {
+        nameInput?.setCustomValidity("Enter an ammunition name.");
+        nameInput?.reportValidity();
+        nameInput?.focus();
+        return;
+      }
+      nameInput.setCustomValidity("");
+      const id = crypto.randomUUID();
+      const quantity = Math.max(0, asInt(quantityInput?.value, 1));
+      const selectedType = normalizeAmmunitionType(typeInput?.value);
+      actions.updateCharacter((c) => {
+        const attack = c.attacks?.[attackIndex];
+        if (!attack) return;
+        const ammunitionType = selectedType || inferInventoryAmmunitionType({ name }) || inferWeaponAmmunitionType(attack) || "custom";
+        c.inventory = Array.isArray(c.inventory) ? c.inventory : [];
+        c.inventory.push({ id, name, qty: quantity, notes: "", item_type: "ammunition", ammunition_type: ammunitionType, unlimited_ammunition: Boolean(unlimitedInput?.checked) });
+        attack.ammunition_links = normalizeAmmunitionLinks([...(attack.ammunition_links || []), id]);
+        attack.selected_ammunition_id = id;
+      });
+    }));
     root.querySelectorAll("[data-attack-del]").forEach((el) => el.addEventListener("click", (e) => {
       const i = asInt(e.currentTarget.getAttribute("data-attack-del"), -1);
       actions.updateCharacter((c) => { if (Array.isArray(c.attacks)) c.attacks.splice(i, 1); });
@@ -5389,11 +5907,29 @@ export function mountV2UI({ root, getState, actions }) {
       });
     }));
 
-    root.querySelector("#invAdd")?.addEventListener("click", () => actions.updateCharacter((c) => { c.inventory = Array.isArray(c.inventory) ? c.inventory : []; c.inventory.push({ id: crypto.randomUUID(), name: "", qty: 1, notes: "" }); }));
+    root.querySelector("#invAdd")?.addEventListener("click", () => actions.updateCharacter((c) => { c.inventory = Array.isArray(c.inventory) ? c.inventory : []; c.inventory.push({ id: crypto.randomUUID(), name: "", qty: 1, notes: "", item_type: "item", ammunition_type: "" }); }));
     root.querySelectorAll("[data-inv-name]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-name"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].name = e.target.value; }); }));
     root.querySelectorAll("[data-inv-qty]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-qty"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].qty = Math.max(0, asInt(e.target.value, 1)); }); }));
+    root.querySelectorAll("[data-inv-item-type]").forEach((el) => el.addEventListener("change", (e) => {
+      const i = asInt(e.target.getAttribute("data-inv-item-type"), -1);
+      actions.updateCharacter((c) => {
+        const item = c.inventory?.[i];
+        if (!item) return;
+        item.item_type = e.target.value === "ammunition" ? "ammunition" : "item";
+        if (item.item_type === "item") {
+          item.ammunition_type = "";
+          item.unlimited_ammunition = false;
+          for (const attack of c.attacks || []) {
+            attack.ammunition_links = normalizeAmmunitionLinks(attack.ammunition_links).filter((id) => id !== item.id);
+            if (attack.selected_ammunition_id === item.id) attack.selected_ammunition_id = attack.ammunition_links[0] || "";
+          }
+        }
+      });
+    }));
+    root.querySelectorAll("[data-inv-ammo-type]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-ammo-type"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) { c.inventory[i].ammunition_type = normalizeAmmunitionType(e.target.value); c.inventory[i].item_type = "ammunition"; } }); }));
+    root.querySelectorAll("[data-inv-ammo-unlimited]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-ammo-unlimited"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].unlimited_ammunition = Boolean(e.target.checked); }); }));
     root.querySelectorAll("[data-inv-notes]").forEach((el) => el.addEventListener("change", (e) => { const i = asInt(e.target.getAttribute("data-inv-notes"), -1); actions.updateCharacter((c) => { if (c.inventory[i]) c.inventory[i].notes = e.target.value; }); }));
-    root.querySelectorAll("[data-inv-del]").forEach((el) => el.addEventListener("click", (e) => { const i = asInt(e.currentTarget.getAttribute("data-inv-del"), -1); actions.updateCharacter((c) => { c.inventory.splice(i, 1); }); }));
+    root.querySelectorAll("[data-inv-del]").forEach((el) => el.addEventListener("click", (e) => { const i = asInt(e.currentTarget.getAttribute("data-inv-del"), -1); actions.updateCharacter((c) => { const removedId = c.inventory?.[i]?.id; c.inventory.splice(i, 1); for (const attack of c.attacks || []) { attack.ammunition_links = normalizeAmmunitionLinks(attack.ammunition_links).filter((id) => id !== removedId); if (attack.selected_ammunition_id === removedId) attack.selected_ammunition_id = attack.ammunition_links[0] || ""; } }); }));
 
     root.querySelector("#trackerAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
       c.trackers = Array.isArray(c.trackers) ? c.trackers : [];

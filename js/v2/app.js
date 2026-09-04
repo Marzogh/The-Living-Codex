@@ -23,6 +23,8 @@ let catalog = {
   species: [],
   spells: [],
   attacks: [],
+  companions: [],
+  features: [],
   error: ""
 };
 
@@ -157,7 +159,7 @@ async function ensureCatalog(rulesetId = "dnd5e_2014") {
   const id = (rulesetId || "").toString().trim() || "dnd5e_2014";
 
   try {
-    const mod = await import(new URL("../../rules/rulesdb.js", import.meta.url).href);
+    const mod = await import(new URL("../../rules/rulesdb.js?catalog=features-1", import.meta.url).href);
     const db = await mod.RulesDB.load(id);
     catalog = {
       rulesetId: id,
@@ -166,6 +168,8 @@ async function ensureCatalog(rulesetId = "dnd5e_2014") {
       species: db?.species?.list?.() || [],
       spells: db?.spells?.list?.() || [],
       attacks: db?.attacks?.list?.() || [],
+      companions: db?.companions?.list?.() || [],
+      features: db?.features?.list?.() || [],
       error: ""
     };
   } catch (err) {
@@ -176,6 +180,8 @@ async function ensureCatalog(rulesetId = "dnd5e_2014") {
       species: [],
       spells: [],
       attacks: [],
+      features: [],
+      companions: [],
       error: err?.message || String(err)
     };
   }

@@ -12,13 +12,17 @@
     throw Error('Dynamic require of "' + x + '" is not supported');
   });
   var __commonJS = (cb, mod) => function __require2() {
-    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+    try {
+      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+    } catch (e) {
+      throw mod = 0, e;
+    }
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      for (let key2 of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key2) && key2 !== except)
+          __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
     }
     return to;
   };
@@ -3051,18 +3055,18 @@
     if (!isPlainObject(value)) return value;
     const keys = Object.keys(value).sort((a, b) => a.localeCompare(b));
     const out = {};
-    for (const key of keys) {
-      out[key] = stableSortValue(value[key]);
+    for (const key2 of keys) {
+      out[key2] = stableSortValue(value[key2]);
     }
     return out;
   }
   function stableStringify(value) {
     return JSON.stringify(stableSortValue(value));
   }
-  function fallbackHash(text) {
+  function fallbackHash(text3) {
     let hash = 2166136261;
-    for (let i = 0; i < text.length; i++) {
-      hash ^= text.charCodeAt(i);
+    for (let i = 0; i < text3.length; i++) {
+      hash ^= text3.charCodeAt(i);
       hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
     }
     return `fnv32-${(hash >>> 0).toString(16).padStart(8, "0")}`;
@@ -3074,13 +3078,13 @@
     return out;
   }
   async function hashCharacterPayload(character) {
-    const text = stableStringify(character);
+    const text3 = stableStringify(character);
     if (typeof crypto !== "undefined" && crypto.subtle && typeof TextEncoder !== "undefined") {
-      const data = new TextEncoder().encode(text);
+      const data = new TextEncoder().encode(text3);
       const digest = await crypto.subtle.digest("SHA-256", data);
       return `sha256-${bytesToHex(digest)}`;
     }
-    return fallbackHash(text);
+    return fallbackHash(text3);
   }
   async function verifyCharacterPayload(character, expectedHash) {
     const actual = await hashCharacterPayload(character);
@@ -3193,17 +3197,17 @@
     LAST_OPENED: `${DB_NAME}.local.lastOpenedAt`,
     STORAGE_VERSION: `${DB_NAME}.local.storageVersion`
   };
-  function readLocalJson(key, fallback) {
+  function readLocalJson(key2, fallback) {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = localStorage.getItem(key2);
       if (!raw) return fallback;
       return JSON.parse(raw);
     } catch {
       return fallback;
     }
   }
-  function writeLocalJson(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
+  function writeLocalJson(key2, value) {
+    localStorage.setItem(key2, JSON.stringify(value));
   }
   function localCharactersMap() {
     return readLocalJson(LOCAL_KEYS.CHARACTERS, {});
@@ -3211,16 +3215,16 @@
   function setLocalCharactersMap(map) {
     writeLocalJson(LOCAL_KEYS.CHARACTERS, map || {});
   }
-  function localGetValue(key, fallback = "") {
+  function localGetValue(key2, fallback = "") {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = localStorage.getItem(key2);
       return raw == null ? fallback : raw;
     } catch {
       return fallback;
     }
   }
-  function localSetValue(key, value) {
-    localStorage.setItem(key, value ?? "");
+  function localSetValue(key2, value) {
+    localStorage.setItem(key2, value ?? "");
   }
   function hasRequiredStores(db) {
     return db.objectStoreNames.contains(STORES.CHARACTERS) && db.objectStoreNames.contains(STORES.APP);
@@ -3272,8 +3276,8 @@
       return null;
     }
   }
-  async function getAppValueLocal(key, fallback = null) {
-    const raw = localGetValue(key, "");
+  async function getAppValueLocal(key2, fallback = null) {
+    const raw = localGetValue(key2, "");
     if (raw === "") return fallback;
     try {
       return JSON.parse(raw);
@@ -3281,12 +3285,12 @@
       return raw;
     }
   }
-  async function setAppValueLocal(key, value) {
+  async function setAppValueLocal(key2, value) {
     if (typeof value === "string") {
-      localSetValue(key, value);
+      localSetValue(key2, value);
       return;
     }
-    localSetValue(key, JSON.stringify(value));
+    localSetValue(key2, JSON.stringify(value));
   }
   async function saveCharacterLocal(character, { makeActive = true } = {}) {
     const candidate = clone2(character);
@@ -3312,8 +3316,8 @@
       }
     };
   }
-  async function loadCharacterByIdLocal(id) {
-    const characterId = asString(id);
+  async function loadCharacterByIdLocal(id2) {
+    const characterId = asString(id2);
     if (!characterId) return { ok: false, blocked: [{ code: "missing-id", message: "Character ID is required." }] };
     const map = localCharactersMap();
     const row = map[characterId];
@@ -3352,8 +3356,8 @@
     const map = localCharactersMap();
     return Object.values(map).map((row) => ({ id: row.id, name: row.name, ruleset_id: row.ruleset_id, saved_utc: row.saved_utc })).sort((a, b) => b.saved_utc.localeCompare(a.saved_utc));
   }
-  async function deleteCharacterLocal(id) {
-    const characterId = asString(id);
+  async function deleteCharacterLocal(id2) {
+    const characterId = asString(id2);
     if (!characterId) return { ok: false, errors: ["Character ID is required."] };
     const map = localCharactersMap();
     delete map[characterId];
@@ -3363,8 +3367,8 @@
     }
     return { ok: true };
   }
-  async function setActiveCharacterLocal(id) {
-    const characterId = asString(id);
+  async function setActiveCharacterLocal(id2) {
+    const characterId = asString(id2);
     if (!characterId) return { ok: false, errors: ["Character ID is required."] };
     localSetValue(LOCAL_KEYS.ACTIVE_ID, characterId);
     localSetValue(LOCAL_KEYS.LAST_OPENED, nowIso2());
@@ -3382,23 +3386,23 @@
       storage_version: Number.parseInt(localGetValue(LOCAL_KEYS.STORAGE_VERSION, "0"), 10) || 0
     };
   }
-  async function getAppValue(key, fallback = null) {
-    if (localFallbackMode) return getAppValueLocal(key, fallback);
+  async function getAppValue(key2, fallback = null) {
+    if (localFallbackMode) return getAppValueLocal(key2, fallback);
     const db = await openDb();
-    if (!db) return getAppValueLocal(key, fallback);
+    if (!db) return getAppValueLocal(key2, fallback);
     const tx = db.transaction(STORES.APP, "readonly");
     const store2 = tx.objectStore(STORES.APP);
-    const row = await requestToPromise(store2.get(key));
+    const row = await requestToPromise(store2.get(key2));
     await txDone(tx);
     return row?.value ?? fallback;
   }
-  async function setAppValue(key, value) {
-    if (localFallbackMode) return setAppValueLocal(key, value);
+  async function setAppValue(key2, value) {
+    if (localFallbackMode) return setAppValueLocal(key2, value);
     const db = await openDb();
-    if (!db) return setAppValueLocal(key, value);
+    if (!db) return setAppValueLocal(key2, value);
     const tx = db.transaction(STORES.APP, "readwrite");
     const store2 = tx.objectStore(STORES.APP);
-    store2.put({ key, value });
+    store2.put({ key: key2, value });
     await txDone(tx);
   }
   function makeRecord(character, hash) {
@@ -3444,14 +3448,14 @@
       }
     };
   }
-  async function loadCharacterById(id) {
-    if (localFallbackMode) return loadCharacterByIdLocal(id);
-    const characterId = asString(id);
+  async function loadCharacterById(id2) {
+    if (localFallbackMode) return loadCharacterByIdLocal(id2);
+    const characterId = asString(id2);
     if (!characterId) {
       return { ok: false, blocked: [{ code: "missing-id", message: "Character ID is required." }] };
     }
     const db = await openDb();
-    if (!db) return loadCharacterByIdLocal(id);
+    if (!db) return loadCharacterByIdLocal(id2);
     const tx = db.transaction(STORES.CHARACTERS, "readonly");
     const store2 = tx.objectStore(STORES.CHARACTERS);
     const row = await requestToPromise(store2.get(characterId));
@@ -3515,13 +3519,13 @@
       saved_utc: row.saved_utc
     })).sort((a, b) => b.saved_utc.localeCompare(a.saved_utc));
   }
-  async function deleteCharacter(id) {
-    if (localFallbackMode) return deleteCharacterLocal(id);
-    const characterId = asString(id);
+  async function deleteCharacter(id2) {
+    if (localFallbackMode) return deleteCharacterLocal(id2);
+    const characterId = asString(id2);
     if (!characterId) return { ok: false, errors: ["Character ID is required."] };
     const currentActive = await getAppValue(APP_KEYS.ACTIVE_CHARACTER_ID, "");
     const db = await openDb();
-    if (!db) return deleteCharacterLocal(id);
+    if (!db) return deleteCharacterLocal(id2);
     const tx = db.transaction([STORES.CHARACTERS, STORES.APP], "readwrite");
     tx.objectStore(STORES.CHARACTERS).delete(characterId);
     if (currentActive === characterId) {
@@ -3530,9 +3534,9 @@
     await txDone(tx);
     return { ok: true };
   }
-  async function setActiveCharacter(id) {
-    if (localFallbackMode) return setActiveCharacterLocal(id);
-    const characterId = asString(id);
+  async function setActiveCharacter(id2) {
+    if (localFallbackMode) return setActiveCharacterLocal(id2);
+    const characterId = asString(id2);
     if (!characterId) return { ok: false, errors: ["Character ID is required."] };
     await setAppValue(APP_KEYS.ACTIVE_CHARACTER_ID, characterId);
     await setAppValue(APP_KEYS.LAST_OPENED_AT, nowIso2());
@@ -3633,8 +3637,8 @@
       }
       return result;
     }
-    async function loadCharacterById2(id) {
-      const loaded = await storage.loadCharacterById(id);
+    async function loadCharacterById2(id2) {
+      const loaded = await storage.loadCharacterById(id2);
       if (!loaded.ok) {
         store2.dispatch({
           type: ActionTypes.SET_ERROR,
@@ -3690,12 +3694,12 @@
     speciesId = ""
   } = {}) {
     const now = nowIso4();
-    const id = crypto.randomUUID();
+    const id2 = crypto.randomUUID();
     return {
       meta: {
         schema: "living-codex-character",
         schema_version: "2.0.0",
-        id,
+        id: id2,
         name,
         ruleset_id: rulesetId,
         created_utc: now,
@@ -3805,6 +3809,8 @@
       },
       skills: {},
       attacks: [],
+      features: [],
+      companions: [],
       play_state: {
         active_effects: [],
         recent_actions: [],
@@ -3831,6 +3837,462 @@
       },
       log: [],
       ui: {}
+    };
+  }
+
+  // js/v2/core/features.js
+  function text(value) {
+    return (value ?? "").toString();
+  }
+  function norm(value) {
+    return text(value).trim().toLowerCase();
+  }
+  function int(value, fallback = 0) {
+    const n = Number.parseInt(value, 10);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function list(value) {
+    return Array.isArray(value) ? value.map((row) => text(row).trim()).filter(Boolean) : [];
+  }
+  function characterClassLevel(character, classId) {
+    const wanted = norm(classId);
+    return (Array.isArray(character?.core?.classes) ? character.core.classes : []).filter((row) => norm(row?.id) === wanted).reduce((sum, row) => sum + Math.max(0, int(row?.level, 0)), 0);
+  }
+  function normalizeCharacterFeature(row = {}, index = 0) {
+    const requirements = row?.requirements && typeof row.requirements === "object" ? row.requirements : {};
+    const usage = row?.usage && typeof row.usage === "object" ? row.usage : {};
+    const resource = row?.resource && typeof row.resource === "object" ? row.resource : null;
+    return {
+      id: text(row.id || crypto.randomUUID()),
+      template_id: text(row.template_id || ""),
+      name: text(row.name || `Feature ${index + 1}`),
+      source: text(row.source || "Custom"),
+      class_id: norm(row.class_id),
+      min_level: Math.max(0, int(row.min_level, 0)),
+      enabled: row.enabled !== false,
+      dm_override: Boolean(row.dm_override),
+      auto_grant: Boolean(row.auto_grant),
+      auto_attack_tag: norm(row.auto_attack_tag),
+      scope: norm(row.scope || "all_attacks") || "all_attacks",
+      application_mode: ["auto", "suggested", "manual"].includes(norm(row.application_mode)) ? norm(row.application_mode) : "manual",
+      requirements: {
+        ability: norm(requirements.ability),
+        kinds: list(requirements.kinds),
+        properties_any: list(requirements.properties_any),
+        tags_any: list(requirements.tags_any),
+        any: Array.isArray(requirements.any) ? requirements.any.map((entry) => ({ kind: norm(entry?.kind), property: norm(entry?.property), tag: norm(entry?.tag) })) : []
+      },
+      attack_roll_bonus: int(row.attack_roll_bonus, 0),
+      attack_roll_dice: text(row.attack_roll_dice),
+      advantage_state: ["advantage", "disadvantage", "none"].includes(norm(row.advantage_state)) ? norm(row.advantage_state) : "none",
+      damage_bonus: int(row.damage_bonus, 0),
+      damage_dice: text(row.damage_dice),
+      damage_type_add: text(row.damage_type_add),
+      damage_type_replace: text(row.damage_type_replace),
+      crit_extra_dice: text(row.crit_extra_dice),
+      scaling: Array.isArray(row.scaling) ? row.scaling.map((entry) => ({
+        min_level: Math.max(0, int(entry?.min_level, 0)),
+        attack_roll_bonus: entry?.attack_roll_bonus == null ? null : int(entry.attack_roll_bonus, 0),
+        damage_bonus: entry?.damage_bonus == null ? null : int(entry.damage_bonus, 0),
+        attack_roll_dice: entry?.attack_roll_dice == null ? null : text(entry.attack_roll_dice),
+        damage_dice: entry?.damage_dice == null ? null : text(entry.damage_dice),
+        crit_extra_dice: entry?.crit_extra_dice == null ? null : text(entry.crit_extra_dice)
+      })).sort((a, b) => a.min_level - b.min_level) : [],
+      usage: { frequency: norm(usage.frequency), used: Boolean(usage.used) },
+      resource: resource ? { type: norm(resource.type), label: text(resource.label), cost: Math.max(0, int(resource.cost, 0)) } : null,
+      notes: text(row.notes)
+    };
+  }
+  function createFeatureFromTemplate(template = {}) {
+    return normalizeCharacterFeature({ ...structuredClone(template), id: crypto.randomUUID(), template_id: template.id || "", auto_grant: false });
+  }
+  function normalizeCharacterFeatures(value) {
+    return (Array.isArray(value) ? value : []).filter((row) => row && typeof row === "object").map(normalizeCharacterFeature);
+  }
+  function matchesScope(feature, attack) {
+    if (feature.scope === "all_attacks") return true;
+    if (feature.scope === "weapon_attacks") return ["melee_weapon", "ranged_weapon", "natural_weapon"].includes(norm(attack.kind));
+    if (feature.scope === "spell_attacks") return norm(attack.kind) === "spell_attack";
+    return feature.scope === norm(attack.kind);
+  }
+  function matchesRequirements(feature, attack) {
+    if (feature.dm_override) return true;
+    const req = feature.requirements || {};
+    const properties = list(attack.properties).map(norm);
+    const tags = list(attack.tags).map(norm);
+    if (req.ability && req.ability !== norm(attack.abilityKey || attack.attack_ability)) return false;
+    if (req.kinds?.length && !req.kinds.map(norm).includes(norm(attack.kind))) return false;
+    if (req.properties_any?.length && !req.properties_any.map(norm).some((value) => properties.includes(value))) return false;
+    if (req.tags_any?.length && !req.tags_any.map(norm).some((value) => tags.includes(value))) return false;
+    if (req.any?.length && !req.any.some((entry) => (!entry.kind || entry.kind === norm(attack.kind)) && (!entry.property || properties.includes(entry.property)) && (!entry.tag || tags.includes(entry.tag)))) return false;
+    return true;
+  }
+  function applyScaling(feature, character) {
+    const level = feature.class_id ? characterClassLevel(character, feature.class_id) : 0;
+    const eligible = feature.scaling.filter((entry) => level >= entry.min_level);
+    const row = eligible[eligible.length - 1];
+    if (!row) return feature;
+    const merged = { ...feature };
+    for (const key2 of ["attack_roll_bonus", "damage_bonus", "attack_roll_dice", "damage_dice", "crit_extra_dice"]) {
+      if (row[key2] != null) merged[key2] = row[key2];
+    }
+    return merged;
+  }
+  function resolveCharacterFeatures(character, templates = [], attack = null, { includeDisabled = false } = {}) {
+    const stored = normalizeCharacterFeatures(character?.features);
+    const byTemplate = new Map(stored.filter((row) => row.template_id).map((row) => [row.template_id, row]));
+    const templateById = new Map((Array.isArray(templates) ? templates : []).map((row) => [text(row?.id), row]));
+    const resolved = [];
+    for (const rawTemplate of Array.isArray(templates) ? templates : []) {
+      const template = normalizeCharacterFeature({ ...rawTemplate, id: `rules:${rawTemplate.id}`, template_id: rawTemplate.id });
+      const level = template.class_id ? characterClassLevel(character, template.class_id) : 0;
+      const tagged = Boolean(attack && template.auto_attack_tag && list(attack.tags).map(norm).includes(template.auto_attack_tag));
+      if (!(tagged || template.auto_grant && level >= template.min_level)) continue;
+      const override = byTemplate.get(template.template_id);
+      const merged = override ? { ...template, ...override, requirements: override.requirements, scaling: override.scaling.length ? override.scaling : template.scaling } : template;
+      resolved.push(override?.dm_override ? merged : applyScaling(merged, character));
+    }
+    for (const row of stored) {
+      if (row.template_id && resolved.some((entry) => entry.template_id === row.template_id)) continue;
+      const sourceTemplate = row.template_id ? templateById.get(row.template_id) : null;
+      if (sourceTemplate?.auto_grant && !row.dm_override && characterClassLevel(character, sourceTemplate.class_id) < int(sourceTemplate.min_level, 0)) continue;
+      resolved.push(applyScaling(row, character));
+    }
+    return resolved.filter((feature) => (includeDisabled || feature.enabled) && (!attack || matchesScope(feature, attack) && matchesRequirements(feature, attack)));
+  }
+  function featureToAttackModifier(feature) {
+    return {
+      id: `feature:${feature.id}`,
+      label: feature.damage_dice && !feature.name.includes(feature.damage_dice) ? `${feature.name} (${feature.damage_dice})` : feature.name,
+      source_type: "character_feature",
+      source_id: feature.template_id || feature.id,
+      scope: feature.scope,
+      timing: feature.usage?.frequency || "persistent",
+      application_mode: feature.application_mode,
+      attack_roll_bonus: feature.attack_roll_bonus,
+      attack_roll_dice: feature.attack_roll_dice,
+      advantage_state: feature.advantage_state,
+      damage_bonus: feature.damage_bonus,
+      damage_dice: feature.damage_dice,
+      damage_type_add: feature.damage_type_add,
+      damage_type_replace: feature.damage_type_replace,
+      crit_extra_dice: feature.crit_extra_dice,
+      resource_cost: feature.resource,
+      notes: feature.notes
+    };
+  }
+
+  // js/v2/core/ammunition.js
+  var AMMO_TYPES = /* @__PURE__ */ new Set(["arrow", "bolt", "bullet", "cannonball", "sling_bullet", "blowgun_needle", "custom"]);
+  function key(value) {
+    return (value ?? "").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  }
+  function normalizeAmmunitionType(value) {
+    const normalized = (value ?? "").toString().trim().toLowerCase();
+    return AMMO_TYPES.has(normalized) ? normalized : "";
+  }
+  function inferInventoryAmmunitionType(item = {}) {
+    const explicit = normalizeAmmunitionType(item.ammunition_type);
+    if (explicit) return explicit;
+    const name = key(item.name);
+    if (/cannonballs?/.test(name)) return "cannonball";
+    if (/blowgunneedles?|needles?/.test(name)) return "blowgun_needle";
+    if (/sling(bullets?|stones?)/.test(name)) return "sling_bullet";
+    if (/arrows?/.test(name)) return "arrow";
+    if (/(crossbow)?bolts?|quarrels?/.test(name)) return "bolt";
+    if (/bullets?|cartridges?|ammunition|ammo|shot/.test(name)) return "bullet";
+    return item.item_type === "ammunition" ? "custom" : "";
+  }
+  function inferWeaponAmmunitionType(attack = {}) {
+    const explicit = normalizeAmmunitionType(attack.ammunition_type);
+    if (explicit) return explicit;
+    const name = key(`${attack.catalog_id || ""} ${attack.name || ""}`);
+    if (name.includes("crossbow")) return "bolt";
+    if (name.includes("blowgun")) return "blowgun_needle";
+    if (name.includes("cannon")) return "cannonball";
+    if (name.includes("sling")) return "sling_bullet";
+    if (name.includes("bow")) return "arrow";
+    if (/(pistol|musket|firearm|rifle|gun)/.test(name)) return "bullet";
+    return "";
+  }
+  function attackUsesAmmunition(attack = {}) {
+    const properties = Array.isArray(attack.properties) ? attack.properties : (attack.properties || "").toString().split(",");
+    return Boolean(inferWeaponAmmunitionType(attack)) || properties.some((property) => key(property) === "ammunition");
+  }
+  function normalizeAmmunitionLinks(value) {
+    const rows = Array.isArray(value) ? value : [];
+    return [...new Set(rows.map((id2) => (id2 ?? "").toString().trim()).filter(Boolean))];
+  }
+  function compatibleAmmunitionItems(attack = {}, inventory = []) {
+    if (!attackUsesAmmunition(attack)) return [];
+    const required = inferWeaponAmmunitionType(attack);
+    return (Array.isArray(inventory) ? inventory : []).filter((item) => {
+      if (item?.item_type === "item") return false;
+      const type = inferInventoryAmmunitionType(item);
+      if (!type) return false;
+      if (!required || required === "custom" || type === "custom") return true;
+      if (required === "sling_bullet" && type === "bullet") return true;
+      return type === required;
+    });
+  }
+  function linkedAmmunitionItems(attack = {}, inventory = []) {
+    const links = normalizeAmmunitionLinks(attack.ammunition_links);
+    const byId = new Map((Array.isArray(inventory) ? inventory : []).map((item) => [(item?.id || "").toString(), item]));
+    return links.map((id2) => byId.get(id2)).filter(Boolean);
+  }
+  function consumeLinkedAmmunition(inventory = [], attack = {}, ammunitionId = "") {
+    const next = (Array.isArray(inventory) ? inventory : []).map((item2) => ({ ...item2 }));
+    const links = normalizeAmmunitionLinks(attack.ammunition_links);
+    const selectedId = (ammunitionId || attack.selected_ammunition_id || links[0] || "").toString();
+    if (!selectedId) return { ok: true, consumed: false, inventory: next, item: null, remaining: null };
+    if (!links.includes(selectedId)) return { ok: false, consumed: false, inventory: next, reason: "That ammunition is not linked to this weapon." };
+    const item = next.find((row) => (row?.id || "").toString() === selectedId);
+    if (!item) return { ok: false, consumed: false, inventory: next, reason: "The selected ammunition is no longer in inventory." };
+    if (item.unlimited_ammunition || attack.unlimited_ammunition) {
+      return { ok: true, consumed: false, inventory: next, item, remaining: null };
+    }
+    const quantity = Math.max(0, Number.parseInt(item.qty, 10) || 0);
+    if (quantity <= 0) return { ok: false, consumed: false, inventory: next, item, remaining: 0, reason: `${item.name || "Ammunition"} is empty.` };
+    item.qty = quantity - 1;
+    return { ok: true, consumed: true, inventory: next, item, remaining: item.qty };
+  }
+
+  // js/v2/core/companions.js
+  var ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
+  var MOVEMENT = ["walk", "fly", "swim", "climb", "burrow"];
+  var text2 = (value) => (value ?? "").toString();
+  var integer = (value, fallback = 0) => {
+    const parsed = Number.parseInt(text2(value), 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  var nonNegative = (value, fallback = 0) => Math.max(0, integer(value, fallback));
+  var object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var array = (value) => Array.isArray(value) ? value : [];
+  var id = (value) => text2(value).trim() || crypto.randomUUID();
+  function normalizeNamedRows(rows, fallbackLabel) {
+    return array(rows).map((raw, index) => {
+      const row = object(raw);
+      return {
+        id: id(row.id),
+        name: text2(row.name || `${fallbackLabel} ${index + 1}`),
+        description: text2(row.description || row.notes || "")
+      };
+    });
+  }
+  function normalizeAttacks(rows) {
+    return array(rows).map((raw, index) => {
+      const row = object(raw);
+      return {
+        id: id(row.id),
+        name: text2(row.name || `Attack ${index + 1}`),
+        kind: text2(row.kind || "natural_weapon"),
+        atk_bonus_mode: "manual",
+        atk_bonus_override: integer(row.atk_bonus_override ?? row.atk_bonus, 0),
+        damage_mode: "manual",
+        damage: text2(row.damage || ""),
+        damage_type: text2(row.damage_type || ""),
+        range: text2(row.range || ""),
+        reach: nonNegative(row.reach, 5),
+        properties: array(row.properties).map(text2).filter(Boolean),
+        tags: array(row.tags).map(text2).filter(Boolean),
+        notes: text2(row.notes || "")
+      };
+    });
+  }
+  function normalizeEffects(rows) {
+    return array(rows).map((raw, index) => {
+      const row = object(raw);
+      const pending = row.pending === true || text2(row.status).toLowerCase() === "pending";
+      return {
+        id: id(row.id),
+        label: text2(row.label || `Effect ${index + 1}`),
+        source: text2(row.source || ""),
+        source_type: text2(row.source_type || "custom_effect"),
+        source_id: text2(row.source_id || ""),
+        active: pending ? false : row.active !== false,
+        pending,
+        scope: text2(row.scope || "all_attacks"),
+        application_mode: ["auto", "suggested", "manual"].includes(text2(row.application_mode).toLowerCase()) ? text2(row.application_mode).toLowerCase() : "manual",
+        attack_roll_bonus: integer(row.attack_roll_bonus, 0),
+        attack_roll_dice: text2(row.attack_roll_dice || ""),
+        advantage_state: ["advantage", "disadvantage", "none"].includes(text2(row.advantage_state).toLowerCase()) ? text2(row.advantage_state).toLowerCase() : "none",
+        damage_bonus: integer(row.damage_bonus, 0),
+        damage_dice: text2(row.damage_dice || ""),
+        damage_type_add: text2(row.damage_type_add || ""),
+        notes: text2(row.notes || "")
+      };
+    });
+  }
+  function createCompanion(overrides = {}) {
+    return normalizeCompanion({
+      id: crypto.randomUUID(),
+      name: "New Companion",
+      role: "companion",
+      lifecycle: "persistent",
+      status: "active",
+      dm_override: true,
+      ...overrides
+    });
+  }
+  function createCompanionFromTemplate(template, context = {}, overrides = {}) {
+    const source = object(template);
+    const block = structuredClone(object(source.stat_block));
+    const scaling = object(source.scaling);
+    const proficiencyBonus = Math.max(0, integer(context.proficiencyBonus, block.proficiency_bonus || 2));
+    const rangerLevel = Math.max(1, integer(context.rangerLevel, integer(context.characterLevel, 1)));
+    const spellLevel = Math.max(integer(scaling.level_min, 1), integer(context.spellLevel, scaling.level_min || 1));
+    const spellAttackBonus = integer(context.spellAttackBonus, block.attacks?.[0]?.atk_bonus_override || 0);
+    if (scaling.type === "ranger") {
+      block.ac = integer(scaling.ac_base, 13) + proficiencyBonus;
+      block.proficiency_bonus = proficiencyBonus;
+      const hp = integer(scaling.hp_base, 0) + integer(scaling.hp_per_level, 0) * rangerLevel;
+      block.hp = { max: hp, current: hp, temp: 0 };
+    }
+    if (scaling.type === "spell_slot") {
+      block.ac = integer(scaling.ac_base, 11) + spellLevel;
+      block.proficiency_bonus = proficiencyBonus;
+      const hp = integer(scaling.hp_base, 1) + integer(scaling.hp_per_level_above_min, 0) * (spellLevel - integer(scaling.level_min, spellLevel));
+      block.hp = { max: hp, current: hp, temp: 0 };
+    }
+    if (block.attacks?.[0] && scaling.attack_uses_spell_modifier) {
+      block.attacks[0].atk_bonus_override = spellAttackBonus;
+      const add = integer(scaling.damage_flat, 0) + (scaling.damage_adds_proficiency ? proficiencyBonus : 0) + (scaling.damage_adds_spell_level ? spellLevel : 0);
+      block.attacks[0].damage = `${text2(scaling.damage_die || "").trim()}${add >= 0 ? "+" : ""}${add}`;
+    }
+    return createCompanion({
+      ...block,
+      ...overrides,
+      template_id: text2(source.id),
+      template_source: text2(source.source_ref || source.source),
+      template_kind: text2(source.template_kind),
+      template_level: scaling.type === "spell_slot" ? spellLevel : null,
+      dm_override: overrides.dm_override === true
+    });
+  }
+  function normalizeCompanion(raw = {}) {
+    const row = object(raw);
+    const hp = object(row.hp);
+    const maxHp = nonNegative(hp.max, 1);
+    const abilities = object(row.abilities);
+    const movement = object(row.movement);
+    const saves = object(row.saves || row.saving_throws);
+    const defenses = object(row.defenses);
+    const replacement = object(row.replacement);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const lifecycle = text2(row.lifecycle).toLowerCase() === "temporary" ? "temporary" : "persistent";
+    const statusValue = text2(row.status).toLowerCase();
+    const status = ["active", "inactive", "archived"].includes(statusValue) ? statusValue : "active";
+    const abilityRows = {};
+    const saveRows = {};
+    ABILITIES.forEach((key2) => {
+      abilityRows[key2] = Math.max(1, integer(abilities[key2], 10));
+      const value = saves[key2];
+      saveRows[key2] = value === null || value === void 0 || value === "" ? null : integer(value, 0);
+    });
+    const movementRows = {};
+    MOVEMENT.forEach((key2) => {
+      movementRows[key2] = nonNegative(movement[key2], key2 === "walk" ? 30 : 0);
+    });
+    movementRows.notes = text2(movement.notes || "");
+    return {
+      id: id(row.id),
+      name: text2(row.name || "New Companion"),
+      template_id: text2(row.template_id || ""),
+      template_source: text2(row.template_source || ""),
+      template_kind: text2(row.template_kind || ""),
+      template_level: row.template_level === null || row.template_level === void 0 || row.template_level === "" ? null : nonNegative(row.template_level, 0),
+      dm_override: row.dm_override === true || !text2(row.template_id).trim(),
+      role: text2(row.role || "companion"),
+      source: text2(row.source || ""),
+      creature_type: text2(row.creature_type || ""),
+      size: text2(row.size || ""),
+      alignment: text2(row.alignment || ""),
+      lifecycle,
+      status,
+      duration: text2(row.duration || ""),
+      rounds_remaining: row.rounds_remaining === null || row.rounds_remaining === void 0 || row.rounds_remaining === "" ? null : nonNegative(row.rounds_remaining, 0),
+      created_utc: text2(row.created_utc || now),
+      modified_utc: text2(row.modified_utc || now),
+      replaces_id: text2(row.replaces_id || ""),
+      replacement: {
+        occurred_utc: text2(replacement.occurred_utc || ""),
+        cost: text2(replacement.cost || ""),
+        notes: text2(replacement.notes || "")
+      },
+      ac: nonNegative(row.ac, 10),
+      initiative_bonus: integer(row.initiative_bonus, 0),
+      proficiency_bonus: integer(row.proficiency_bonus, 0),
+      challenge_rating: text2(row.challenge_rating || ""),
+      hit_dice: text2(row.hit_dice || ""),
+      hp: {
+        max: maxHp,
+        current: Math.min(maxHp, nonNegative(hp.current, maxHp)),
+        temp: nonNegative(hp.temp, 0)
+      },
+      abilities: abilityRows,
+      movement: movementRows,
+      saves: saveRows,
+      skills: array(row.skills).map((rawSkill, index) => {
+        const skill = object(rawSkill);
+        return { id: id(skill.id), name: text2(skill.name || `Skill ${index + 1}`), bonus: integer(skill.bonus, 0) };
+      }),
+      senses: text2(row.senses || ""),
+      languages: text2(row.languages || ""),
+      defenses: {
+        vulnerabilities: array(defenses.vulnerabilities).map(text2).filter(Boolean),
+        resistances: array(defenses.resistances).map(text2).filter(Boolean),
+        immunities: array(defenses.immunities).map(text2).filter(Boolean),
+        condition_immunities: array(defenses.condition_immunities).map(text2).filter(Boolean)
+      },
+      attacks: normalizeAttacks(row.attacks),
+      actions: normalizeNamedRows(row.actions, "Action"),
+      bonus_actions: normalizeNamedRows(row.bonus_actions, "Bonus Action"),
+      reactions: normalizeNamedRows(row.reactions, "Reaction"),
+      traits: normalizeNamedRows(row.traits, "Trait"),
+      equipment: array(row.equipment).map((rawItem, index) => {
+        const item = object(rawItem);
+        return {
+          id: id(item.id),
+          name: text2(item.name || `Item ${index + 1}`),
+          quantity: nonNegative(item.quantity, 1),
+          equipped: item.equipped !== false,
+          notes: text2(item.notes || "")
+        };
+      }),
+      effects: normalizeEffects(row.effects),
+      notes: text2(row.notes || "")
+    };
+  }
+  function normalizeCompanions(value) {
+    return array(value).map(normalizeCompanion);
+  }
+  function activeCompanionEffects(companion) {
+    return array(companion?.effects).filter((row) => row && row.active !== false && row.pending !== true);
+  }
+  function archiveCompanion(companions, companionId) {
+    return normalizeCompanions(companions).map((row) => row.id === companionId ? { ...row, status: "archived", modified_utc: (/* @__PURE__ */ new Date()).toISOString() } : row);
+  }
+  function restoreCompanion(companions, companionId) {
+    return normalizeCompanions(companions).map((row) => row.id === companionId ? { ...row, status: "inactive", modified_utc: (/* @__PURE__ */ new Date()).toISOString() } : row);
+  }
+  function replaceCompanion(companions, companionId, replacement = {}) {
+    const rows = normalizeCompanions(companions);
+    const previous = rows.find((row) => row.id === companionId);
+    if (!previous) return { companions: rows, replacement: null };
+    const occurredUtc = (/* @__PURE__ */ new Date()).toISOString();
+    const next = createCompanion({
+      role: previous.role,
+      lifecycle: previous.lifecycle,
+      replaces_id: previous.id,
+      replacement: {
+        occurred_utc: occurredUtc,
+        cost: text2(replacement.cost || ""),
+        notes: text2(replacement.notes || "")
+      }
+    });
+    return {
+      companions: rows.map((row) => row.id === companionId ? { ...row, status: "archived", modified_utc: occurredUtc } : row).concat(next),
+      replacement: next
     };
   }
 
@@ -3900,13 +4362,13 @@
       return out;
     });
   }
-  function parseCsv(text) {
+  function parseCsv(text3) {
     assertPapa();
-    if (!text || !text.trim()) return [];
-    const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+    if (!text3 || !text3.trim()) return [];
+    const parsed = Papa.parse(text3, { header: true, skipEmptyLines: true });
     return (parsed.data || []).map((row) => {
       const out = {};
-      for (const key of Object.keys(row || {})) out[key] = row[key] ?? "";
+      for (const key2 of Object.keys(row || {})) out[key2] = row[key2] ?? "";
       return out;
     });
   }
@@ -3935,8 +4397,8 @@
     }));
   }
   function toInventoryRows(character) {
-    const list = Array.isArray(character?.inventory) ? character.inventory : [];
-    return ensureHeaders(list, CSV_HEADERS.inventory).map((r) => ({
+    const list2 = Array.isArray(character?.inventory) ? character.inventory : [];
+    return ensureHeaders(list2, CSV_HEADERS.inventory).map((r) => ({
       ...r,
       qty: r.qty === "" ? "" : toInt(r.qty, 1),
       equipped: toBool(r.equipped) ? "true" : "false"
@@ -3961,18 +4423,18 @@
     }));
   }
   function toSpellRows(character, which = "known") {
-    const key = which === "prepared" ? "spells_prepared" : "spells_known";
-    const list = Array.isArray(character?.[key]) ? character[key] : [];
-    return ensureHeaders(list, CSV_HEADERS.spells).map((r) => ({
+    const key2 = which === "prepared" ? "spells_prepared" : "spells_known";
+    const list2 = Array.isArray(character?.[key2]) ? character[key2] : [];
+    return ensureHeaders(list2, CSV_HEADERS.spells).map((r) => ({
       ...r,
       level: r.level === "" ? "" : toInt(r.level, 0),
       ritual: toBool(r.ritual) ? "true" : "false",
       concentration: toBool(r.concentration) ? "true" : "false"
     }));
   }
-  function parseJsonSafe(text) {
+  function parseJsonSafe(text3) {
     try {
-      return JSON.parse(text);
+      return JSON.parse(text3);
     } catch {
       return null;
     }
@@ -3981,9 +4443,9 @@
     return ensureHeaders(rows, CSV_HEADERS.log).map((r) => {
       const parsed = parseJsonSafe(asString2(r.data_json));
       const msg = parsed?.message ?? "";
-      const id = parsed?.id ?? "";
+      const id2 = parsed?.id ?? "";
       return {
-        id: asString2(id),
+        id: asString2(id2),
         utc: asString2(r.timestamp_utc),
         tag: asString2(r.label),
         message: asString2(msg)
@@ -3991,8 +4453,8 @@
     });
   }
   function toLogRows(character) {
-    const list = Array.isArray(character?.log) ? character.log : [];
-    return list.map((entry) => ({
+    const list2 = Array.isArray(character?.log) ? character.log : [];
+    return list2.map((entry) => ({
       timestamp_utc: asString2(entry?.utc),
       type: "note",
       label: asString2(entry?.tag),
@@ -4024,10 +4486,10 @@
     const n = Number.parseInt(asString3(v), 10);
     return Number.isFinite(n) ? n : fallback;
   }
-  function ensureArray(obj, key, report, path) {
-    if (!Array.isArray(obj[key])) {
-      const before = obj[key];
-      obj[key] = [];
+  function ensureArray(obj, key2, report, path) {
+    if (!Array.isArray(obj[key2])) {
+      const before = obj[key2];
+      obj[key2] = [];
       report.fixes_applied.push({
         code: "init-array",
         mode: "auto",
@@ -4038,10 +4500,10 @@
       });
     }
   }
-  function ensureObject(obj, key, report, path) {
-    if (!isObj(obj[key])) {
-      const before = obj[key];
-      obj[key] = {};
+  function ensureObject(obj, key2, report, path) {
+    if (!isObj(obj[key2])) {
+      const before = obj[key2];
+      obj[key2] = {};
       report.fixes_applied.push({
         code: "init-object",
         mode: "auto",
@@ -4086,21 +4548,21 @@
   function clampAbilityScores(character, report) {
     if (!isObj(character.abilities)) return;
     const keys = ["str", "dex", "con", "int", "wis", "cha"];
-    for (const key of keys) {
-      const raw = character.abilities[key];
+    for (const key2 of keys) {
+      const raw = character.abilities[key2];
       const n = toInt2(raw, 10);
       const clamped = Math.max(1, Math.min(30, n));
       if (raw !== clamped) {
         report.fixes_applied.push({
           code: "clamp-ability-score",
           mode: "auto",
-          path: `abilities.${key}`,
+          path: `abilities.${key2}`,
           message: "Clamped ability score to 1..30.",
           before: raw,
           after: clamped
         });
       }
-      character.abilities[key] = clamped;
+      character.abilities[key2] = clamped;
     }
   }
   function normalizeTrackers(character, report) {
@@ -4153,9 +4615,9 @@
   function normalizeSpells(character, report) {
     ensureArray(character, "spells_known", report, "spells_known");
     ensureArray(character, "spells_prepared", report, "spells_prepared");
-    for (const [key, list] of [["spells_known", character.spells_known], ["spells_prepared", character.spells_prepared]]) {
-      for (let i = 0; i < list.length; i++) {
-        const row = isObj(list[i]) ? list[i] : {};
+    for (const [key2, list2] of [["spells_known", character.spells_known], ["spells_prepared", character.spells_prepared]]) {
+      for (let i = 0; i < list2.length; i++) {
+        const row = isObj(list2[i]) ? list2[i] : {};
         if (!asString3(row.id)) row.id = crypto.randomUUID();
         const beforeLevel = row.level;
         const level = Math.max(0, Math.min(9, toInt2(row.level, 0)));
@@ -4163,7 +4625,7 @@
           report.fixes_applied.push({
             code: "clamp-spell-level",
             mode: "auto",
-            path: `${key}[${i}].level`,
+            path: `${key2}[${i}].level`,
             message: "Clamped spell level to 0..9.",
             before: beforeLevel,
             after: level
@@ -4172,7 +4634,7 @@
         row.level = level;
         row.ritual = toBool2(row.ritual);
         row.concentration = toBool2(row.concentration);
-        list[i] = row;
+        list2[i] = row;
       }
     }
     const knownIds = new Set(character.spells_known.map((s) => asString3(s.id)));
@@ -4232,21 +4694,21 @@
     core.classes = core.classes.map((row, idx) => {
       const r = isObj(row) ? row : {};
       const originalId = asString3(r.id || r.class_id || r.name);
-      const id = canonicalClassId(originalId);
+      const id2 = canonicalClassId(originalId);
       const level = Math.max(1, Math.min(20, toInt2(r.level, 1)));
       const subclassId = asString3(r.subclassId || r.subclass_id).trim().toLowerCase();
       const isPrimary = Boolean(r.isPrimary);
-      if (originalId && originalId !== id) {
+      if (originalId && originalId !== id2) {
         report.fixes_applied.push({
           code: "normalize-class-id",
           mode: "auto",
           path: `core.classes[${idx}].id`,
           message: "Normalized class id to canonical form.",
           before: originalId,
-          after: id
+          after: id2
         });
       }
-      return { id, level, subclassId, isPrimary };
+      return { id: id2, level, subclassId, isPrimary };
     }).filter((r) => asString3(r.id));
     if (core.classes.length > 0 && !core.classes.some((r) => r.isPrimary)) {
       core.classes[0].isPrimary = true;
@@ -4262,7 +4724,7 @@
   function canonicalClassId(input) {
     const raw = asString3(input).trim().toLowerCase();
     if (!raw) return "";
-    const key = raw.replace(/[_\-\s]+/g, " ");
+    const key2 = raw.replace(/[_\-\s]+/g, " ");
     const known = [
       "artificer",
       "barbarian",
@@ -4278,9 +4740,9 @@
       "warlock",
       "wizard"
     ];
-    for (const id of known) {
-      const boundary = new RegExp(`(^|[^a-z])${id}([^a-z]|$)`);
-      if (boundary.test(key)) return id;
+    for (const id2 of known) {
+      const boundary = new RegExp(`(^|[^a-z])${id2}([^a-z]|$)`);
+      if (boundary.test(key2)) return id2;
     }
     const map = {
       artificer: "artificer",
@@ -4297,8 +4759,8 @@
       warlock: "warlock",
       wizard: "wizard"
     };
-    if (map[key]) return map[key];
-    return key.replace(/[^a-z0-9 ]+/g, " ").trim().replace(/\s+/g, "_");
+    if (map[key2]) return map[key2];
+    return key2.replace(/[^a-z0-9 ]+/g, " ").trim().replace(/\s+/g, "_");
   }
   function normalizeMeta(character, report) {
     ensureObject(character, "meta", report, "meta");
@@ -4409,9 +4871,9 @@
     ensureObject(character, "spell_slots", report, "spell_slots");
     ensureObject(character, "ui", report, "ui");
   }
-  function normalizeListObject(obj, key, report, path) {
-    ensureArray(obj, key, report, path);
-    obj[key] = obj[key].map((x) => asString3(x).trim()).filter(Boolean);
+  function normalizeListObject(obj, key2, report, path) {
+    ensureArray(obj, key2, report, path);
+    obj[key2] = obj[key2].map((x) => asString3(x).trim()).filter(Boolean);
   }
   function normalizeProficiencies(character, report) {
     const p = character.proficiencies;
@@ -4443,26 +4905,26 @@
     ss.pact.level = Math.max(1, Math.min(9, toInt2(ss.pact.level, 1)));
     ensureObject(ss, "levels", report, "spell_slots.levels");
     for (let i = 1; i <= 9; i++) {
-      const key = String(i);
-      if (!isObj(ss.levels[key])) ss.levels[key] = { max: 0, used: 0 };
-      ss.levels[key].max = Math.max(0, toInt2(ss.levels[key].max, 0));
-      ss.levels[key].used = Math.max(0, toInt2(ss.levels[key].used, 0));
-      if (ss.levels[key].used > ss.levels[key].max) ss.levels[key].used = ss.levels[key].max;
+      const key2 = String(i);
+      if (!isObj(ss.levels[key2])) ss.levels[key2] = { max: 0, used: 0 };
+      ss.levels[key2].max = Math.max(0, toInt2(ss.levels[key2].max, 0));
+      ss.levels[key2].used = Math.max(0, toInt2(ss.levels[key2].used, 0));
+      if (ss.levels[key2].used > ss.levels[key2].max) ss.levels[key2].used = ss.levels[key2].max;
     }
   }
   function normalizeCurrency(character, report) {
     const cur = character.currency;
-    for (const key of ["cp", "sp", "ep", "gp", "pp"]) {
-      const before = cur[key];
-      cur[key] = toInt2(cur[key], 0);
-      if (before !== cur[key]) {
+    for (const key2 of ["cp", "sp", "ep", "gp", "pp"]) {
+      const before = cur[key2];
+      cur[key2] = toInt2(cur[key2], 0);
+      if (before !== cur[key2]) {
         report.fixes_applied.push({
           code: "coerce-currency-int",
           mode: "auto",
-          path: `currency.${key}`,
+          path: `currency.${key2}`,
           message: "Coerced currency field to integer.",
           before,
-          after: cur[key]
+          after: cur[key2]
         });
       }
     }
@@ -4475,6 +4937,23 @@
     ensureObject(character, "spellcasting", report, "spellcasting");
     ensureObject(character, "play_state", report, "play_state");
     ensureArray(character, "attacks", report, "attacks");
+    ensureArray(character, "inventory", report, "inventory");
+    character.companions = normalizeCompanions(character.companions);
+    character.features = normalizeCharacterFeatures(character.features);
+    character.inventory = character.inventory.map((row, idx) => {
+      const r = isObj(row) ? row : {};
+      const inferredAmmunitionType = inferInventoryAmmunitionType(r);
+      return {
+        ...r,
+        id: asString3(r.id || crypto.randomUUID()),
+        name: asString3(r.name || `Item ${idx + 1}`),
+        qty: Math.max(0, toInt2(r.qty, 1)),
+        notes: asString3(r.notes || ""),
+        item_type: r.item_type === "ammunition" || r.item_type !== "item" && inferredAmmunitionType ? "ammunition" : "item",
+        ammunition_type: normalizeAmmunitionType(r.ammunition_type),
+        unlimited_ammunition: toBool2(r.unlimited_ammunition)
+      };
+    });
     const c = character.combat;
     c.speed = Math.max(0, toInt2(c.speed, 30));
     c.inspiration = Math.max(0, Math.min(1, toInt2(c.inspiration, 0)));
@@ -4507,26 +4986,26 @@
     }).filter((x) => x.name);
     c.death_saves.success = Math.max(0, Math.min(3, toInt2(c.death_saves.success, 0)));
     c.death_saves.fail = Math.max(0, Math.min(3, toInt2(c.death_saves.fail, 0)));
-    for (const key of ["cp", "sp", "ep", "gp", "pp"]) {
-      character.resources[key] = Math.max(0, toInt2(character.resources[key], 0));
+    for (const key2 of ["cp", "sp", "ep", "gp", "pp"]) {
+      character.resources[key2] = Math.max(0, toInt2(character.resources[key2], 0));
     }
     const saveKeys = ["str", "dex", "con", "int", "wis", "cha"];
-    for (const key of saveKeys) {
-      const row = isObj(character.saving_throws[key]) ? character.saving_throws[key] : {};
+    for (const key2 of saveKeys) {
+      const row = isObj(character.saving_throws[key2]) ? character.saving_throws[key2] : {};
       row.proficient = toBool2(row.proficient);
       row.bonus = toInt2(row.bonus, 0);
       row.manual_total = toInt2(row.manual_total, 0);
       row.bonus_mode = asString3(row.bonus_mode) === "manual" ? "manual" : "auto";
-      character.saving_throws[key] = row;
+      character.saving_throws[key2] = row;
     }
-    for (const [key, rowRaw] of Object.entries(character.skills)) {
+    for (const [key2, rowRaw] of Object.entries(character.skills)) {
       const row = isObj(rowRaw) ? rowRaw : {};
       row.proficient = toBool2(row.proficient);
       row.expertise = toBool2(row.expertise);
       row.bonus = toInt2(row.bonus, 0);
       row.manual_total = toInt2(row.manual_total, 0);
       row.bonus_mode = asString3(row.bonus_mode) === "manual" ? "manual" : "auto";
-      character.skills[key] = row;
+      character.skills[key2] = row;
     }
     const sc = character.spellcasting;
     sc.class_id = asString3(sc.class_id).trim().toLowerCase();
@@ -4569,6 +5048,7 @@
         notes: asString3(r.notes || "")
       };
     });
+    const inventoryIds = new Set(character.inventory.map((item) => item.id));
     character.attacks = character.attacks.map((row, idx) => {
       const r = isObj(row) ? row : {};
       const legacyAtkBonus = r.atk_bonus ?? r.attack_bonus ?? 0;
@@ -4582,6 +5062,8 @@
       const rangeText = asString3(r.range || "");
       const properties = Array.isArray(r.properties) ? r.properties.map((x) => asString3(x).trim()).filter(Boolean) : asString3(r.properties || "").split(",").map((x) => x.trim()).filter(Boolean);
       const tags = Array.isArray(r.tags) ? r.tags.map((x) => asString3(x).trim()).filter(Boolean) : asString3(r.tags || "").split(",").map((x) => x.trim()).filter(Boolean);
+      const ammunitionLinks = normalizeAmmunitionLinks(r.ammunition_links).filter((id2) => inventoryIds.has(id2));
+      const selectedAmmunitionId = asString3(r.selected_ammunition_id || "");
       return {
         id: asString3(r.id || crypto.randomUUID()),
         catalog_id: asString3(r.catalog_id || r.weapon_id || ""),
@@ -4603,7 +5085,11 @@
         reach,
         properties,
         notes: asString3(r.notes || ""),
-        tags
+        tags,
+        ammunition_type: normalizeAmmunitionType(r.ammunition_type),
+        ammunition_links: ammunitionLinks,
+        selected_ammunition_id: ammunitionLinks.includes(selectedAmmunitionId) ? selectedAmmunitionId : ammunitionLinks[0] || "",
+        unlimited_ammunition: toBool2(r.unlimited_ammunition)
       };
     });
   }
@@ -5251,27 +5737,27 @@
     const n = Number.parseInt((v ?? "").toString(), 10);
     return Number.isFinite(n) ? n : fallback;
   }
-  function norm(v) {
+  function norm2(v) {
     return (v ?? "").toString().trim().toLowerCase();
   }
   function softNorm(v) {
-    return norm(v).replace(/[^a-z0-9]+/g, "");
+    return norm2(v).replace(/[^a-z0-9]+/g, "");
   }
   function toBoolFlag(v) {
     if (typeof v === "boolean") return v;
     if (typeof v === "number") return v !== 0;
-    const s = norm(v);
+    const s = norm2(v);
     if (!s) return false;
     return ["true", "yes", "y", "1", "concentration", "required"].includes(s);
   }
   function optionList(items, selected, placeholder) {
-    const selectedNorm = norm(selected);
+    const selectedNorm = norm2(selected);
     const options = [`<option value="">${esc(placeholder)}</option>`];
     for (const item of items || []) {
-      const id = (item?.id || "").toString();
-      if (!id) continue;
-      const sel = norm(id) === selectedNorm ? "selected" : "";
-      options.push(`<option value="${esc(id)}" ${sel}>${esc(item?.name || id)}</option>`);
+      const id2 = (item?.id || "").toString();
+      if (!id2) continue;
+      const sel = norm2(id2) === selectedNorm ? "selected" : "";
+      options.push(`<option value="${esc(id2)}" ${sel}>${esc(item?.name || id2)}</option>`);
     }
     if (selected && !options.join("").includes(`value="${esc(selected)}"`)) {
       options.push(`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`);
@@ -5279,8 +5765,8 @@
     return options.join("");
   }
   function subclassOptions(items, classId) {
-    const selectedClass = norm(classId);
-    return (items || []).filter((row) => norm(row?.class_id) === selectedClass).map((row) => `<option value="${esc(row?.id || "")}">${esc(row?.name || row?.id || "")} (${esc(row?.source || "UNKNOWN")})</option>`).join("");
+    const selectedClass = norm2(classId);
+    return (items || []).filter((row) => norm2(row?.class_id) === selectedClass).map((row) => `<option value="${esc(row?.id || "")}">${esc(row?.name || row?.id || "")} (${esc(row?.source || "UNKNOWN")})</option>`).join("");
   }
   function isTypingTarget(el) {
     if (!el) return false;
@@ -5574,20 +6060,20 @@
   function getEffectivePortrait(character) {
     const uploaded = character?.ui?.portrait?.data_url || "";
     if (uploaded) return uploaded;
-    const speciesId = norm(character?.core?.speciesId || "");
+    const speciesId = norm2(character?.core?.speciesId || "");
     return SPECIES_DEFAULT_PORTRAITS[speciesId] || "";
   }
   function getDraftPortrait(speciesId) {
-    return SPECIES_DEFAULT_PORTRAITS[norm(speciesId)] || "";
+    return SPECIES_DEFAULT_PORTRAITS[norm2(speciesId)] || "";
   }
   function getClassBadge(classId) {
-    return CLASS_BADGES[norm(classId)] || "";
+    return CLASS_BADGES[norm2(classId)] || "";
   }
   function sanitizeAppearance(raw = {}) {
     const out = { ...APPEARANCE_DEFAULTS };
-    for (const [key] of APPEARANCE_FIELDS) {
-      const v = (raw?.[key] || "").toString().trim();
-      if (/^#[0-9a-f]{6}$/i.test(v)) out[key] = v;
+    for (const [key2] of APPEARANCE_FIELDS) {
+      const v = (raw?.[key2] || "").toString().trim();
+      if (/^#[0-9a-f]{6}$/i.test(v)) out[key2] = v;
     }
     out.surfaceAlpha = clamp(Number(raw?.surfaceAlpha ?? out.surfaceAlpha) || out.surfaceAlpha, 0.65, 1);
     out.shadowOpacity = clamp(Number(raw?.shadowOpacity ?? out.shadowOpacity) || out.shadowOpacity, 0.05, 0.28);
@@ -5597,9 +6083,9 @@
   function primaryClassRow(character) {
     const rows = getClassRows(character);
     if (!rows.length) return null;
-    const primary = rows.find((x) => x?.isPrimary && norm(x?.id));
+    const primary = rows.find((x) => x?.isPrimary && norm2(x?.id));
     if (primary) return primary;
-    const ranked = [...rows].filter((x) => norm(x?.id)).sort((a, b) => asInt(b?.level, 0) - asInt(a?.level, 0));
+    const ranked = [...rows].filter((x) => norm2(x?.id)).sort((a, b) => asInt(b?.level, 0) - asInt(a?.level, 0));
     return ranked[0] || rows[0];
   }
   function getClassRows(character) {
@@ -5607,22 +6093,22 @@
     const out = [];
     const pushRow = (row) => {
       if (!row || typeof row !== "object") return;
-      const id = norm(row.id || row.class_id || row.name);
-      if (!id) return;
+      const id2 = norm2(row.id || row.class_id || row.name);
+      if (!id2) return;
       const level = clamp(asInt(row.level, 1), 1, 20);
-      const subclassId = norm(row.subclassId || row.subclass_id || row.subclass || "");
+      const subclassId = norm2(row.subclassId || row.subclass_id || row.subclass || "");
       const isPrimary = Boolean(row.isPrimary || row.is_primary);
-      const key = `${id}:${level}:${subclassId}:${isPrimary ? "1" : "0"}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ id, level, subclassId, isPrimary });
+      const key2 = `${id2}:${level}:${subclassId}:${isPrimary ? "1" : "0"}`;
+      if (seen.has(key2)) return;
+      seen.add(key2);
+      out.push({ id: id2, level, subclassId, isPrimary });
     };
     const coreRows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
     coreRows.forEach(pushRow);
     const identityRows = Array.isArray(character?.identity?.classes) ? character.identity.classes : [];
     identityRows.forEach(pushRow);
     if (!out.length) {
-      const legacyId = norm(
+      const legacyId = norm2(
         character?.core?.classId || character?.core?.class_id || character?.class_id || character?.class || ""
       );
       if (legacyId) pushRow({ id: legacyId, level: 1, isPrimary: true });
@@ -5632,8 +6118,8 @@
   }
   function autoThemeLabel(character) {
     const cls = primaryClassRow(character);
-    const classText = titleizeId(norm(cls?.id));
-    const speciesText = titleizeId(norm(character?.core?.speciesId));
+    const classText = titleizeId(norm2(cls?.id));
+    const speciesText = titleizeId(norm2(character?.core?.speciesId));
     if (!classText || !speciesText) return "Default Parchment";
     return `${classText} + ${speciesText}`;
   }
@@ -5643,8 +6129,8 @@
   }
   function deriveAutoAppearance(character) {
     const cls = primaryClassRow(character);
-    const classId = norm(cls?.id);
-    const speciesId = norm(character?.core?.speciesId);
+    const classId = norm2(cls?.id);
+    const speciesId = norm2(character?.core?.speciesId);
     if (!classId || !speciesId) {
       return { appearance: sanitizeAppearance(APPEARANCE_DEFAULTS), label: "Default Parchment" };
     }
@@ -5732,9 +6218,9 @@
     const raw = (value || "").toString().trim();
     if (!raw) return [];
     const variants = /* @__PURE__ */ new Set();
-    const add = (text) => {
-      const key = softNorm(text);
-      if (key) variants.add(key);
+    const add = (text3) => {
+      const key2 = softNorm(text3);
+      if (key2) variants.add(key2);
     };
     add(raw);
     add(raw.replace(/^(a|an|the)\s+/i, ""));
@@ -5747,21 +6233,21 @@
     return [...variants];
   }
   function findAttackCatalogMatch(catalogRows, attack) {
-    const idKey = norm(attack?.catalog_id || attack?.id);
+    const idKey = norm2(attack?.catalog_id || attack?.id);
     if (idKey) {
-      const direct = catalogRows.find((row) => norm(row?.id) === idKey);
+      const direct = catalogRows.find((row) => norm2(row?.id) === idKey);
       if (direct) return direct;
     }
     const keys = attackNameKeys(attack?.name);
     if (!keys.length) return null;
     return catalogRows.find((row) => {
       const rowKeys = attackNameKeys(row?.name || row?.id);
-      return rowKeys.some((key) => keys.includes(key));
+      return rowKeys.some((key2) => keys.includes(key2));
     }) || null;
   }
   function inferAttackProfileFallback(attack) {
     const keys = attackNameKeys(attack?.name);
-    const has = (key) => keys.includes(key);
+    const has = (key2) => keys.includes(key2);
     if (has("shortsword")) return { kind: "melee_weapon", properties: ["finesse", "light"], damage_type: attack.damage_type || "piercing", reach: 5 };
     if (has("dagger")) return { kind: "melee_weapon", properties: ["finesse", "light", "thrown"], damage_type: attack.damage_type || "piercing", range_short: 20, range_long: 60, reach: 5 };
     if (has("shortbow")) return { kind: "ranged_weapon", properties: ["ammunition", "two_handed"], damage_type: attack.damage_type || "piercing", range_short: 80, range_long: 320 };
@@ -5774,7 +6260,7 @@
   }
   function ammoProfileInfo(attack) {
     const keys = attackNameKeys(attack?.name);
-    const has = (key) => keys.includes(key);
+    const has = (key2) => keys.includes(key2);
     if (has("arrow")) {
       return {
         type: "arrow",
@@ -5801,7 +6287,7 @@
     return "";
   }
   function attackKindLabel(kind) {
-    const key = norm(kind);
+    const key2 = norm2(kind);
     const map = {
       melee_weapon: "Melee Weapon",
       ranged_weapon: "Ranged Weapon",
@@ -5809,7 +6295,20 @@
       natural_weapon: "Natural Weapon",
       custom: "Custom Attack"
     };
-    return map[key] || titleizeId(key || "attack");
+    return map[key2] || titleizeId(key2 || "attack");
+  }
+  var AMMUNITION_TYPE_OPTIONS = [
+    ["", "Automatic"],
+    ["arrow", "Arrows"],
+    ["bolt", "Crossbow bolts"],
+    ["bullet", "Bullets / cartridges"],
+    ["cannonball", "Cannonballs"],
+    ["sling_bullet", "Sling bullets / stones"],
+    ["blowgun_needle", "Blowgun needles"],
+    ["custom", "Custom ammunition"]
+  ];
+  function ammunitionTypeOptions(selected, emptyLabel = "Automatic") {
+    return AMMUNITION_TYPE_OPTIONS.map(([value, label]) => `<option value="${value}" ${value === (selected || "") ? "selected" : ""}>${esc(value ? label : emptyLabel)}</option>`).join("");
   }
   function formatAttackRangeText(row) {
     const explicit = (row?.range || "").toString().trim();
@@ -5827,7 +6326,7 @@
     return [damage, type].filter(Boolean).join(" ");
   }
   function attackGlyphForProfile(row = {}) {
-    const kind = norm(row.kind || "");
+    const kind = norm2(row.kind || "");
     if (kind === "ranged_weapon") return "\u27B6";
     if (kind === "spell_attack") return "\u2726";
     if (kind === "ammunition") return "\u25CE";
@@ -5836,21 +6335,21 @@
     return "\u25C6";
   }
   function normalizeAttackForUi(row = {}) {
-    const kind = norm(row.kind || (row.range_short || row.range_long ? "ranged_weapon" : "melee_weapon")) || "custom";
-    const properties = splitCsvLike(row.properties).map((x) => norm(x));
-    const tags = splitCsvLike(row.tags).map((x) => norm(x));
+    const kind = norm2(row.kind || (row.range_short || row.range_long ? "ranged_weapon" : "melee_weapon")) || "custom";
+    const properties = splitCsvLike(row.properties).map((x) => norm2(x));
+    const tags = splitCsvLike(row.tags).map((x) => norm2(x));
     return {
       id: (row.id || crypto.randomUUID()).toString(),
       catalog_id: (row.catalog_id || "").toString(),
       name: (row.name || "Attack").toString(),
       kind,
-      attack_ability: norm(row.attack_ability || "auto") || "auto",
+      attack_ability: norm2(row.attack_ability || "auto") || "auto",
       proficient: row.proficient !== false,
       magic_bonus: asInt(row.magic_bonus, 0),
-      atk_bonus_mode: norm(row.atk_bonus_mode || "auto") === "manual" ? "manual" : "auto",
+      atk_bonus_mode: norm2(row.atk_bonus_mode || "auto") === "manual" ? "manual" : "auto",
       atk_bonus_override: asInt(row.atk_bonus_override ?? row.atk_bonus, 0),
       atk_bonus: asInt(row.atk_bonus, 0),
-      damage_mode: norm(row.damage_mode || "manual") === "auto" ? "auto" : "manual",
+      damage_mode: norm2(row.damage_mode || "manual") === "auto" ? "auto" : "manual",
       damage: (row.damage || "").toString(),
       damage_type: (row.damage_type || "").toString(),
       versatile_damage: (row.versatile_damage || "").toString(),
@@ -5860,13 +6359,17 @@
       reach: Math.max(0, asInt(row.reach, 5)),
       properties,
       notes: (row.notes || "").toString(),
-      tags
+      tags,
+      ammunition_type: normalizeAmmunitionType(row.ammunition_type),
+      ammunition_links: normalizeAmmunitionLinks(row.ammunition_links),
+      selected_ammunition_id: (row.selected_ammunition_id || "").toString(),
+      unlimited_ammunition: Boolean(row.unlimited_ammunition)
     };
   }
   function parseDiceTerms(formula) {
-    const text = (formula || "").toString().replace(/\s+/g, "");
-    if (!text) return { dice: [], flat: 0, valid: false };
-    const tokens = text.match(/[+\-]?[^+\-]+/g) || [];
+    const text3 = (formula || "").toString().replace(/\s+/g, "");
+    if (!text3) return { dice: [], flat: 0, valid: false };
+    const tokens = text3.match(/[+\-]?[^+\-]+/g) || [];
     const dice = [];
     let flat = 0;
     let valid = true;
@@ -5899,7 +6402,7 @@
     } while (v >= span);
     return v % max + 1;
   }
-  function rollDiceTerms(formula, { crit = false, extraDice = [] } = {}) {
+  function rollDiceTerms(formula, { crit = false, extraDice = [], critExtraDice = [] } = {}) {
     const parsed = parseDiceTerms(formula);
     const detailed = [];
     let total = 0;
@@ -5914,9 +6417,19 @@
       const parsedExtra = parseDiceTerms(extra);
       valid = valid && parsedExtra.valid;
       for (const die of parsedExtra.dice) {
-        const count = die.count;
+        const count = die.count * (crit ? 2 : 1);
         const payload = Array.from({ length: count }, () => secureDieRoll(die.sides));
         detailed.push({ sides: die.sides, sign: die.sign, rolls: payload, extra: true });
+        total += die.sign * payload.reduce((a, b) => a + b, 0);
+      }
+      total += parsedExtra.flat;
+    }
+    for (const extra of critExtraDice) {
+      const parsedExtra = parseDiceTerms(extra);
+      valid = valid && parsedExtra.valid;
+      for (const die of parsedExtra.dice) {
+        const payload = Array.from({ length: die.count }, () => secureDieRoll(die.sides));
+        detailed.push({ sides: die.sides, sign: die.sign, rolls: payload, extra: true, criticalOnly: true });
         total += die.sign * payload.reduce((a, b) => a + b, 0);
       }
       total += parsedExtra.flat;
@@ -5939,14 +6452,14 @@
     return Math.min(6, 2 + Math.floor((Math.max(1, level) - 1) / 4));
   }
   function resolveSpellcastingClassId(character) {
-    const chosen = norm(character?.spellcasting?.class_id || "");
+    const chosen = norm2(character?.spellcasting?.class_id || "");
     if (chosen) return chosen;
     const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
     const primary = rows.find((x) => x?.isPrimary) || rows[0];
-    return norm(primary?.id);
+    return norm2(primary?.id);
   }
   function resolveSpellcastingAbility(character, classId) {
-    const chosen = norm(character?.spellcasting?.ability || "");
+    const chosen = norm2(character?.spellcasting?.ability || "");
     if (ABILITY_KEYS.includes(chosen)) return chosen;
     const map = {
       artificer: "int",
@@ -5964,19 +6477,19 @@
   function deriveStats(character) {
     const abilities = character?.abilities || {};
     const abilityMods = {};
-    for (const key of ABILITY_KEYS) {
-      const score = clamp(asInt(abilities[key], 10), 1, 30);
-      abilityMods[key] = Math.floor((score - 10) / 2);
+    for (const key2 of ABILITY_KEYS) {
+      const score = clamp(asInt(abilities[key2], 10), 1, 30);
+      abilityMods[key2] = Math.floor((score - 10) / 2);
     }
     const lvl = totalLevel(character);
     const profDefault = defaultProficiencyBonus(lvl);
     const prof = Number.isFinite(asInt(character?.combat?.proficiency_bonus, profDefault)) ? asInt(character?.combat?.proficiency_bonus, profDefault) : profDefault;
     const savingThrows = {};
-    for (const key of ABILITY_KEYS) {
-      const row = character?.saving_throws?.[key] || {};
-      const base = abilityMods[key] + (row.proficient ? prof : 0) + asInt(row.bonus, 0);
+    for (const key2 of ABILITY_KEYS) {
+      const row = character?.saving_throws?.[key2] || {};
+      const base = abilityMods[key2] + (row.proficient ? prof : 0) + asInt(row.bonus, 0);
       const total = row.bonus_mode === "manual" ? asInt(row.manual_total, base) : base;
-      savingThrows[key] = { base, total };
+      savingThrows[key2] = { base, total };
     }
     const skills = {};
     for (const [skillId, ability2] of SKILL_DEFS) {
@@ -6015,7 +6528,7 @@
     const known = Array.isArray(character?.spells_known) ? character.spells_known : [];
     const prepared = Array.isArray(character?.spells_prepared) ? character.spells_prepared : [];
     const spellSource = prepared.length ? prepared : known;
-    const starsDruid = classes.some((row) => norm(row?.id) === "druid" && norm(row?.subclassId || "").includes("stars"));
+    const starsDruid = classes.some((row) => norm2(row?.id) === "druid" && norm2(row?.subclassId || "").includes("stars"));
     if (starsDruid) {
       out.features.push({
         id: "stars_starry_form",
@@ -6034,9 +6547,9 @@
       if (!casting.includes("bonus action")) continue;
       const name = (spell?.name || spell?.id || "").toString().trim();
       if (!name) continue;
-      const key = norm(name);
-      if (seenSpell.has(key)) continue;
-      seenSpell.add(key);
+      const key2 = norm2(name);
+      if (seenSpell.has(key2)) continue;
+      seenSpell.add(key2);
       out.spells.push({
         id: spell?.id || name,
         title: name,
@@ -6051,15 +6564,15 @@
     const out = { action: [], bonus: [], reaction: [], passive: [] };
     const ability = character?.abilities || {};
     const chaMod = Math.floor((clamp(asInt(ability.cha, 10), 1, 30) - 10) / 2);
-    const push = (kind, id, title, detail, resource = null) => {
+    const push = (kind, id2, title, detail, resource = null) => {
       if (!kind || !title) return;
       const bucket = out[kind] || out.passive;
-      if (bucket.some((x) => x.id === id || x.title === title)) return;
-      bucket.push({ id: id || norm(title), title, detail, resource });
+      if (bucket.some((x) => x.id === id2 || x.title === title)) return;
+      bucket.push({ id: id2 || norm2(title), title, detail, resource });
     };
     for (const row of rows) {
-      const cls = norm(row?.id);
-      const sub = norm(row?.subclassId);
+      const cls = norm2(row?.id);
+      const sub = norm2(row?.subclassId);
       const lvl = clamp(asInt(row?.level, 0), 0, 20);
       if (!cls || lvl <= 0) continue;
       if (cls === "artificer" && lvl >= 2) push("action", "infuse_item", "Infuse Item", "Action during downtime/loadout to apply infusions.");
@@ -6099,7 +6612,7 @@
         push("bonus", "archer_constellation_shot", "Archer Constellation Shot", "While Archer is active, bonus action each turn to fire radiant arrow.");
       }
     }
-    const species = norm(character?.core?.speciesId || "");
+    const species = norm2(character?.core?.speciesId || "");
     if (species === "dragonborn") {
       push("action", "dragonborn_breath", "Breath Weapon", "Action to exhale destructive energy (species trait).");
     }
@@ -6113,20 +6626,20 @@
   }
   function classLevel(character, classId) {
     const rows = getClassRows(character);
-    return rows.filter((row) => norm(row?.id) === norm(classId)).reduce((sum, row) => sum + clamp(asInt(row?.level, 0), 0, 20), 0);
+    return rows.filter((row) => norm2(row?.id) === norm2(classId)).reduce((sum, row) => sum + clamp(asInt(row?.level, 0), 0, 20), 0);
   }
   function attackMatchesScope(attack, scope) {
-    const sc = norm(scope || "all_attacks");
+    const sc = norm2(scope || "all_attacks");
     if (!sc || sc === "all_attacks") return true;
     if (sc === "weapon_attacks") return attack.kind === "melee_weapon" || attack.kind === "ranged_weapon" || attack.kind === "natural_weapon";
     if (sc === "melee_weapon") return attack.kind === "melee_weapon" || attack.kind === "natural_weapon";
     if (sc === "ranged_weapon") return attack.kind === "ranged_weapon";
     if (sc === "spell_attacks") return attack.kind === "spell_attack";
-    if (sc === `attack:${norm(attack.id)}`) return true;
-    return sc === norm(attack.id);
+    if (sc === `attack:${norm2(attack.id)}`) return true;
+    return sc === norm2(attack.id);
   }
   function inferAttackAbility(attack, derived) {
-    const mode = norm(attack.attack_ability || "auto");
+    const mode = norm2(attack.attack_ability || "auto");
     if (["str", "dex", "con", "int", "wis", "cha"].includes(mode)) return mode;
     if (mode === "spell") return derived?.spellcasting?.ability || "int";
     if (mode === "custom") return "";
@@ -6143,12 +6656,12 @@
     const catalogRows = Array.isArray(catalog2?.attacks) ? catalog2.attacks : [];
     const baseCatalog = findAttackCatalogMatch(catalogRows, attack);
     const fallback = inferAttackProfileFallback(attack);
-    const inferredKind = norm(baseCatalog?.kind || fallback?.kind || attack.kind);
+    const inferredKind = norm2(baseCatalog?.kind || fallback?.kind || attack.kind);
     const hasManualRangeText = Boolean((attackRow?.range || "").toString().trim());
-    const explicitRangeLooksGenericMelee = norm(attackRow?.range || "") === "melee";
+    const explicitRangeLooksGenericMelee = norm2(attackRow?.range || "") === "melee";
     const explicitReachLooksDefaultMelee = !hasManualRangeText && asInt(attackRow?.reach, 0) === 5 && asInt(attackRow?.range_short, 0) === 0 && asInt(attackRow?.range_long, 0) === 0;
     const shouldTrustExplicitRanges = !(inferredKind === "ranged_weapon" && (explicitRangeLooksGenericMelee || explicitReachLooksDefaultMelee));
-    const hasExplicitKind = Boolean(norm(attackRow?.kind || ""));
+    const hasExplicitKind = Boolean(norm2(attackRow?.kind || ""));
     const hasExplicitRanges = shouldTrustExplicitRanges && Boolean(attackRow?.range || attackRow?.range_short || attackRow?.range_long || attackRow?.reach);
     const hasExplicitProperties = Array.isArray(attackRow?.properties) ? attackRow.properties.length > 0 : splitCsvLike(attackRow?.properties).length > 0;
     const preserveExplicitKind = hasExplicitKind && (hasExplicitRanges || hasExplicitProperties || !baseCatalog && !fallback);
@@ -6156,7 +6669,7 @@
       ...baseCatalog || {},
       ...fallback || {},
       ...attack,
-      kind: preserveExplicitKind ? attack.kind : norm(baseCatalog?.kind || fallback?.kind || attack.kind),
+      kind: preserveExplicitKind ? attack.kind : norm2(baseCatalog?.kind || fallback?.kind || attack.kind),
       range: attack.range || baseCatalog?.range || fallback?.range || "",
       range_short: hasExplicitRanges ? attack.range_short : asInt(baseCatalog?.range_short ?? fallback?.range_short, attack.range_short),
       range_long: hasExplicitRanges ? attack.range_long : asInt(baseCatalog?.range_long ?? fallback?.range_long, attack.range_long),
@@ -6189,7 +6702,7 @@
     };
   }
   function concentrationSourceModifier(sourceName) {
-    const source = norm(sourceName);
+    const source = norm2(sourceName);
     if (!source) return null;
     if (source.includes("hex")) {
       return { label: "Hex", source_type: "spell", source_id: "hex", scope: "all_attacks", timing: "persistent", application_mode: "suggested", damage_dice: "1d6", notes: "Applies only to attacks against the hexed target." };
@@ -6206,7 +6719,7 @@
     return null;
   }
   function conditionToModifier(condition) {
-    const name = norm(condition?.name || condition);
+    const name = norm2(condition?.name || condition);
     if (!name) return null;
     if (name.includes("poison")) return { label: titleizeId(name), source_type: "condition", source_id: name, scope: "all_attacks", timing: "persistent", application_mode: "auto", advantage_state: "disadvantage", notes: "Poisoned creatures have disadvantage on attack rolls." };
     if (name.includes("blinded")) return { label: "Blinded", source_type: "condition", source_id: "blinded", scope: "all_attacks", timing: "persistent", application_mode: "auto", advantage_state: "disadvantage", notes: "Blinded creatures have disadvantage on attack rolls." };
@@ -6214,7 +6727,7 @@
     if (name.includes("invisible")) return { label: "Invisible", source_type: "condition", source_id: "invisible", scope: "all_attacks", timing: "persistent", application_mode: "auto", advantage_state: "advantage", notes: "Invisible attackers have advantage on attack rolls." };
     return null;
   }
-  function buildAttackModifierBuckets(character, attack, derived) {
+  function buildAttackModifierBuckets(character, attack, derived, featureTemplates = []) {
     const persistent = [];
     const optional = [];
     const activeEffects = Array.isArray(character?.play_state?.active_effects) ? character.play_state.active_effects : [];
@@ -6231,7 +6744,7 @@
         application_mode: ["auto", "suggested", "manual"].includes(row.application_mode) ? row.application_mode : "manual",
         attack_roll_bonus: asInt(row.attack_roll_bonus, 0),
         attack_roll_dice: (row.attack_roll_dice || "").toString(),
-        advantage_state: ["advantage", "disadvantage", "none"].includes(norm(row.advantage_state)) ? norm(row.advantage_state) : "none",
+        advantage_state: ["advantage", "disadvantage", "none"].includes(norm2(row.advantage_state)) ? norm2(row.advantage_state) : "none",
         damage_bonus: asInt(row.damage_bonus, 0),
         damage_dice: (row.damage_dice || "").toString(),
         damage_type_add: (row.damage_type_add || "").toString(),
@@ -6244,92 +6757,61 @@
     if (concentration.active) {
       const concEffect = concentrationSourceModifier(concentration.source);
       if (concEffect && attackMatchesScope(attack, concEffect.scope)) {
-        persistent.push({ id: `concentration:${norm(concentration.source)}`, ...concEffect });
+        persistent.push({ id: `concentration:${norm2(concentration.source)}`, ...concEffect });
       }
     }
     const conditions = Array.isArray(character?.combat?.conditions) ? character.combat.conditions : [];
     for (const row of conditions) {
       if (!row || row.active === false) continue;
       const effect = conditionToModifier(row);
-      if (effect && attackMatchesScope(attack, effect.scope)) persistent.push({ id: `condition:${norm(row?.name || row)}`, ...effect });
+      if (effect && attackMatchesScope(attack, effect.scope)) persistent.push({ id: `condition:${norm2(row?.name || row)}`, ...effect });
     }
-    const rogueLevel = classLevel(character, "rogue");
-    const sneakEligibleByName = attackNameKeys(attack.name).some((key) => [
-      "dagger",
-      "dart",
-      "rapier",
-      "scimitar",
-      "shortsword",
-      "shortbow",
-      "longbow",
-      "lightcrossbow",
-      "handcrossbow",
-      "sling",
-      "blowgun",
-      "whip"
-    ].includes(key));
-    if (rogueLevel > 0 && (attack.kind === "ranged_weapon" || attack.properties.includes("finesse") || sneakEligibleByName)) {
-      optional.push({
-        id: "class:sneak_attack",
-        label: `Sneak Attack (${Math.ceil(rogueLevel / 2)}d6)`,
-        source_type: "class_feature",
-        source_id: "sneak_attack",
-        application_mode: "manual",
-        damage_dice: `${Math.ceil(rogueLevel / 2)}d6`,
-        notes: "Apply once per turn when Sneak Attack conditions are met."
-      });
-    }
-    const barbarianLevel = classLevel(character, "barbarian");
-    if (barbarianLevel > 0 && attack.kind === "melee_weapon" && attack.abilityKey === "str") {
-      const rageBonus = barbarianLevel >= 16 ? 4 : barbarianLevel >= 9 ? 3 : 2;
-      optional.push({
-        id: "class:rage",
-        label: `Rage (+${rageBonus} damage)`,
-        source_type: "class_feature",
-        source_id: "rage",
-        application_mode: "manual",
-        damage_bonus: rageBonus,
-        notes: "Use only while raging."
-      });
-    }
-    const paladinLevel = classLevel(character, "paladin");
-    if (paladinLevel >= 2 && attack.kind === "melee_weapon") {
-      optional.push({
-        id: "class:divine_smite",
-        label: "Divine Smite",
-        source_type: "class_feature",
-        source_id: "divine_smite",
-        application_mode: "manual",
-        notes: "Choose a spell slot in the attack drawer to add radiant damage."
-      });
-    }
-    if (attack.tags.includes("sharpshooter")) {
-      optional.push({
-        id: "feat:sharpshooter",
-        label: "Sharpshooter (-5 to hit, +10 damage)",
-        source_type: "class_feature",
-        source_id: "sharpshooter",
-        application_mode: "manual",
-        attack_roll_bonus: -5,
-        damage_bonus: 10
-      });
-    }
-    if (attack.tags.includes("great_weapon_master")) {
-      optional.push({
-        id: "feat:great_weapon_master",
-        label: "Great Weapon Master (-5 to hit, +10 damage)",
-        source_type: "class_feature",
-        source_id: "great_weapon_master",
-        application_mode: "manual",
-        attack_roll_bonus: -5,
-        damage_bonus: 10
-      });
+    for (const feature of resolveCharacterFeatures(character, featureTemplates, attack)) {
+      const modifier = featureToAttackModifier(feature);
+      if (modifier.application_mode === "auto" || modifier.application_mode === "suggested") persistent.push(modifier);
+      else optional.push(modifier);
     }
     return {
       auto_applied_modifiers: persistent.filter((row) => row.application_mode === "auto"),
       suggested_modifiers: persistent.filter((row) => row.application_mode === "suggested"),
       manual_options: optional.concat(persistent.filter((row) => row.application_mode === "manual"))
     };
+  }
+  function resolveAttackDrawerOwner(character, uiState, actions) {
+    const ownerType = uiState.attackDrawer?.ownerType === "companion" ? "companion" : "character";
+    if (ownerType === "companion") {
+      const companion = (Array.isArray(character?.companions) ? character.companions : []).find((row) => row.id === uiState.attackDrawer.ownerId);
+      const attackRow2 = companion?.attacks?.find((row) => norm2(row?.id) === norm2(uiState.attackDrawer.attackId));
+      if (!companion || !attackRow2) return null;
+      const base = normalizeAttackForUi(attackRow2);
+      const attack2 = {
+        ...base,
+        kindLabel: attackKindLabel(base.kind),
+        abilityKey: "",
+        abilityMod: 0,
+        proficiency: asInt(companion.proficiency_bonus, 0),
+        autoAttackBonus: asInt(base.atk_bonus_override, 0),
+        effectiveAttackBonus: asInt(base.atk_bonus_override, 0),
+        damageFormula: base.damage,
+        damageBonusAuto: 0,
+        rangeLabel: formatAttackRangeText(base),
+        propertiesLabel: base.properties.map(titleizeId).join(", ")
+      };
+      const effectCharacter = {
+        play_state: { active_effects: activeCompanionEffects(companion) },
+        combat: { concentration: { active: false }, conditions: [] },
+        core: { classes: [] },
+        identity: { classes: [] }
+      };
+      return { ownerType, owner: companion, attack: attack2, buckets: buildAttackModifierBuckets(effectCharacter, attack2, {}, []) };
+    }
+    const rows = Array.isArray(character?.attacks) ? character.attacks : [];
+    const attackRow = rows.find((row) => norm2(row?.id) === norm2(uiState.attackDrawer.attackId));
+    if (!attackRow) return null;
+    const catalog2 = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
+    const derived = deriveStats(character);
+    const attack = deriveAttackProfile(attackRow, character, derived, catalog2);
+    return { ownerType, owner: character, attack, buckets: buildAttackModifierBuckets(character, attack, derived, catalog2.features || []), catalog: catalog2, derived };
   }
   function resolveAdvantageState(mode, modifiers) {
     if (mode === "advantage" || mode === "disadvantage") return mode;
@@ -6371,20 +6853,20 @@
       notes: effect.notes || ""
     };
   }
-  function lookupLabel(rows, id) {
-    const key = norm(id);
-    if (!key) return "";
-    const row = (rows || []).find((x) => norm(x?.id) === key);
-    return (row?.name || "").toString().trim() || titleizeId(key);
+  function lookupLabel(rows, id2) {
+    const key2 = norm2(id2);
+    if (!key2) return "";
+    const row = (rows || []).find((x) => norm2(x?.id) === key2);
+    return (row?.name || "").toString().trim() || titleizeId(key2);
   }
   function characterSubtitle(character, catalog2 = {}) {
     const classes = Array.isArray(character?.core?.classes) ? character.core.classes : [];
-    const classRows = classes.filter((c) => norm(c?.id));
+    const classRows = classes.filter((c) => norm2(c?.id));
     const classText = classRows.length <= 1 ? (() => {
       const row = classRows[0];
       if (!row) return "";
       const className = lookupLabel(catalog2.classes || [], row.id);
-      const subclassName = norm(row?.subclassId) ? lookupLabel(catalog2.subclasses || [], row.subclassId) : "";
+      const subclassName = norm2(row?.subclassId) ? lookupLabel(catalog2.subclasses || [], row.subclassId) : "";
       const lvl = clamp(asInt(row.level, 1), 1, 20);
       return subclassName ? `Level ${lvl} ${subclassName} ${className}` : `Level ${lvl} ${className}`;
     })() : `Classes: ${classRows.map((row) => `Level ${clamp(asInt(row.level, 1), 1, 20)} ${lookupLabel(catalog2.classes || [], row.id)}`).join(" / ")}`;
@@ -6398,12 +6880,14 @@
     { id: "battle", label: "Battle", sections: ["sec-combat", "sec-mechanics"] },
     { id: "spellcraft", label: "Spellcraft", sections: ["sec-spells"] },
     { id: "gear", label: "Gear", sections: ["sec-inventory", "sec-trackers"] },
+    { id: "companions", label: "Companions", sections: ["sec-companions"] },
     { id: "chronicle", label: "Chronicle", sections: ["sec-profile"] }
   ];
   var PLAY_PANES = [
     { id: "spells", label: "Spells" },
     { id: "bonus", label: "Bonus Actions" },
     { id: "attacks", label: "Attacks" },
+    { id: "companions", label: "Companions" },
     { id: "trackers", label: "Trackers" },
     { id: "log", label: "Log" },
     { id: "notes", label: "Notes" }
@@ -6412,12 +6896,12 @@
     return EDIT_TABS.find((t) => t.id === tabId)?.sections || EDIT_TABS[0].sections;
   }
   function classCasterProgression(classId, subclassId) {
-    const c = norm(classId);
+    const c = norm2(classId);
     if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(c)) return "full";
     if (["paladin", "ranger", "artificer"].includes(c)) return "half";
     if (c === "warlock") return "pact";
-    if (c === "fighter" && norm(subclassId) === "eldritch_knight") return "third";
-    if (c === "rogue" && norm(subclassId) === "arcane_trickster") return "third";
+    if (c === "fighter" && norm2(subclassId) === "eldritch_knight") return "third";
+    if (c === "rogue" && norm2(subclassId) === "arcane_trickster") return "third";
     return "none";
   }
   function standardSlotsByCasterLevel(casterLevel) {
@@ -6472,10 +6956,10 @@
     const std = standardSlotsByCasterLevel(casterLevel);
     const levels = {};
     for (let i = 1; i <= 9; i++) {
-      const key = String(i);
+      const key2 = String(i);
       const max = std[i - 1] || 0;
-      const used = clamp(asInt(existing?.[key]?.used, 0), 0, max);
-      levels[key] = { max, used };
+      const used = clamp(asInt(existing?.[key2]?.used, 0), 0, max);
+      levels[key2] = { max, used };
     }
     const pactAuto = warlockPactByLevel(warlockLevel);
     const pact = {
@@ -6652,7 +7136,7 @@
     }
   };
   function renderAttackHelpTrigger(topicId, label) {
-    const topic = ATTACK_HELP_TOPICS[norm(topicId)] || ATTACK_HELP_TOPICS.attack_mode;
+    const topic = ATTACK_HELP_TOPICS[norm2(topicId)] || ATTACK_HELP_TOPICS.attack_mode;
     return `<span class="attack-help-wrap">
     <button type="button" class="attack-help-trigger" aria-label="${esc(label || `Help for ${topic.title}`)}" title="${esc(label || `Help for ${topic.title}`)}">?</button>
     <span class="attack-help-pop" role="note">
@@ -6779,22 +7263,45 @@
     const allowed = Math.max(0, existingLen + stats.remaining);
     return (incoming ?? "").toString().slice(0, allowed);
   }
-  function findSpellByAnyKey(rows, key) {
-    const target = norm(key);
+  function findSpellByAnyKey(rows, key2) {
+    const target = norm2(key2);
     if (!target || !Array.isArray(rows)) return null;
     return rows.find((s) => {
-      const keys = [s?.id, s?.spell_id, s?.name].map((v) => norm(v)).filter(Boolean);
+      const keys = [s?.id, s?.spell_id, s?.name].map((v) => norm2(v)).filter(Boolean);
       return keys.includes(target);
     }) || null;
   }
   function inferConcentrationRoundsFromSource(sourceName, actions) {
-    const name = norm(sourceName);
+    const name = norm2(sourceName);
     if (!name) return null;
     const cat = actions?.getCatalog ? actions.getCatalog() : null;
     const spells = Array.isArray(cat?.spells) ? cat.spells : [];
-    const row = spells.find((s) => norm(s?.name) === name || norm(s?.id) === name || norm(s?.spell_id) === name);
+    const row = spells.find((s) => norm2(s?.name) === name || norm2(s?.id) === name || norm2(s?.spell_id) === name);
     if (!row) return null;
     return parseRoundsFromDuration(row?.duration || "");
+  }
+  function renderCompanionsPlayPane(character, uiState) {
+    const rows = (Array.isArray(character?.companions) ? character.companions : []).filter((row) => row.status === "active");
+    const selected = rows.find((row) => row.id === uiState.selectedPlayCompanionId) || rows[0] || null;
+    if (selected) uiState.selectedPlayCompanionId = selected.id;
+    if (!selected) return `<article class="card"><h2>Companions & Summons</h2><div class="card-body"><p class="hint">No active companions. Add or activate one in Edit mode.</p></div></article>`;
+    const abilityLine = ABILITY_KEYS.map((key2) => `${key2.toUpperCase()} ${selected.abilities?.[key2] ?? 10}`).join(" \xB7 ");
+    const movementLine = ["walk", "fly", "swim", "climb", "burrow"].filter((key2) => (selected.movement?.[key2] || 0) > 0).map((key2) => `${titleizeId(key2)} ${selected.movement[key2]} ft.`).join(" \xB7 ");
+    const named = (label, values) => values?.length ? `<section><h3>${label}</h3>${values.map((row) => `<div class="companion-play-detail"><strong>${esc(row.name)}</strong><p>${esc(row.description)}</p></div>`).join("")}</section>` : "";
+    return `<article class="card companion-play"><h2>Companions & Summons</h2><div class="card-body stack">
+    ${rows.length > 1 ? `<label>Active Companion<select id="playCompanionSelect">${rows.map((row) => `<option value="${esc(row.id)}" ${row.id === selected.id ? "selected" : ""}>${esc(row.name)}</option>`).join("")}</select></label>` : ""}
+    <header class="companion-play-head"><div><h3>${esc(selected.name)}</h3><p>${esc([selected.role, selected.creature_type, selected.size].filter(Boolean).join(" \xB7 "))}</p></div><button type="button" id="playCompanionDeactivate">Deactivate</button></header>
+    <div class="companion-play-stats"><span><strong>AC</strong> ${esc(selected.ac)}</span><span><strong>HP</strong> ${esc(selected.hp?.current)}/${esc(selected.hp?.max)}</span><span><strong>Temp</strong> ${esc(selected.hp?.temp || 0)}</span><span><strong>Init</strong> ${esc(fmtSigned(selected.initiative_bonus || 0))}</span></div>
+    <div class="inline-actions"><button type="button" data-play-companion-hp="-5">-5 HP</button><button type="button" data-play-companion-hp="-1">-1 HP</button><input id="playCompanionHp" type="number" min="0" value="${esc(selected.hp?.current ?? 0)}"/><button type="button" id="playCompanionHpSet">Set HP</button><button type="button" data-play-companion-hp="1">+1 HP</button><button type="button" data-play-companion-hp="5">+5 HP</button></div>
+    ${selected.lifecycle === "temporary" ? `<label>Rounds Remaining<input id="playCompanionRounds" type="number" min="0" value="${esc(selected.rounds_remaining ?? "")}" placeholder="Open-ended"/></label>` : ""}
+    <p>${esc(abilityLine)}</p><p>${esc(movementLine || "No movement recorded")}</p>
+    <div class="grid2"><p><strong>Senses</strong><br/>${esc(selected.senses || "\u2014")}</p><p><strong>Languages</strong><br/>${esc(selected.languages || "\u2014")}</p></div>
+    <section><h3>Attacks</h3><div class="attack-card-list attack-button-list">${(selected.attacks || []).map((row) => `<button type="button" class="attack-card attack-button" data-open-companion-attack="${esc(row.id)}"><strong>${esc(row.name)}</strong><small>${esc(`${fmtSigned(row.atk_bonus_override || 0)} \xB7 ${row.damage || "Manual damage"}`)}</small></button>`).join("") || `<p class="hint">No attacks recorded.</p>`}</div></section>
+    <section><h3>Effects</h3>${(selected.effects || []).map((row, idx) => `<label class="check companion-play-effect"><input type="checkbox" data-play-companion-effect="${idx}" ${row.active ? "checked" : ""} ${row.pending ? "disabled" : ""}/>${esc(row.label)}${row.pending ? " (pending)" : ""}</label>`).join("") || `<p class="hint">No effects recorded.</p>`}</section>
+    ${named("Actions", selected.actions)}${named("Bonus Actions", selected.bonus_actions)}${named("Reactions", selected.reactions)}${named("Traits", selected.traits)}
+    ${selected.equipment?.length ? `<section><h3>Equipment</h3><ul>${selected.equipment.map((row) => `<li>${esc(row.name)}${row.equipped ? " (equipped)" : ""}${row.notes ? ` \u2014 ${esc(row.notes)}` : ""}</li>`).join("")}</ul></section>` : ""}
+    ${selected.notes ? `<section><h3>Notes</h3><p>${esc(selected.notes)}</p></section>` : ""}
+  </div></article>`;
   }
   function renderPlayMode(character, uiState, actions) {
     const hp = character?.combat?.hp || { max: 0, current: 0, temp: 0 };
@@ -6870,7 +7377,7 @@
     const attackCatalog = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
     const attackProfiles = attacks.map((row) => {
       const profile = deriveAttackProfile(row, character, derived, attackCatalog);
-      const buckets = buildAttackModifierBuckets(character, profile, derived);
+      const buckets = buildAttackModifierBuckets(character, profile, derived, attackCatalog.features || []);
       return {
         profile,
         buckets,
@@ -6881,32 +7388,21 @@
         ].filter(Boolean).join(" \xB7 ")
       };
     });
-    const ammoProfiles = attackProfiles.filter(({ profile }) => profile.ammoInfo);
-    const attackCards = attackProfiles.filter(({ profile }) => !profile.ammoInfo).map((entry) => {
-      const { profile, buckets } = entry;
-      const linkedAmmo = ammoProfiles.filter(({ profile: ammoProfile }) => {
-        if (!ammoProfile.ammoInfo || !profile.ammoCompatibilityKey) return false;
-        return ammoProfile.ammoInfo.compatibleKinds.includes(profile.ammoCompatibilityKey);
-      });
-      return {
-        ...entry,
-        linkedAmmo
-      };
-    });
-    const looseAmmo = ammoProfiles.filter(({ profile }) => {
-      if (!profile.ammoInfo) return false;
-      return !attackCards.some((entry) => entry.linkedAmmo.some(({ profile: ammoProfile }) => ammoProfile.id === profile.id));
-    });
+    const inventory = Array.isArray(character?.inventory) ? character.inventory : [];
+    const attackCards = attackProfiles.map((entry) => ({
+      ...entry,
+      linkedAmmo: linkedAmmunitionItems(entry.profile, inventory)
+    }));
     const logBudget = computeLogNotesChars(character);
     const bonusActions = collectBonusActions(character);
     const classActions = collectClassActionFeatures(character);
     const resolveFeatureUsage = (feature) => {
       const max = Math.max(0, asInt(feature?.resource?.max, 0));
       if (max <= 0) return { max: 0, current: 0, trackerIdx: -1 };
-      const titleKey = norm(feature?.title || "");
-      const idKey = norm(feature?.id || "");
+      const titleKey = norm2(feature?.title || "");
+      const idKey = norm2(feature?.id || "");
       const trackerIdx = trackers.findIndex((t) => {
-        const l = norm(t?.label || "");
+        const l = norm2(t?.label || "");
         return l && (l.includes(titleKey) || idKey && l.includes(idKey.replaceAll("_", " ")));
       });
       if (trackerIdx >= 0) {
@@ -6926,15 +7422,15 @@
       byLevel.get(lvl).push(s);
     }
     const levelsWithSpells = [...byLevel.keys()].sort((a, b) => a - b);
-    const saveRows = ["str", "dex", "con", "int", "wis", "cha"].map((id) => ({
-      id,
-      label: `${id.toUpperCase()} Save`,
-      mod: asInt(derived?.savingThrows?.[id]?.total, 0)
+    const saveRows = ["str", "dex", "con", "int", "wis", "cha"].map((id2) => ({
+      id: id2,
+      label: `${id2.toUpperCase()} Save`,
+      mod: asInt(derived?.savingThrows?.[id2]?.total, 0)
     }));
-    const skillRows = SKILL_DEFS.map(([id]) => ({
-      id,
-      label: titleizeId(id),
-      mod: asInt(derived?.skills?.[id]?.total, 0)
+    const skillRows = SKILL_DEFS.map(([id2]) => ({
+      id: id2,
+      label: titleizeId(id2),
+      mod: asInt(derived?.skills?.[id2]?.total, 0)
     }));
     const lastCheckRoll = checkRollState;
     const activePane = uiState.activePlayPane || "spells";
@@ -6988,13 +7484,13 @@
           <span class="attack-card-pop" role="note">
             <strong>${esc(profile.name || "Attack")}</strong>
             ${infoBits.map((bit) => `<span>${esc(bit)}</span>`).join("")}
-            ${linkedAmmo.length ? `<span>${esc(`Ammo: ${linkedAmmo.map(({ profile: ammoProfile }) => ammoProfile.name || ammoProfile.ammoInfo?.label || "Ammunition").join(", ")}`)}</span>` : ""}
+            ${linkedAmmo.length ? `<span>${esc(`Ammo: ${linkedAmmo.map((item) => `${item.name || "Ammunition"} (${item.unlimited_ammunition || profile.unlimited_ammunition ? "unlimited" : Math.max(0, asInt(item.qty, 0))})`).join(", ")}`)}</span>` : ""}
             ${effectBits.length ? `<em>${esc(effectBits.join(" \xB7 "))}</em>` : ""}
           </span>
         </button>`;
     }).join("")}</div>`}
-      ${looseAmmo.length ? `<div class="attack-ammo-stash"><p class="hint">Loose ammunition</p><div class="attack-card-ammo">${looseAmmo.map(({ profile }) => `<span>${esc(profile.name || profile.ammoInfo?.label || "Ammunition")}</span>`).join("")}</div></div>` : ""}
     </div></article>`;
+    const companionsPane = renderCompanionsPlayPane(character, uiState);
     const effectScopeOptions = [
       ["all_attacks", "All attacks"],
       ["weapon_attacks", "Weapon attacks"],
@@ -7108,7 +7604,7 @@
         ${classActions.reaction.map((row) => `<li><strong>${esc(row.title)}</strong><small>${esc(row.detail)}</small></li>`).join("")}
       </ul></section>` : ""}
     </div></article>`;
-    const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, trackers: trackersPane, log: logPane, notes: notesPane };
+    const paneMap = { spells: spellsPane, bonus: bonusPane, attacks: attacksPane, companions: companionsPane, trackers: trackersPane, log: logPane, notes: notesPane };
     const hpPct = hp.max > 0 ? Math.max(0, Math.min(100, Math.round(hp.current / hp.max * 100))) : 0;
     return `<section class="workspace play-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
     <section class="play-hud card ${uiState.playBoard?.bandCompact ? "is-compact" : ""} ${uiState.playBoard?.hudCollapsed ? "is-collapsed" : ""}">
@@ -7217,13 +7713,9 @@
   }
   function renderAttackDrawer(character, uiState, actions) {
     if (!uiState.attackDrawer?.open) return "";
-    const rows = Array.isArray(character?.attacks) ? character.attacks : [];
-    const attackRow = rows.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
-    if (!attackRow) return "";
-    const catalog2 = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
-    const derived = deriveStats(character);
-    const attack = deriveAttackProfile(attackRow, character, derived, catalog2);
-    const buckets = buildAttackModifierBuckets(character, attack, derived);
+    const context = resolveAttackDrawerOwner(character, uiState, actions);
+    if (!context) return "";
+    const { attack, buckets } = context;
     const selectedMap = uiState.attackDrawer.selected || {};
     const selectedSuggested = buckets.suggested_modifiers.filter((row) => selectedMap[row.id]);
     const selectedOptional = buckets.manual_options.filter((row) => selectedMap[row.id]);
@@ -7231,14 +7723,14 @@
     const persistentEffects = [...buckets.auto_applied_modifiers, ...selectedSuggested];
     const selectedRollMode = uiState.attackDrawer.rollMode || "auto";
     const effectiveMode = selectedRollMode === "auto" ? resolveAdvantageState("normal", [...buckets.auto_applied_modifiers, ...selectedSuggested]) : selectedRollMode;
-    const availableSlots = computeEffectiveSlots(character).levels;
+    const availableSlots = context.ownerType === "character" ? computeEffectiveSlots(character).levels : {};
     const hasSmite = buckets.manual_options.some((row) => row.source_id === "divine_smite");
     const smiteOptions = hasSmite ? Array.from({ length: 9 }, (_, idx) => idx + 1).filter((lvl) => (availableSlots[String(lvl)]?.max || 0) - (availableSlots[String(lvl)]?.used || 0) > 0) : [];
     const lastHit = character?.play_state?.last_attack_roll || null;
     const lastDamage = character?.play_state?.last_attack_damage_roll || null;
     const localResult = uiState.attackDrawer?.lastResult || null;
     const critArmed = Boolean(
-      uiState.attackDrawer.critical || lastHit?.attack_id === attack.id && lastHit?.nat20
+      uiState.attackDrawer.critical || lastHit?.attack_id === attack.id && (lastHit?.owner_type || "character") === context.ownerType && lastHit?.nat20
     );
     const modeReasonRows = persistentEffects.filter((row) => row.advantage_state && row.advantage_state === effectiveMode);
     const modeReason = modeReasonRows.length ? `${titleizeId(effectiveMode)} granted by ${modeReasonRows.map((row) => row.label).join(", ")}.` : "";
@@ -7256,7 +7748,7 @@
         const riderMeta = [
           row.attack_roll_bonus ? `${fmtSigned(row.attack_roll_bonus)} to hit` : "",
           row.damage_bonus ? `${fmtSigned(row.damage_bonus)} damage` : "",
-          row.damage_dice && !norm(row.label).includes(norm(row.damage_dice)) ? row.damage_dice : ""
+          row.damage_dice && !norm2(row.label).includes(norm2(row.damage_dice)) ? row.damage_dice : ""
         ].filter(Boolean).join(" \u2022 ");
         const riderHelp = row.notes ? renderAttackInlineHelp(row.label, [row.notes], "Turn it on only when you are using it for this attack.") : "";
         return `<li class="attack-rider-row ${selectedMap[row.id] ? "is-selected" : ""}">
@@ -7295,6 +7787,11 @@
       fmtSigned(attack.effectiveAttackBonus) + " to hit",
       formatAttackDamageText(attack, { versatile: uiState.attackDrawer.versatile })
     ].filter(Boolean).join(" \u2022 ");
+    const drawerAmmo = context.ownerType === "character" ? linkedAmmunitionItems(attack, character?.inventory) : [];
+    const selectedAmmoId = drawerAmmo.some((item) => item.id === uiState.attackDrawer.ammunitionId) ? uiState.attackDrawer.ammunitionId : drawerAmmo[0]?.id || "";
+    const selectedAmmo = drawerAmmo.find((item) => item.id === selectedAmmoId) || null;
+    const selectedAmmoUnlimited = Boolean(selectedAmmo?.unlimited_ammunition || attack.unlimited_ammunition);
+    const ammoEmpty = Boolean(selectedAmmo && !selectedAmmoUnlimited && Math.max(0, asInt(selectedAmmo.qty, 0)) <= 0);
     const visibleLocalResult = localResult?.attackId === attack.id ? localResult : null;
     const contextSaved = Boolean(uiState.attackDrawer.contextSaved);
     return `<div class="palette-overlay" id="attackDrawerOverlay">
@@ -7302,7 +7799,7 @@
       <button type="button" class="overlay-close" id="attackDrawerClose" data-overlay-close="attack" aria-label="Close attack drawer">\xD7</button>
       <header class="attack-sheet-header">
         <div class="attack-sheet-header-copy">
-          <p class="attack-sheet-kicker">Attack</p>
+          <p class="attack-sheet-kicker">${context.ownerType === "companion" ? esc(context.owner.name) : "Attack"}</p>
           <div class="attack-sheet-title-row">
             <h3>${esc(attack.name)}</h3>
             ${renderAttackSummaryHelp(attack)}
@@ -7311,6 +7808,11 @@
         </div>
       </header>
       <div class="checks-drawer-body">
+        ${context.ownerType === "character" && attackUsesAmmunition(attack) ? `<section class="attack-sheet-ammunition">
+          <div class="attack-sheet-section-head"><div><h4>Ammunition</h4><p class="hint">${selectedAmmoUnlimited ? "The selected ammunition stack is unlimited." : drawerAmmo.length ? "One unit is used when you roll to hit." : "No inventory ammunition is linked to this weapon."}</p></div></div>
+          ${drawerAmmo.length ? `<label>Selected ammunition<select id="attackAmmunitionSelect">${drawerAmmo.map((item) => `<option value="${esc(item.id)}" ${item.id === selectedAmmoId ? "selected" : ""}>${esc(item.name || "Ammunition")} (${item.unlimited_ammunition || attack.unlimited_ammunition ? "unlimited" : `${Math.max(0, asInt(item.qty, 0))} remaining`})</option>`).join("")}</select></label>` : ""}
+          ${ammoEmpty ? `<p class="play-feedback">${esc(selectedAmmo.name || "Ammunition")} is empty. Choose another stack or mark that ammunition as unlimited in Edit mode.</p>` : ""}
+        </section>` : ""}
         <section class="attack-sheet-turnflow">
           <div class="attack-sheet-flow-head">
             <div class="attack-sheet-heading-wrap">
@@ -7390,6 +7892,59 @@
   function cardTitle(label, isEdited) {
     return `${esc(label)}${isEdited ? ` <span class="card-change-badge">Changes not saved</span>` : ""}`;
   }
+  function renderCompanionEditor(character, catalog2, uiState) {
+    const rows = Array.isArray(character?.companions) ? character.companions : [];
+    const templates = Array.isArray(catalog2?.companions) ? catalog2.companions : [];
+    const chosenTemplate = templates.find((row) => row.id === uiState.companionTemplateId) || null;
+    const newOverride = uiState.newCompanionDmOverride === true;
+    const needsSpellLevel = chosenTemplate?.scaling?.type === "spell_slot";
+    const visible = uiState.showArchivedCompanions ? rows : rows.filter((row) => row.status !== "archived");
+    const selected = rows.find((row) => row.id === uiState.selectedCompanionId && (uiState.showArchivedCompanions || row.status !== "archived")) || visible[0] || null;
+    if (selected) uiState.selectedCompanionId = selected.id;
+    const csv = (value) => Array.isArray(value) ? value.join(", ") : "";
+    const simpleRows = (key2, label) => `<section class="companion-subsection"><h3>${label}</h3><button type="button" data-companion-add-row="${key2}">Add</button>
+    ${(selected?.[key2] || []).map((row, idx) => `<div class="companion-repeat-row"><input data-companion-row-field="${key2}:${idx}:name" value="${esc(row.name || "")}" placeholder="Name"/><textarea data-companion-row-field="${key2}:${idx}:description" placeholder="Description">${esc(row.description || "")}</textarea><button type="button" data-companion-del-row="${key2}:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>`;
+    const baseLocked = Boolean(selected?.template_id && !selected?.dm_override);
+    return `<article class="card ${uiState.activeEditTab === "companions" ? "" : "is-hidden"}" id="sec-companions"><h2>${cardTitle("Companions & Summons", uiState.edited?.companions)}</h2><div class="card-body companion-editor">
+    <aside class="companion-list"><section class="companion-template-picker"><h3>Add Companion</h3>
+      <div class="companion-template-control"><span>Rules template</span><button type="button" class="companion-template-toggle" id="companionTemplateToggle" aria-haspopup="listbox" aria-expanded="${uiState.companionTemplateOpen ? "true" : "false"}">${chosenTemplate ? esc(chosenTemplate.name) : newOverride ? "Blank custom companion" : "Choose a companion\u2026"}<span aria-hidden="true">\u2304</span></button>
+      ${uiState.companionTemplateOpen ? `<div class="companion-template-menu" role="listbox" aria-label="Rules companion templates"><input id="companionTemplateSearch" type="search" placeholder="Search companions\u2026" autocomplete="off"/><div class="companion-template-options">${newOverride ? `<button type="button" data-companion-template-id="" data-companion-template-search="blank custom companion">Blank custom companion</button>` : ""}${templates.map((row) => `<button type="button" role="option" aria-selected="${chosenTemplate?.id === row.id ? "true" : "false"}" class="${chosenTemplate?.id === row.id ? "is-selected" : ""}" data-companion-template-id="${esc(row.id)}" data-companion-template-search="${esc(`${row.name} ${(row.tags || []).join(" ")}`.toLowerCase())}">${esc(row.name)}</button>`).join("")}</div><p class="hint companion-template-empty" hidden>No matching companions.</p></div>` : ""}</div>
+      ${needsSpellLevel ? `<label>Spell Slot Level<input id="companionTemplateLevel" type="number" min="${esc(chosenTemplate.scaling?.level_min || 2)}" value="${esc(uiState.companionTemplateLevel || chosenTemplate.scaling?.level_min || 2)}"/></label>` : ""}
+      <label class="check"><input id="companionNewDmOverride" type="checkbox" ${newOverride ? "checked" : ""}/>DM Override</label>
+      <p class="hint">Choose a rules entry for one-click stats. DM Override permits a blank companion or editable template stats.</p>
+      <button type="button" id="companionAdd" ${!chosenTemplate && !newOverride ? "disabled" : ""}>${chosenTemplate ? "Add from Rules" : "Add Custom"}</button>
+    </section><label class="check"><input id="companionShowArchived" type="checkbox" ${uiState.showArchivedCompanions ? "checked" : ""}/>Show archived</label>
+      ${visible.map((row) => `<button type="button" class="companion-list-item ${selected?.id === row.id ? "is-active" : ""}" data-companion-select="${esc(row.id)}"><strong>${esc(row.name || "Unnamed")}</strong><small>${esc(row.role || "companion")} \xB7 ${esc(row.status || "active")}</small></button>`).join("") || `<p class="hint">No companions yet.</p>`}
+    </aside>
+    ${selected ? `<section class="companion-sheet"><div class="inline-actions">${selected.status === "archived" ? `<button type="button" id="companionRestore">Restore</button>` : `<button type="button" id="companionArchive">Archive</button><button type="button" id="companionReplace">Replace</button>`}<button type="button" id="companionDelete">Permanently Delete</button></div>
+      ${selected.template_id ? `<div class="companion-template-status"><div><strong>Rules template</strong><small>Base statistics are ${baseLocked ? "locked" : "editable under DM Override"}.</small></div><label class="check"><input id="companionDmOverride" type="checkbox" ${selected.dm_override ? "checked" : ""}/>DM Override</label></div>` : `<div class="companion-template-status"><div><strong>Custom companion</strong><small>Custom records are always editable under DM Override.</small></div><label class="check"><input type="checkbox" checked disabled/>DM Override</label></div>`}
+      <fieldset class="companion-stat-fields" ${baseLocked ? "disabled" : ""}>
+      <div class="grid2">
+        ${[["name", "Name"], ["role", "Role"], ["creature_type", "Creature Type"], ["size", "Size"], ["alignment", "Alignment"], ["challenge_rating", "Challenge Rating"], ["hit_dice", "Hit Dice"], ["duration", "Duration"], ["replacement.cost", "Replacement Cost"]].map(([path, label]) => `<label>${label}<input data-companion-field="${path}" value="${esc(path.split(".").reduce((value, key2) => value?.[key2], selected) || "")}"/></label>`).join("")}
+        <label>Lifecycle<select data-companion-field="lifecycle"><option value="persistent" ${selected.lifecycle === "persistent" ? "selected" : ""}>Persistent</option><option value="temporary" ${selected.lifecycle === "temporary" ? "selected" : ""}>Temporary</option></select></label>
+        <label>Status<select data-companion-field="status">${["active", "inactive", "archived"].map((value) => `<option value="${value}" ${selected.status === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+        <label>Rounds Remaining<input type="number" min="0" data-companion-nullable-number="rounds_remaining" value="${esc(selected.rounds_remaining ?? "")}"/></label>
+        <label>Replacement Notes<textarea data-companion-field="replacement.notes">${esc(selected.replacement?.notes || "")}</textarea></label>
+      </div>
+      <h3>Combat Statistics</h3><div class="grid2">
+        ${[["ac", "Armor Class"], ["initiative_bonus", "Initiative Bonus"], ["proficiency_bonus", "Proficiency Bonus"], ["hp.current", "HP Current"], ["hp.max", "HP Maximum"], ["hp.temp", "Temporary HP"]].map(([path, label]) => `<label>${label}<input type="number" data-companion-number="${path}" value="${esc(path.split(".").reduce((value, key2) => value?.[key2], selected) ?? 0)}"/></label>`).join("")}
+      </div><div class="six-grid">${ABILITY_KEYS.map((key2) => `<label>${key2.toUpperCase()}<input type="number" min="1" data-companion-number="abilities.${key2}" value="${esc(selected.abilities?.[key2] ?? 10)}"/></label>`).join("")}</div>
+      <h3>Movement & Saves</h3><div class="grid2">
+        ${["walk", "fly", "swim", "climb", "burrow"].map((key2) => `<label>${titleizeId(key2)}<input type="number" min="0" data-companion-number="movement.${key2}" value="${esc(selected.movement?.[key2] ?? 0)}"/></label>`).join("")}
+        <label>Movement Notes<input data-companion-field="movement.notes" value="${esc(selected.movement?.notes || "")}"/></label>
+        ${ABILITY_KEYS.map((key2) => `<label>${key2.toUpperCase()} Save<input type="number" data-companion-nullable-number="saves.${key2}" value="${esc(selected.saves?.[key2] ?? "")}" placeholder="\u2014"/></label>`).join("")}
+      </div>
+      <h3>Details</h3><div class="grid2"><label>Senses<textarea data-companion-field="senses">${esc(selected.senses)}</textarea></label><label>Languages<textarea data-companion-field="languages">${esc(selected.languages)}</textarea></label>
+        ${["vulnerabilities", "resistances", "immunities", "condition_immunities"].map((key2) => `<label>${titleizeId(key2)}<input data-companion-list-field="defenses.${key2}" value="${esc(csv(selected.defenses?.[key2]))}" placeholder="Comma separated"/></label>`).join("")}</div>
+      <section class="companion-subsection"><h3>Skills</h3><button type="button" data-companion-add-row="skills">Add</button>${(selected.skills || []).map((row, idx) => `<div class="companion-repeat-row"><input data-companion-row-field="skills:${idx}:name" value="${esc(row.name)}" placeholder="Skill"/><input type="number" data-companion-row-number="skills:${idx}:bonus" value="${esc(row.bonus)}"/><button type="button" data-companion-del-row="skills:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      <section class="companion-subsection"><h3>Attacks</h3><button type="button" data-companion-add-row="attacks">Add</button>${(selected.attacks || []).map((row, idx) => `<div class="companion-repeat-row companion-attack-row"><input data-companion-row-field="attacks:${idx}:name" value="${esc(row.name)}" placeholder="Name"/><select data-companion-row-field="attacks:${idx}:kind">${["natural_weapon", "melee_weapon", "ranged_weapon", "spell_attack", "custom"].map((value) => `<option value="${value}" ${row.kind === value ? "selected" : ""}>${attackKindLabel(value)}</option>`).join("")}</select><input type="number" data-companion-row-number="attacks:${idx}:atk_bonus_override" value="${esc(row.atk_bonus_override)}" placeholder="To hit"/><input data-companion-row-field="attacks:${idx}:damage" value="${esc(row.damage)}" placeholder="Damage formula"/><input data-companion-row-field="attacks:${idx}:damage_type" value="${esc(row.damage_type)}" placeholder="Damage type"/><input data-companion-row-field="attacks:${idx}:range" value="${esc(row.range)}" placeholder="Range / reach"/><input type="number" min="0" data-companion-row-number="attacks:${idx}:reach" value="${esc(row.reach)}" placeholder="Reach"/><input data-companion-row-list="attacks:${idx}:properties" value="${esc(csv(row.properties))}" placeholder="Properties, comma separated"/><input data-companion-row-list="attacks:${idx}:tags" value="${esc(csv(row.tags))}" placeholder="Tags, comma separated"/><textarea data-companion-row-field="attacks:${idx}:notes" placeholder="Notes">${esc(row.notes)}</textarea><button type="button" data-companion-del-row="attacks:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      ${simpleRows("actions", "Actions")}${simpleRows("bonus_actions", "Bonus Actions")}${simpleRows("reactions", "Reactions")}${simpleRows("traits", "Traits")}
+      <section class="companion-subsection"><h3>Equipment</h3><button type="button" data-companion-add-row="equipment">Add</button>${(selected.equipment || []).map((row, idx) => `<div class="companion-repeat-row"><input data-companion-row-field="equipment:${idx}:name" value="${esc(row.name)}" placeholder="Item"/><input type="number" min="0" data-companion-row-number="equipment:${idx}:quantity" value="${esc(row.quantity)}"/><label class="check"><input type="checkbox" data-companion-row-check="equipment:${idx}:equipped" ${row.equipped ? "checked" : ""}/>Equipped</label><input data-companion-row-field="equipment:${idx}:notes" value="${esc(row.notes)}" placeholder="Notes"/><button type="button" data-companion-del-row="equipment:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      <section class="companion-subsection"><h3>Effects</h3><button type="button" data-companion-add-row="effects">Add</button>${(selected.effects || []).map((row, idx) => `<div class="companion-repeat-row companion-effect-row"><input data-companion-row-field="effects:${idx}:label" value="${esc(row.label)}" placeholder="Effect"/><input data-companion-row-field="effects:${idx}:source" value="${esc(row.source)}" placeholder="Source"/><select data-companion-row-field="effects:${idx}:source_id"><option value="">No linked item</option>${(selected.equipment || []).map((item) => `<option value="${esc(item.id)}" ${row.source_id === item.id ? "selected" : ""}>${esc(item.name || "Unnamed item")}</option>`).join("")}</select><select data-companion-row-field="effects:${idx}:application_mode">${["auto", "suggested", "manual"].map((value) => `<option value="${value}" ${row.application_mode === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select><select data-companion-row-field="effects:${idx}:scope">${["all_attacks", "melee_weapon", "ranged_weapon", "spell_attacks"].map((value) => `<option value="${value}" ${row.scope === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select><label class="check"><input type="checkbox" data-companion-row-check="effects:${idx}:active" ${row.active ? "checked" : ""} ${row.pending ? "disabled" : ""}/>Active</label><label class="check"><input type="checkbox" data-companion-row-check="effects:${idx}:pending" ${row.pending ? "checked" : ""}/>Pending</label><input type="number" data-companion-row-number="effects:${idx}:attack_roll_bonus" value="${esc(row.attack_roll_bonus)}" placeholder="Attack bonus"/><input data-companion-row-field="effects:${idx}:attack_roll_dice" value="${esc(row.attack_roll_dice)}" placeholder="Attack dice"/><select data-companion-row-field="effects:${idx}:advantage_state">${["none", "advantage", "disadvantage"].map((value) => `<option value="${value}" ${row.advantage_state === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select><input type="number" data-companion-row-number="effects:${idx}:damage_bonus" value="${esc(row.damage_bonus)}" placeholder="Damage bonus"/><input data-companion-row-field="effects:${idx}:damage_dice" value="${esc(row.damage_dice)}" placeholder="Damage dice"/><input data-companion-row-field="effects:${idx}:damage_type_add" value="${esc(row.damage_type_add)}" placeholder="Extra damage type"/><textarea data-companion-row-field="effects:${idx}:notes" placeholder="Notes">${esc(row.notes)}</textarea><button type="button" data-companion-del-row="effects:${idx}">Delete</button></div>`).join("") || `<p class="hint">None recorded.</p>`}</section>
+      <label>Notes<textarea rows="6" data-companion-field="notes">${esc(selected.notes)}</textarea></label></fieldset>
+    </section>` : `<section><p class="hint">Add a companion to begin.</p></section>`}
+  </div></article>`;
+  }
   function renderEditMode(character, catalog2, lookupState, edited = {}, uiState = {}) {
     const classes = Array.isArray(character?.core?.classes) ? character.core.classes : [];
     const inventory = Array.isArray(character?.inventory) ? character.inventory : [];
@@ -7401,6 +7956,9 @@
     const skills = character?.skills || {};
     const savingThrows = character?.saving_throws || {};
     const attacks = Array.isArray(character?.attacks) ? character.attacks : [];
+    const featureTemplates = Array.isArray(catalog2?.features) ? catalog2.features : [];
+    const storedFeatures = Array.isArray(character?.features) ? character.features : [];
+    const characterFeatures = resolveCharacterFeatures(character, featureTemplates, null, { includeDisabled: true });
     const derived = deriveStats(character);
     const spellcasting = character?.spellcasting || {};
     const portrait = getEffectivePortrait(character);
@@ -7408,12 +7966,13 @@
     const activeTab = uiState.activeEditTab || "core";
     const activeSections = new Set(tabSections(activeTab));
     const collapsed = uiState.collapsedSectionsByTab?.[activeTab] || {};
-    const sectionClass = (id) => `${activeSections.has(id) ? "" : "is-hidden"} ${collapsed[id] ? "is-collapsed" : ""}`.trim();
+    const sectionClass = (id2) => `${activeSections.has(id2) ? "" : "is-hidden"} ${collapsed[id2] ? "is-collapsed" : ""}`.trim();
     const summaryByTab = {
       core: `Level ${derived.level} \xB7 ${esc(character?.core?.speciesId || "species")} \xB7 ${esc(classes[0]?.id || "class")}`,
       battle: `AC ${esc(character?.combat?.ac ?? 10)} \xB7 HP ${esc(character?.combat?.hp?.current ?? 0)}/${esc(character?.combat?.hp?.max ?? 0)} \xB7 Prof ${esc(fmtSigned(derived.proficiency.value))}`,
       spellcraft: `Save DC ${esc(derived.spellcasting.spellSaveDc)} \xB7 Spell Attack ${esc(fmtSigned(derived.spellcasting.spellAttackBonus))}`,
       gear: `${esc(inventory.length)} items \xB7 ${esc(trackers.length)} trackers`,
+      companions: `${esc(Array.isArray(character?.companions) ? character.companions.filter((row) => row.status !== "archived").length : 0)} companions`,
       chronicle: `${esc(character?.meta?.name || "Adventurer")} \xB7 Chronicle entries ready`
     };
     return `<section class="workspace edit-workspace ${uiState.densityMode === "compact" ? "density-compact" : ""}">
@@ -7431,6 +7990,7 @@
       </div>
     </aside>
     <section class="edit-content edit-stack">
+    ${renderCompanionEditor(character, catalog2, uiState)}
     <article class="card ${sectionClass("sec-core")}" id="sec-core"><h2>${cardTitle("Core", edited.core)} <button type="button" class="card-toggle" data-toggle-sec="sec-core">${collapsed["sec-core"] ? "Expand" : "Collapse"}</button></h2><div class="card-body grid2">
       <label>Name<input id="charName" value="${esc(character?.meta?.name || "")}" /></label>
       <label>Ruleset<input id="charRuleset" value="${esc(character?.meta?.ruleset_id || "")}" /></label>
@@ -7510,7 +8070,7 @@
         <label>Spellcasting Class
           <select id="spellcastingClassId">
             <option value="">Auto (Primary class)</option>
-            ${classes.map((row) => `<option value="${esc(row.id || "")}" ${norm(row.id) === derived.spellcasting.classId ? "selected" : ""}>${esc(row.id || "class")}</option>`).join("")}
+            ${classes.map((row) => `<option value="${esc(row.id || "")}" ${norm2(row.id) === derived.spellcasting.classId ? "selected" : ""}>${esc(row.id || "class")}</option>`).join("")}
           </select>
         </label>
         <label>Spellcasting Ability
@@ -7543,16 +8103,16 @@
       </div>
       <h3>Talents</h3>
       <div class="stack">
-        ${SKILL_DEFS.map(([id, ability]) => {
-      const row = skills?.[id] || {};
+        ${SKILL_DEFS.map(([id2, ability]) => {
+      const row = skills?.[id2] || {};
       return `<div class="skill-row">
-            <strong>${esc(id.replaceAll("_", " "))} (${esc(ability.toUpperCase())})</strong>
-            <label class="check"><input type="checkbox" data-skill-prof="${esc(id)}" ${row.proficient ? "checked" : ""}/>Prof</label>
-            <label class="check"><input type="checkbox" data-skill-exp="${esc(id)}" ${row.expertise ? "checked" : ""}/>Expertise</label>
-            <label class="check"><input type="checkbox" data-skill-mode="${esc(id)}" ${(row.bonus_mode || "auto") === "manual" ? "checked" : ""}/>Manual total</label>
-            <input type="number" data-skill-bonus="${esc(id)}" value="${esc(row.bonus ?? 0)}" placeholder="bonus" />
-            <input type="number" data-skill-manual="${esc(id)}" value="${esc(row.manual_total ?? derived.skills[id].base)}" placeholder="manual total" />
-            <span class="derived-chip">${esc(fmtSigned(derived.skills[id].total))}</span>
+            <strong>${esc(id2.replaceAll("_", " "))} (${esc(ability.toUpperCase())})</strong>
+            <label class="check"><input type="checkbox" data-skill-prof="${esc(id2)}" ${row.proficient ? "checked" : ""}/>Prof</label>
+            <label class="check"><input type="checkbox" data-skill-exp="${esc(id2)}" ${row.expertise ? "checked" : ""}/>Expertise</label>
+            <label class="check"><input type="checkbox" data-skill-mode="${esc(id2)}" ${(row.bonus_mode || "auto") === "manual" ? "checked" : ""}/>Manual total</label>
+            <input type="number" data-skill-bonus="${esc(id2)}" value="${esc(row.bonus ?? 0)}" placeholder="bonus" />
+            <input type="number" data-skill-manual="${esc(id2)}" value="${esc(row.manual_total ?? derived.skills[id2].base)}" placeholder="manual total" />
+            <span class="derived-chip">${esc(fmtSigned(derived.skills[id2].total))}</span>
           </div>`;
     }).join("")}
       </div>
@@ -7561,6 +8121,10 @@
       <div class="stack">
         ${attacks.length === 0 ? `<p class="hint">No attacks</p>` : attacks.map((raw, idx) => {
       const a = normalizeAttackForUi(raw);
+      const compatibleAmmo = compatibleAmmunitionItems(a, inventory);
+      const linkedIds = a.ammunition_links.filter((id2) => inventory.some((item) => item.id === id2));
+      const ammoSelectors = attackUsesAmmunition(a) ? [...linkedIds, ""] : [];
+      const defaultNewAmmoType = a.ammunition_type || inferWeaponAmmunitionType(a) || "custom";
       return `<div class="attack-edit-card">
           <div class="attack-edit-head">
             <strong>${esc(a.name || `Attack ${idx + 1}`)}</strong>
@@ -7568,32 +8132,84 @@
             <button type="button" data-attack-del="${idx}">Delete</button>
           </div>
           <div class="attack-edit-grid">
-            <input data-attack-name="${idx}" value="${esc(a.name || "")}" placeholder="Name" />
-            <select data-attack-kind="${idx}">
+            <label><span>Name</span><input data-attack-name="${idx}" value="${esc(a.name || "")}" /></label>
+            <label><span>Attack type</span><select data-attack-kind="${idx}">
               ${["melee_weapon", "ranged_weapon", "spell_attack", "natural_weapon", "custom"].map((kind) => `<option value="${kind}" ${a.kind === kind ? "selected" : ""}>${esc(attackKindLabel(kind))}</option>`).join("")}
-            </select>
-            <select data-attack-ability="${idx}">
+            </select></label>
+            <label><span>Attack ability</span><select data-attack-ability="${idx}">
               ${["auto", "str", "dex", "spell", "custom"].map((mode) => `<option value="${mode}" ${a.attack_ability === mode ? "selected" : ""}>${esc(mode === "auto" ? "Auto Ability" : mode === "spell" ? "Spellcasting Ability" : mode === "custom" ? "Manual Ability" : mode.toUpperCase())}</option>`).join("")}
-            </select>
-            <label class="check"><input type="checkbox" data-attack-prof="${idx}" ${a.proficient ? "checked" : ""}/>Proficient</label>
-            <label class="check"><input type="checkbox" data-attack-atkmode="${idx}" ${a.atk_bonus_mode === "manual" ? "checked" : ""}/>Manual to-hit</label>
-            <input data-attack-bonus="${idx}" type="number" value="${esc(a.atk_bonus_override ?? a.atk_bonus ?? 0)}" placeholder="To-hit bonus" />
-            <label class="check"><input type="checkbox" data-attack-dmgmode="${idx}" ${a.damage_mode === "manual" ? "checked" : ""}/>Manual damage</label>
-            <input data-attack-damage="${idx}" value="${esc(a.damage || "")}" placeholder="Damage dice" />
-            <input data-attack-damagetype="${idx}" value="${esc(a.damage_type || "")}" placeholder="Damage type" />
-            <input data-attack-versatile="${idx}" value="${esc(a.versatile_damage || "")}" placeholder="Versatile damage" />
-            <input data-attack-range="${idx}" value="${esc(a.range || "")}" placeholder="Range / reach text" />
-            <input data-attack-range-short="${idx}" type="number" min="0" value="${esc(a.range_short ?? 0)}" placeholder="Short" />
-            <input data-attack-range-long="${idx}" type="number" min="0" value="${esc(a.range_long ?? 0)}" placeholder="Long" />
-            <input data-attack-reach="${idx}" type="number" min="0" value="${esc(a.reach ?? 5)}" placeholder="Reach" />
-            <input data-attack-magic="${idx}" type="number" value="${esc(a.magic_bonus ?? 0)}" placeholder="Magic bonus" />
-            <input data-attack-properties="${idx}" value="${esc((a.properties || []).join(", "))}" placeholder="Properties (comma separated)" />
-            <input data-attack-tags="${idx}" value="${esc((a.tags || []).join(", "))}" placeholder="Tags (e.g. sharpshooter, great_weapon_master)" />
-            <input data-attack-notes="${idx}" value="${esc(a.notes || "")}" placeholder="Notes" />
+            </select></label>
+            <label class="check attack-check-field"><input type="checkbox" data-attack-prof="${idx}" ${a.proficient ? "checked" : ""}/><span>Proficient</span></label>
+            <label class="check attack-check-field"><input type="checkbox" data-attack-atkmode="${idx}" ${a.atk_bonus_mode === "manual" ? "checked" : ""}/><span>Use manual to-hit</span></label>
+            <label><span>To-hit override</span><input data-attack-bonus="${idx}" type="number" value="${esc(a.atk_bonus_override ?? a.atk_bonus ?? 0)}" /></label>
+            <label class="check attack-check-field"><input type="checkbox" data-attack-dmgmode="${idx}" ${a.damage_mode === "manual" ? "checked" : ""}/><span>Use manual damage</span></label>
+            <label><span>Damage dice</span><input data-attack-damage="${idx}" value="${esc(a.damage || "")}" placeholder="e.g. 1d8" /></label>
+            <label><span>Damage type</span><input data-attack-damagetype="${idx}" value="${esc(a.damage_type || "")}" placeholder="e.g. slashing" /></label>
+            <label><span>Versatile damage dice</span><input data-attack-versatile="${idx}" value="${esc(a.versatile_damage || "")}" placeholder="e.g. 1d10" /></label>
+            <label><span>Range / reach description</span><input data-attack-range="${idx}" value="${esc(a.range || "")}" placeholder="e.g. 20/60 ft." /></label>
+            <label><span>Normal range (ft.)</span><input data-attack-range-short="${idx}" type="number" min="0" value="${esc(a.range_short ?? 0)}" /></label>
+            <label><span>Long range (ft.)</span><input data-attack-range-long="${idx}" type="number" min="0" value="${esc(a.range_long ?? 0)}" /></label>
+            <label><span>Melee reach (ft.)</span><input data-attack-reach="${idx}" type="number" min="0" value="${esc(a.reach ?? 5)}" /></label>
+            <label><span>Magic bonus</span><input data-attack-magic="${idx}" type="number" value="${esc(a.magic_bonus ?? 0)}" /></label>
+            <label><span>Properties</span><input data-attack-properties="${idx}" value="${esc((a.properties || []).join(", "))}" placeholder="Comma separated" /></label>
+            <label><span>Effect tags</span><input data-attack-tags="${idx}" value="${esc((a.tags || []).join(", "))}" placeholder="e.g. sharpshooter" /></label>
+            <label class="attack-field-wide"><span>Notes</span><input data-attack-notes="${idx}" value="${esc(a.notes || "")}" /></label>
           </div>
+          ${attackUsesAmmunition(a) ? `<div class="attack-ammunition-editor">
+            <div class="attack-ammunition-heading"><strong>Ammunition</strong><span>Link one or more inventory stacks.</span></div>
+            <div class="attack-ammunition-controls">
+              <label>Ammo kind<select data-attack-ammo-type="${idx}">${ammunitionTypeOptions(a.ammunition_type, `Automatic (${inferWeaponAmmunitionType(a) || "any ammunition"})`)}</select></label>
+            </div>
+            <div class="attack-ammunition-links">${ammoSelectors.map((selectedId, linkIndex) => {
+        const selectedItem = inventory.find((item) => item.id === selectedId);
+        const choices = [...compatibleAmmo, ...selectedItem ? [selectedItem] : []].filter((item, choiceIndex, rows) => rows.findIndex((row) => row.id === item.id) === choiceIndex).filter((item) => item.id === selectedId || !linkedIds.includes(item.id));
+        const blankLabel = compatibleAmmo.length ? "Choose ammunition\u2026" : "No ammunition yet \u2014 create some below";
+        return `<div class="attack-ammunition-link-row">
+                <label>Ammunition ${linkIndex + 1}<select data-attack-ammo-link="${idx}:${linkIndex}"><option value="">${selectedId ? "Remove link" : blankLabel}</option>${choices.map((item) => `<option value="${esc(item.id)}" ${item.id === selectedId ? "selected" : ""}>${esc(item.name || "Ammunition")} (${item.unlimited_ammunition ? "unlimited" : Math.max(0, asInt(item.qty, 0))})</option>`).join("")}</select></label>
+                ${selectedItem ? `<label>Quantity<input type="number" min="0" data-attack-ammo-qty="${esc(selectedItem.id)}" value="${Math.max(0, asInt(selectedItem.qty, 0))}" ${selectedItem.unlimited_ammunition ? "disabled" : ""}/></label><label class="check"><input type="checkbox" data-attack-ammo-item-unlimited="${esc(selectedItem.id)}" ${selectedItem.unlimited_ammunition ? "checked" : ""}/>Unlimited</label>` : ""}
+              </div>`;
+      }).join("")}</div>
+            <div class="attack-ammunition-create">
+              <strong>Create &amp; link ammunition</strong>
+              <label><span>Name</span><input data-attack-new-ammo-name="${idx}" placeholder="e.g. Silvered Bolts" /></label>
+              <label><span>Quantity</span><input data-attack-new-ammo-qty="${idx}" type="number" min="0" value="1" /></label>
+              <label><span>Type</span><select data-attack-new-ammo-type="${idx}">${ammunitionTypeOptions(defaultNewAmmoType, "Automatic")}</select></label>
+              <label class="check"><input type="checkbox" data-attack-new-ammo-unlimited="${idx}"/>Unlimited</label>
+              <button type="button" data-attack-new-ammo-add="${idx}">Add &amp; Link</button>
+            </div>
+          </div>` : ""}
         </div>`;
     }).join("")}
       </div>
+      <h3>Character Features</h3>
+      <p class="hint">Book templates supply the mechanics. Eligibility is advisory; DM Override unlocks every value.</p>
+      <div class="inline-actions feature-add-row">
+        <select id="featureTemplateSelect"><option value="">Choose PHB feature\u2026</option>${featureTemplates.map((row) => `<option value="${esc(row.id)}">${esc(row.name)}</option>`).join("")}</select>
+        <button type="button" id="featureAddTemplate">Add from Rules</button>
+        <button type="button" id="featureAddCustom">Add Custom Feature</button>
+      </div>
+      <div class="character-feature-list">${characterFeatures.length ? characterFeatures.map((feature) => {
+      const key2 = feature.template_id || feature.id;
+      const template = feature.template_id ? featureTemplates.find((row) => row.id === feature.template_id) : null;
+      const stored = storedFeatures.find((row) => row.id === feature.id || feature.template_id && row.template_id === feature.template_id);
+      const locked = Boolean(feature.template_id && !feature.dm_override);
+      return `<section class="character-feature-card">
+          <header><div><strong>${esc(feature.name)}</strong><small>${esc([feature.source || "Custom", feature.class_id ? `${titleizeId(feature.class_id)} ${feature.min_level}+` : ""].filter(Boolean).join(" \xB7 "))}</small></div><div class="inline-actions"><label class="check"><input type="checkbox" data-feature-enabled="${esc(key2)}" ${feature.enabled ? "checked" : ""}/>Enabled</label><label class="check"><input type="checkbox" data-feature-override="${esc(key2)}" ${feature.dm_override ? "checked" : ""}/>DM Override</label><button type="button" data-feature-delete="${esc(key2)}">${template?.auto_grant ? "Reset" : "Delete"}</button></div></header>
+          <fieldset ${locked ? "disabled" : ""}><div class="character-feature-grid">
+            <label>Name<input data-feature-field="${esc(key2)}:name" value="${esc(feature.name)}"/></label>
+            <label>Application<select data-feature-field="${esc(key2)}:application_mode">${["auto", "suggested", "manual"].map((value) => `<option value="${value}" ${feature.application_mode === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+            <label>Attack scope<select data-feature-field="${esc(key2)}:scope">${["all_attacks", "weapon_attacks", "melee_weapon", "ranged_weapon", "spell_attacks"].map((value) => `<option value="${value}" ${feature.scope === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+            <label>Roll state<select data-feature-field="${esc(key2)}:advantage_state">${["none", "advantage", "disadvantage"].map((value) => `<option value="${value}" ${feature.advantage_state === value ? "selected" : ""}>${titleizeId(value)}</option>`).join("")}</select></label>
+            <label>To-hit bonus<input type="number" data-feature-number="${esc(key2)}:attack_roll_bonus" value="${esc(feature.attack_roll_bonus)}"/></label>
+            <label>To-hit dice<input data-feature-field="${esc(key2)}:attack_roll_dice" value="${esc(feature.attack_roll_dice)}" placeholder="e.g. 1d4"/></label>
+            <label>Damage bonus<input type="number" data-feature-number="${esc(key2)}:damage_bonus" value="${esc(feature.damage_bonus)}"/></label>
+            <label>Damage dice<input data-feature-field="${esc(key2)}:damage_dice" value="${esc(feature.damage_dice)}" placeholder="e.g. 3d6"/></label>
+            <label>Additional damage type<input data-feature-field="${esc(key2)}:damage_type_add" value="${esc(feature.damage_type_add)}"/></label>
+            <label>Critical-only dice<input data-feature-field="${esc(key2)}:crit_extra_dice" value="${esc(feature.crit_extra_dice)}"/></label>
+            <label class="feature-notes">Notes<textarea data-feature-field="${esc(key2)}:notes">${esc(feature.notes)}</textarea></label>
+          </div></fieldset>
+        </section>`;
+    }).join("") : `<p class="hint">No attack features are active for this character.</p>`}</div>
     </div></article>
 
     <article class="card ${sectionClass("sec-spells")}" id="sec-spells"><h2>${cardTitle("Spells", edited.spells)} <button type="button" class="card-toggle" data-toggle-sec="sec-spells">${collapsed["sec-spells"] ? "Expand" : "Collapse"}</button></h2><div class="card-body stack">
@@ -7611,7 +8227,10 @@
       <button type="button" id="invAdd">Add Item</button>
       ${inventory.length === 0 ? `<p class="hint">No inventory items</p>` : inventory.map((r, idx) => `<div class="inv-row">
         <input data-inv-name="${idx}" value="${esc(r.name || "")}" placeholder="Item" />
-        <input data-inv-qty="${idx}" type="number" min="0" value="${esc(r.qty ?? 1)}" />
+        <input data-inv-qty="${idx}" type="number" min="0" value="${esc(r.qty ?? 1)}" ${r.unlimited_ammunition ? "disabled" : ""}/>
+        <select data-inv-item-type="${idx}" title="Item category"><option value="item" ${r.item_type !== "ammunition" ? "selected" : ""}>Item</option><option value="ammunition" ${r.item_type === "ammunition" ? "selected" : ""}>Ammunition</option></select>
+        ${r.item_type === "ammunition" ? `<select data-inv-ammo-type="${idx}" title="Ammunition kind">${ammunitionTypeOptions(normalizeAmmunitionType(r.ammunition_type), inferInventoryAmmunitionType(r) && inferInventoryAmmunitionType(r) !== "custom" ? `Automatic (${AMMUNITION_TYPE_OPTIONS.find(([value]) => value === inferInventoryAmmunitionType(r))?.[1] || inferInventoryAmmunitionType(r)})` : "Automatic / custom")}</select>` : `<span class="inv-ammo-placeholder">\u2014</span>`}
+        ${r.item_type === "ammunition" ? `<label class="check inv-ammo-unlimited"><input type="checkbox" data-inv-ammo-unlimited="${idx}" ${r.unlimited_ammunition ? "checked" : ""}/>Unlimited</label>` : `<span></span>`}
         <input data-inv-notes="${idx}" value="${esc(r.notes || "")}" placeholder="Notes" />
         <button type="button" data-inv-del="${idx}">Delete</button>
       </div>`).join("")}
@@ -7681,10 +8300,17 @@
       helpOpen: false,
       helpSectionId: HELP_SECTIONS[0]?.id || "help-start",
       helpValidationErrors: [],
-      edited: { core: false, classes: false, combat: false, spells: false, inventory: false, trackers: false },
+      edited: { core: false, classes: false, combat: false, spells: false, inventory: false, trackers: false, companions: false },
       densityMode: localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable",
       activeEditTab: localStorage.getItem(EDIT_TAB_KEY) || "core",
       activePlayPane: readInitialPlayPane(),
+      selectedCompanionId: "",
+      selectedPlayCompanionId: "",
+      showArchivedCompanions: false,
+      companionTemplateId: "",
+      companionTemplateLevel: 2,
+      newCompanionDmOverride: false,
+      companionTemplateOpen: false,
       playBoard: (() => {
         try {
           const raw = JSON.parse(localStorage.getItem(PLAY_BOARD_KEY) || "{}");
@@ -7703,7 +8329,7 @@
       lastCastLevel: 0,
       lastAction: "",
       checksDrawerOpen: false,
-      attackDrawer: { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false },
+      attackDrawer: { open: false, attackId: "", ownerType: "character", ownerId: "", ammunitionId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false },
       conditionEditor: { open: false, index: -1, model: { name: "", source: "", duration: "", rounds_remaining: "", notes: "", active: true } },
       diceTray: { open: false, die: 20, count: 1, mod: 0, rolling: false },
       portraitCrop: { open: false, src: "", zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
@@ -7720,7 +8346,7 @@
       lookup: { open: false, type: "spell", query: "", level: "", allowOffClassSpells: false, selected: 0, results: [], feedback: "", originSectionId: "", originScrollY: 0, cursor: 0 }
     };
     let helpController = null;
-    const sectionIds = ["sec-core", "sec-classes", "sec-combat", "sec-profile", "sec-mechanics", "sec-spells", "sec-inventory", "sec-trackers"];
+    const sectionIds = ["sec-core", "sec-classes", "sec-combat", "sec-profile", "sec-mechanics", "sec-spells", "sec-inventory", "sec-trackers", "sec-companions"];
     function captureFocusState() {
       const active = document.activeElement;
       if (!active || !root2.contains(active) || !isTypingTarget(active)) return null;
@@ -7764,8 +8390,8 @@
     function sameAppearance(a, b) {
       const left = sanitizeAppearance(a || {});
       const right = sanitizeAppearance(b || {});
-      for (const [key] of APPEARANCE_FIELDS) {
-        if (left[key] !== right[key]) return false;
+      for (const [key2] of APPEARANCE_FIELDS) {
+        if (left[key2] !== right[key2]) return false;
       }
       return left.surfaceAlpha === right.surfaceAlpha && left.shadowOpacity === right.shadowOpacity && left.shadowBlur === right.shadowBlur;
     }
@@ -7773,7 +8399,7 @@
       if (!character) return;
       const finalAppearance = sanitizeAppearance(appearance);
       const currentAppearance = readCharacterAppearance(character);
-      const currentMode = norm(character?.ui?.appearance_mode || "");
+      const currentMode = norm2(character?.ui?.appearance_mode || "");
       if (sameAppearance(currentAppearance, finalAppearance) && currentMode === mode) return;
       actions.updateCharacter((c) => {
         c.ui = c.ui || {};
@@ -7782,7 +8408,7 @@
       });
     }
     function resolveAppearance(character) {
-      const appearanceMode = norm(character?.ui?.appearance_mode || "");
+      const appearanceMode = norm2(character?.ui?.appearance_mode || "");
       const charTheme = readCharacterAppearance(character);
       if (charTheme && appearanceMode === "user") {
         uiState.appearanceSource = "user";
@@ -7891,12 +8517,12 @@
     }
     function classIdsFromCharacter(character) {
       const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
-      return rows.map((x) => norm(x.id)).filter(Boolean);
+      return rows.map((x) => norm2(x.id)).filter(Boolean);
     }
     function primaryClassId(character) {
       const rows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
       const primary = rows.find((x) => x?.isPrimary) || rows[0];
-      return norm(primary?.id);
+      return norm2(primary?.id);
     }
     function refreshLookup() {
       if (!uiState.lookup.open || typeof actions.lookupProvider !== "function") return;
@@ -7907,7 +8533,7 @@
         filters: {
           level: uiState.lookup.level,
           classIds: classIdsFromCharacter(state.character),
-          subclassIds: (Array.isArray(state.character?.core?.classes) ? state.character.core.classes : []).map((x) => norm(x?.subclassId)).filter(Boolean),
+          subclassIds: (Array.isArray(state.character?.core?.classes) ? state.character.core.classes : []).map((x) => norm2(x?.subclassId)).filter(Boolean),
           classId: primaryClassId(state.character),
           allowOffClassSpells: Boolean(uiState.lookup.allowOffClassSpells),
           policyMode: uiState.policyMode
@@ -7929,26 +8555,47 @@
       localStorage.setItem(DENSITY_KEY, uiState.densityMode);
     }
     function setActiveEditTab(tabId) {
-      const id = EDIT_TABS.some((t) => t.id === tabId) ? tabId : "core";
-      uiState.activeEditTab = id;
-      localStorage.setItem(EDIT_TAB_KEY, id);
-      if (!uiState.collapsedSectionsByTab[id]) uiState.collapsedSectionsByTab[id] = {};
+      const id2 = EDIT_TABS.some((t) => t.id === tabId) ? tabId : "core";
+      uiState.activeEditTab = id2;
+      localStorage.setItem(EDIT_TAB_KEY, id2);
+      if (!uiState.collapsedSectionsByTab[id2]) uiState.collapsedSectionsByTab[id2] = {};
     }
     function setActivePlayPane(paneId) {
-      const id = PLAY_PANES.some((p) => p.id === paneId) ? paneId : "spells";
-      uiState.activePlayPane = id;
-      uiState.playBoard.activeModule = id;
-      localStorage.setItem(PLAY_PANE_KEY, id);
+      const id2 = PLAY_PANES.some((p) => p.id === paneId) ? paneId : "spells";
+      uiState.activePlayPane = id2;
+      uiState.playBoard.activeModule = id2;
+      localStorage.setItem(PLAY_PANE_KEY, id2);
       try {
-        sessionStorage.setItem(PLAY_PANE_KEY, id);
+        sessionStorage.setItem(PLAY_PANE_KEY, id2);
       } catch {
       }
       localStorage.setItem(PLAY_BOARD_KEY, JSON.stringify(uiState.playBoard));
     }
+    function setNestedValue(target, path, value) {
+      const keys = (path || "").split(".").filter(Boolean);
+      if (!keys.length) return;
+      let cursor = target;
+      keys.slice(0, -1).forEach((key2) => {
+        if (!cursor[key2] || typeof cursor[key2] !== "object") cursor[key2] = {};
+        cursor = cursor[key2];
+      });
+      cursor[keys.at(-1)] = value;
+    }
+    function updateSelectedCompanion(mutator, { play = false } = {}) {
+      const selectedId = play ? uiState.selectedPlayCompanionId : uiState.selectedCompanionId;
+      actions.updateCharacter((character) => {
+        character.companions = Array.isArray(character.companions) ? character.companions : [];
+        const row = character.companions.find((companion) => companion.id === selectedId);
+        if (row) {
+          mutator(row, character);
+          row.modified_utc = (/* @__PURE__ */ new Date()).toISOString();
+        }
+      });
+    }
     function scrollHelpContentToSection(sectionId, behavior = "smooth") {
-      const id = helpController?.openHelp(sectionId) || HELP_SECTIONS[0]?.id || "help-start";
+      const id2 = helpController?.openHelp(sectionId) || HELP_SECTIONS[0]?.id || "help-start";
       const body = root2.querySelector(".help-body");
-      const target = id ? root2.querySelector(`#${CSS.escape(id)}`) : null;
+      const target = id2 ? root2.querySelector(`#${CSS.escape(id2)}`) : null;
       if (!body || !target) return;
       body.scrollTo({ top: Math.max(0, target.offsetTop - 12), behavior });
     }
@@ -8047,6 +8694,15 @@
           const next = Math.max(0, rounds - roundsToAdvance);
           return { ...row, rounds_remaining: next, active: next > 0 };
         });
+        c.companions = Array.isArray(c.companions) ? c.companions : [];
+        c.companions = c.companions.map((row) => {
+          if (!row || row.status !== "active" || row.lifecycle !== "temporary") return row;
+          const rounds = asInt(row.rounds_remaining, NaN);
+          if (!Number.isFinite(rounds) || rounds <= 0) return row;
+          changed = true;
+          const next = Math.max(0, rounds - roundsToAdvance);
+          return { ...row, rounds_remaining: next, status: next > 0 ? "active" : "inactive" };
+        });
       });
       const stateAfter = getState();
       const activeConcentration = Boolean(stateAfter?.character?.combat?.concentration?.active);
@@ -8076,16 +8732,17 @@
       uiState.checksDrawerOpen = false;
       render();
     }
-    function openAttackDrawer(attackId) {
+    function openAttackDrawer(attackId, ownerType = "character", ownerId = "") {
       const state = getState();
-      const rows = Array.isArray(state.character?.attacks) ? state.character.attacks : [];
-      const row = rows.find((x) => norm(x?.id) === norm(attackId));
+      const companion = ownerType === "companion" ? (state.character?.companions || []).find((row2) => row2.id === ownerId) : null;
+      const rows = ownerType === "companion" ? companion?.attacks || [] : Array.isArray(state.character?.attacks) ? state.character.attacks : [];
+      const row = rows.find((x) => norm2(x?.id) === norm2(attackId));
       if (!row) return;
       const attack = normalizeAttackForUi(row);
-      const catalog2 = actions?.getCatalog ? actions.getCatalog() : { attacks: [] };
-      const derived = deriveStats(state.character || {});
-      const profile = deriveAttackProfile(row, state.character || {}, derived, catalog2);
-      const buckets = buildAttackModifierBuckets(state.character || {}, profile, derived);
+      const contextState = { attackDrawer: { attackId: attack.id, ownerType, ownerId } };
+      const context = resolveAttackDrawerOwner(state.character || {}, contextState, actions);
+      if (!context) return;
+      const buckets = context.buckets;
       const defaultSelected = {};
       buckets.suggested_modifiers.forEach((mod) => {
         if (mod.advantage_state && mod.advantage_state !== "none") defaultSelected[mod.id] = true;
@@ -8093,6 +8750,9 @@
       uiState.attackDrawer = {
         open: true,
         attackId: attack.id,
+        ownerType,
+        ownerId,
+        ammunitionId: ownerType === "character" ? attack.selected_ammunition_id || attack.ammunition_links?.[0] || "" : "",
         rollMode: "auto",
         selected: defaultSelected,
         critical: false,
@@ -8108,7 +8768,7 @@
       render();
     }
     function closeAttackDrawer() {
-      uiState.attackDrawer = { open: false, attackId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", lastResult: null, awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false };
+      uiState.attackDrawer = { open: false, attackId: "", ownerType: "character", ownerId: "", ammunitionId: "", rollMode: "auto", selected: {}, critical: false, versatile: false, smiteLevel: 1, targetNote: "", lastResult: null, awaitingDamage: false, contextOpen: false, contextDraft: "", contextSaved: false };
       render();
     }
     function buildDicePayload(die, count, mod) {
@@ -8143,7 +8803,7 @@
       const mod = clamp(asInt(uiState.diceTray.mod, 0), -99, 99);
       applyDicePayload(buildDicePayload(die, count, mod));
     }
-    function applyCheckRollResult(payload, type, id, label, mod) {
+    function applyCheckRollResult(payload, type, id2, label, mod) {
       const d20 = payload.rolls?.[0] ?? payload.total;
       const nat1 = d20 === 1;
       const nat20 = d20 === 20;
@@ -8151,7 +8811,7 @@
         c.play_state = c.play_state || {};
         c.play_state.last_check_roll = {
           type,
-          id,
+          id: id2,
           label,
           mod,
           d20,
@@ -8170,9 +8830,9 @@
       });
       recordPlayAction(`${label}: d20(${d20}) ${mod >= 0 ? "+" : "-"} ${Math.abs(mod)} = ${payload.total}${nat20 ? " (nat 20)" : nat1 ? " (nat 1)" : ""}`);
     }
-    function performModifierRoll(type, id, label, mod = 0) {
+    function performModifierRoll(type, id2, label, mod = 0) {
       const payload = buildDicePayload(20, 1, clamp(asInt(mod, 0), -99, 99));
-      applyCheckRollResult(payload, type, id, label, mod);
+      applyCheckRollResult(payload, type, id2, label, mod);
     }
     function performInitiativeRoll() {
       const state = getState();
@@ -8203,20 +8863,16 @@
     function getOpenAttackContext() {
       const state = getState();
       const character = state.character || {};
-      const rows = Array.isArray(character.attacks) ? character.attacks : [];
-      const attackRow = rows.find((row) => norm(row?.id) === norm(uiState.attackDrawer.attackId));
-      if (!attackRow) return null;
-      const catalog2 = actions.getCatalog ? actions.getCatalog() : { attacks: [] };
-      const derived = deriveStats(character);
-      const attack = deriveAttackProfile(attackRow, character, derived, catalog2);
-      const buckets = buildAttackModifierBuckets(character, attack, derived);
+      const ownerContext = resolveAttackDrawerOwner(character, uiState, actions);
+      if (!ownerContext) return null;
+      const { attack, buckets } = ownerContext;
       const selectedMap = uiState.attackDrawer.selected || {};
       const applied = [
         ...buckets.auto_applied_modifiers,
         ...buckets.suggested_modifiers.filter((row) => selectedMap[row.id]),
         ...buckets.manual_options.filter((row) => selectedMap[row.id])
       ];
-      return { character, catalog: catalog2, derived, attack, buckets, applied };
+      return { character, ...ownerContext, attack, buckets, applied };
     }
     function buildAttackD20Payload(mod, mode = "normal") {
       const safeMod = clamp(asInt(mod, 0), -99, 99);
@@ -8237,6 +8893,14 @@
     function performAttackHitRoll() {
       const context = getOpenAttackContext();
       if (!context) return;
+      const selectedAmmoId = uiState.attackDrawer.ammunitionId || context.attack.selected_ammunition_id || context.attack.ammunition_links?.[0] || "";
+      const ammunitionUse = context.ownerType === "character" ? consumeLinkedAmmunition(context.character.inventory, context.attack, selectedAmmoId) : { ok: true, consumed: false, inventory: context.character.inventory, item: null, remaining: null };
+      if (!ammunitionUse.ok) {
+        uiState.attackDrawer.lastResult = { kind: "hit", attackId: context.attack.id, summary: ammunitionUse.reason || "Ammunition is unavailable." };
+        recordPlayAction(ammunitionUse.reason || "Ammunition is unavailable.");
+        render();
+        return;
+      }
       const requestedMode = uiState.attackDrawer.rollMode || "auto";
       const mode = requestedMode === "auto" ? resolveAdvantageState("normal", context.applied) : requestedMode;
       const modBonus = context.applied.reduce((sum, row) => sum + asInt(row.attack_roll_bonus, 0), 0);
@@ -8250,11 +8914,19 @@
       const nat1 = chosen === 1;
       const rollDisplay = payload.rolls.length === 2 ? `d20(${payload.rolls[0]}, ${payload.rolls[1]})` : `d20(${payload.rolls[0]})`;
       const riderText = riderDice.length ? ` plus ${riderDice.map((row) => `${renderRolledFormula(row.detailed)} = ${row.total}`).join(" + ")}` : "";
-      const summary = `${context.attack.name} attack${mode !== "normal" ? ` with ${mode}` : ""}: ${rollDisplay} ${context.attack.effectiveAttackBonus + modBonus >= 0 ? "+" : "-"} ${Math.abs(context.attack.effectiveAttackBonus + modBonus)}${riderText} = ${finalTotal}`;
+      const ammoSuffix = ammunitionUse.consumed ? ` \xB7 ${ammunitionUse.item?.name || "Ammunition"}: ${ammunitionUse.remaining} left` : ammunitionUse.item && (ammunitionUse.item.unlimited_ammunition || context.attack.unlimited_ammunition) ? ` \xB7 ${ammunitionUse.item.name || "Ammunition"}: unlimited` : "";
+      const summary = `${context.attack.name} attack${mode !== "normal" ? ` with ${mode}` : ""}: ${rollDisplay} ${context.attack.effectiveAttackBonus + modBonus >= 0 ? "+" : "-"} ${Math.abs(context.attack.effectiveAttackBonus + modBonus)}${riderText} = ${finalTotal}${ammoSuffix}`;
       actions.updateCharacter((c) => {
+        if (context.ownerType === "character") {
+          c.inventory = ammunitionUse.inventory;
+          const rawAttack = (c.attacks || []).find((row) => row.id === context.attack.id);
+          if (rawAttack && selectedAmmoId) rawAttack.selected_ammunition_id = selectedAmmoId;
+        }
         c.play_state = c.play_state || {};
         c.play_state.last_attack_roll = {
           attack_id: context.attack.id,
+          owner_type: context.ownerType,
+          owner_id: context.ownerType === "companion" ? context.owner.id : "",
           label: context.attack.name,
           total: finalTotal,
           chosen,
@@ -8295,29 +8967,34 @@
       }
       const flatBonus = context.attack.damageBonusAuto + context.applied.reduce((sum, row) => sum + asInt(row.damage_bonus, 0), 0);
       const extraDice = context.applied.map((row) => (row.damage_dice || "").toString().trim()).filter(Boolean);
-      const smiteEnabled = selectedMap["class:divine_smite"];
+      const smiteEnabled = context.applied.some((row) => row.source_id === "divine_smite");
       let smiteFormula = "";
       let smiteSpentLevel = 0;
       if (smiteEnabled) {
         smiteSpentLevel = clamp(asInt(uiState.attackDrawer.smiteLevel, 1), 1, 9);
-        smiteFormula = `${2 + Math.max(0, smiteSpentLevel - 1)}d8`;
+        smiteFormula = `${Math.min(5, 2 + Math.max(0, smiteSpentLevel - 1))}d8`;
         extraDice.push(smiteFormula);
       }
       const lastHit = context.character?.play_state?.last_attack_roll || null;
-      const autoCrit = Boolean(lastHit?.attack_id === context.attack.id && lastHit?.nat20);
+      const autoCrit = Boolean(lastHit?.attack_id === context.attack.id && (lastHit?.owner_type || "character") === context.ownerType && lastHit?.nat20);
       const critActive = Boolean(crit || uiState.attackDrawer.critical || autoCrit);
-      const result = rollDiceTerms(damageFormula, { crit: critActive, extraDice });
+      const critExtraDice = critActive ? context.applied.map((row) => (row.crit_extra_dice || "").toString().trim()).filter(Boolean) : [];
+      const result = rollDiceTerms(damageFormula, { crit: critActive, extraDice, critExtraDice });
       const total = result.total + flatBonus;
       const parts = [];
       if (result.detailed.length) parts.push(renderRolledFormula(result.detailed));
       if (flatBonus) parts.push(flatBonus > 0 ? `+ ${flatBonus}` : `- ${Math.abs(flatBonus)}`);
-      const type = context.applied.find((row) => row.damage_type_replace)?.damage_type_replace || context.attack.damage_type;
+      const replacementType = context.applied.find((row) => row.damage_type_replace)?.damage_type_replace || "";
+      const addedTypes = [...new Set(context.applied.map((row) => (row.damage_type_add || "").toString().trim()).filter(Boolean))];
+      const type = replacementType || [context.attack.damage_type, ...addedTypes].filter(Boolean).join(" + ");
       const summary = `${context.attack.name} ${critActive ? "critical " : ""}damage: ${parts.join(" + ").replace(/\+\s-\s/g, "- ")}${type ? ` ${type}` : ""} = ${total}`;
       actions.updateCharacter((c) => {
         c.play_state = c.play_state || {};
         const stamp = (/* @__PURE__ */ new Date()).toISOString();
         c.play_state.last_attack_damage_roll = {
           attack_id: context.attack.id,
+          owner_type: context.ownerType,
+          owner_id: context.ownerType === "companion" ? context.owner.id : "",
           label: context.attack.name,
           total,
           crit: critActive,
@@ -8329,10 +9006,10 @@
         if (smiteEnabled && smiteSpentLevel > 0) {
           c.spell_slots = c.spell_slots || { levels: {} };
           c.spell_slots.levels = c.spell_slots.levels || {};
-          const key = String(smiteSpentLevel);
-          const row = c.spell_slots.levels[key] || { max: 0, used: 0 };
+          const key2 = String(smiteSpentLevel);
+          const row = c.spell_slots.levels[key2] || { max: 0, used: 0 };
           if ((row.used || 0) < (row.max || 0)) row.used = Math.min(row.max || 0, (row.used || 0) + 1);
-          c.spell_slots.levels[key] = row;
+          c.spell_slots.levels[key2] = row;
         }
       });
       uiState.attackDrawer = uiState.attackDrawer || {};
@@ -8538,12 +9215,12 @@
       const state = getState();
       const actionsByKind = collectClassActionFeatures(state.character || {});
       const all = [...actionsByKind.bonus, ...actionsByKind.action, ...actionsByKind.reaction, ...actionsByKind.passive];
-      const feature = all.find((f) => norm(f.id) === norm(featureId));
+      const feature = all.find((f) => norm2(f.id) === norm2(featureId));
       if (!feature?.resource?.max) return;
       const max = Math.max(0, asInt(feature.resource.max, 0));
-      const titleKey = norm(feature.title || "");
+      const titleKey = norm2(feature.title || "");
       const trackerIdx = (state.character?.trackers || []).findIndex((t) => {
-        const l = norm(t?.label || "");
+        const l = norm2(t?.label || "");
         return l && l.includes(titleKey);
       });
       actions.updateCharacter((c) => {
@@ -8555,9 +9232,9 @@
           t.current = clamp(asInt(t.current, tMax) + asInt(delta, 0), 0, tMax);
           return;
         }
-        const key = norm(feature.id);
-        const cur = clamp(asInt(c.play_state.feature_uses[key], max), 0, max);
-        c.play_state.feature_uses[key] = clamp(cur + asInt(delta, 0), 0, max);
+        const key2 = norm2(feature.id);
+        const cur = clamp(asInt(c.play_state.feature_uses[key2], max), 0, max);
+        c.play_state.feature_uses[key2] = clamp(cur + asInt(delta, 0), 0, max);
       });
       recordPlayAction(`${delta < 0 ? "Used" : "Restored"} feature: ${feature.title}`);
     }
@@ -8565,7 +9242,7 @@
       const state = getState();
       const actionsByKind = collectClassActionFeatures(state.character || {});
       const all = [...actionsByKind.bonus, ...actionsByKind.action, ...actionsByKind.reaction, ...actionsByKind.passive];
-      const feature = all.find((f) => norm(f.id) === norm(featureId));
+      const feature = all.find((f) => norm2(f.id) === norm2(featureId));
       if (!feature) return;
       recordPlayAction(`Used feature: ${feature.title}`);
     }
@@ -8580,7 +9257,7 @@
           const reset = feature?.resource?.rest || "";
           if (!max) continue;
           if (restKind === "long" || restKind === "short" && reset === "short") {
-            c.play_state.feature_uses[norm(feature.id)] = max;
+            c.play_state.feature_uses[norm2(feature.id)] = max;
           }
         }
       });
@@ -8594,10 +9271,10 @@
       actions.updateCharacter((c) => {
         c.spell_slots = c.spell_slots || { levels: {} };
         c.spell_slots.levels = c.spell_slots.levels || {};
-        const key = String(lvl);
-        const row = c.spell_slots.levels[key] || { max: 0, used: 0 };
+        const key2 = String(lvl);
+        const row = c.spell_slots.levels[key2] || { max: 0, used: 0 };
         row.used = Math.max(0, (row.used || 0) - 1);
-        c.spell_slots.levels[key] = row;
+        c.spell_slots.levels[key2] = row;
       });
       recordPlayAction(`Undo cast: level ${lvl} slot refunded`);
       setCastFeedback(`Undo complete: restored one level ${lvl} slot.`);
@@ -8622,9 +9299,9 @@
         c.spell_slots = c.spell_slots || { levels: {}, pact: { max: 0, used: 0, level: 1 } };
         c.spell_slots.levels = c.spell_slots.levels || {};
         for (let i = 1; i <= 9; i++) {
-          const key = String(i);
-          const autoMax = effective.levels?.[key]?.max || 0;
-          c.spell_slots.levels[key] = { max: autoMax, used: 0 };
+          const key2 = String(i);
+          const autoMax = effective.levels?.[key2]?.max || 0;
+          c.spell_slots.levels[key2] = { max: autoMax, used: 0 };
         }
         c.spell_slots.pact = {
           max: effective.pact?.max || 0,
@@ -8648,7 +9325,7 @@
       const catalogSpell = (() => {
         const cat = actions.getCatalog ? actions.getCatalog() : null;
         const spells = Array.isArray(cat?.spells) ? cat.spells : [];
-        return findSpellByAnyKey(spells, spellRef?.id || spellRef?.spell_id || spellKey || spellName) || spells.find((s) => norm(s?.name) === norm(spellName)) || null;
+        return findSpellByAnyKey(spells, spellRef?.id || spellRef?.spell_id || spellKey || spellName) || spells.find((s) => norm2(s?.name) === norm2(spellName)) || null;
       })();
       const detectedConcentration = toBoolFlag(spellRef?.concentration) || toBoolFlag(catalogSpell?.concentration);
       const detectedRounds = parseRoundsFromDuration(spellRef?.duration || catalogSpell?.duration || "");
@@ -8678,16 +9355,16 @@
       let consumed = false;
       actions.updateCharacter((c) => {
         const effective = computeEffectiveSlots(c);
-        const key = String(level);
+        const key2 = String(level);
         c.spell_slots = c.spell_slots || { levels: {} };
         c.spell_slots.levels = c.spell_slots.levels || {};
-        const autoMax = effective.levels?.[key]?.max || 0;
+        const autoMax = effective.levels?.[key2]?.max || 0;
         if (autoMax <= 0) return;
-        const row = c.spell_slots.levels[key] || { max: autoMax, used: 0 };
+        const row = c.spell_slots.levels[key2] || { max: autoMax, used: 0 };
         if ((row.used || 0) >= autoMax) return;
         row.max = autoMax;
         row.used = Math.min(autoMax, (row.used || 0) + 1);
-        c.spell_slots.levels[key] = row;
+        c.spell_slots.levels[key2] = row;
         consumed = true;
       });
       if (consumed) {
@@ -8698,13 +9375,13 @@
           const knownRows = Array.isArray(ch.spells_known) ? ch.spells_known : [];
           const preparedRows = Array.isArray(ch.spells_prepared) ? ch.spells_prepared : [];
           const allRows = [...knownRows, ...preparedRows];
-          return findSpellByAnyKey(allRows, spellName) || allRows.find((s) => norm(s?.name) === norm(spellName)) || null;
+          return findSpellByAnyKey(allRows, spellName) || allRows.find((s) => norm2(s?.name) === norm2(spellName)) || null;
         })();
         const catalogSpell = (() => {
           const cat = actions.getCatalog ? actions.getCatalog() : null;
           const spells = Array.isArray(cat?.spells) ? cat.spells : [];
           const direct = findSpellByAnyKey(spells, castSpell?.id || castSpell?.spell_id || spellName);
-          return direct || spells.find((s) => norm(s?.name) === norm(castSpell?.name || spellName)) || null;
+          return direct || spells.find((s) => norm2(s?.name) === norm2(castSpell?.name || spellName)) || null;
         })();
         const isConcentration = toBoolFlag(castSpell?.concentration) || toBoolFlag(catalogSpell?.concentration);
         const manualConcentration = castOptions?.forceConcentration === true;
@@ -8741,18 +9418,18 @@
       setCastFeedback(`No level ${level} slots available.`);
     }
     function visibleCommands() {
-      const q = norm(uiState.palette.query);
+      const q = norm2(uiState.palette.query);
       return commandRegistry().filter((cmd) => cmd.enabled()).filter((cmd) => {
         if (!q) return true;
         const hay = `${cmd.label} ${(cmd.keywords || []).join(" ")} ${cmd.id}`.toLowerCase();
         return hay.includes(q);
       });
     }
-    function runCommand(id) {
-      const cmd = commandRegistry().find((c) => c.id === id && c.enabled());
+    function runCommand(id2) {
+      const cmd = commandRegistry().find((c) => c.id === id2 && c.enabled());
       if (!cmd) return;
       cmd.run();
-      uiState.palette.recents = [id, ...uiState.palette.recents.filter((x) => x !== id)].slice(0, 8);
+      uiState.palette.recents = [id2, ...uiState.palette.recents.filter((x) => x !== id2)].slice(0, 8);
       uiState.palette.open = false;
       uiState.palette.query = "";
       uiState.palette.selected = 0;
@@ -8773,7 +9450,7 @@
         return true;
       }
       if (uiState.lookup.type === "class") {
-        const existing = Array.isArray(character?.core?.classes) ? character.core.classes.some((x) => norm(x?.id) === norm(row.id)) : false;
+        const existing = Array.isArray(character?.core?.classes) ? character.core.classes.some((x) => norm2(x?.id) === norm2(row.id)) : false;
         if (existing) {
           uiState.lookup.feedback = `Class already present: ${row.title}.`;
           return false;
@@ -8844,7 +9521,11 @@
             reach: asInt(raw.reach, raw.kind === "melee_weapon" ? 5 : 0),
             properties: Array.isArray(raw.properties) ? raw.properties : splitCsvLike(raw.properties),
             notes: raw.notes || "",
-            tags: []
+            tags: [],
+            ammunition_type: "",
+            ammunition_links: [],
+            selected_ammunition_id: "",
+            unlimited_ammunition: false
           });
         });
         uiState.lookup.feedback = `Added attack preset ${row.title}.`;
@@ -8852,7 +9533,7 @@
       }
       if (uiState.lookup.type === "subclass") {
         const classRows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
-        const targetIdx = classRows.findIndex((x) => norm(x?.id) === norm(row.raw?.class_id));
+        const targetIdx = classRows.findIndex((x) => norm2(x?.id) === norm2(row.raw?.class_id));
         if (targetIdx < 0) {
           uiState.lookup.feedback = `No matching class found for ${row.title}. Add ${row.raw?.class_id || "that class"} first.`;
           return false;
@@ -8871,9 +9552,9 @@
     }
     function jumpToSection(idx) {
       const ids = uiState.mode === "edit" ? tabSections(uiState.activeEditTab || "core") : sectionIds;
-      const id = ids[idx];
-      if (!id) return;
-      const el = root2.querySelector(`#${id}`);
+      const id2 = ids[idx];
+      if (!id2) return;
+      const el = root2.querySelector(`#${id2}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     function openLookup(type) {
@@ -9038,7 +9719,7 @@
     function cycleSections(step) {
       if (uiState.mode !== "edit") return;
       const ids = tabSections(uiState.activeEditTab || "core");
-      const tops = ids.map((id, idx) => ({ idx, el: root2.querySelector(`#${id}`) })).filter((x) => x.el).map((x) => ({ idx: x.idx, top: x.el.getBoundingClientRect().top }));
+      const tops = ids.map((id2, idx) => ({ idx, el: root2.querySelector(`#${id2}`) })).filter((x) => x.el).map((x) => ({ idx: x.idx, top: x.el.getBoundingClientRect().top }));
       if (!tops.length) return;
       const current = tops.find((x) => x.top > 0) || tops[tops.length - 1];
       const next = (current.idx + step + ids.length) % ids.length;
@@ -9058,7 +9739,7 @@
       const portrait = getEffectivePortrait(character);
       const hasPortrait = Boolean(portrait);
       const classBadgeRows = Array.isArray(character?.core?.classes) ? character.core.classes : [];
-      const classBadgeItems = classBadgeRows.map((row) => ({ id: norm(row?.id), level: clamp(asInt(row?.level, 1), 1, 20) })).filter((row) => row.id && getClassBadge(row.id)).filter((row, idx, arr) => arr.findIndex((x) => x.id === row.id) === idx);
+      const classBadgeItems = classBadgeRows.map((row) => ({ id: norm2(row?.id), level: clamp(asInt(row?.level, 1), 1, 20) })).filter((row) => row.id && getClassBadge(row.id)).filter((row, idx, arr) => arr.findIndex((x) => x.id === row.id) === idx);
       root2.innerHTML = `
       <header class="shell-topbar ${hasPortrait ? "has-play-portrait" : ""}">
         ${hasPortrait ? `<img class="play-profile-portrait" src="${esc(portrait)}" alt="${esc(character?.meta?.name || "Character")} portrait" />` : ""}
@@ -9142,7 +9823,7 @@
           <h3>Customize Appearance</h3>
           <p class="hint">Theme source: <strong>${uiState.appearanceSource === "auto" ? `Auto (${esc(uiState.appearanceAutoLabel)})` : "User Customized"}</strong></p>
           <div class="grid2 appearance-grid">
-            ${APPEARANCE_FIELDS.map(([key, label]) => `<label>${esc(label)}<input type="color" data-appearance-color="${esc(key)}" value="${esc(uiState.appearanceDraft[key])}" /></label>`).join("")}
+            ${APPEARANCE_FIELDS.map(([key2, label]) => `<label>${esc(label)}<input type="color" data-appearance-color="${esc(key2)}" value="${esc(uiState.appearanceDraft[key2])}" /></label>`).join("")}
             <label>Surface Transparency<input type="range" min="0.65" max="1" step="0.01" data-appearance-range="surfaceAlpha" value="${esc(uiState.appearanceDraft.surfaceAlpha)}" /></label>
             <label>Shadow Depth<input type="range" min="12" max="44" step="1" data-appearance-range="shadowBlur" value="${esc(uiState.appearanceDraft.shadowBlur)}" /></label>
             <label>Shadow Opacity<input type="range" min="0.05" max="0.28" step="0.01" data-appearance-range="shadowOpacity" value="${esc(uiState.appearanceDraft.shadowOpacity)}" /></label>
@@ -9280,6 +9961,19 @@
     function bindEvents() {
       const state = getState();
       const character = state.character;
+      const featureCatalog = Array.isArray(actions.getCatalog?.()?.features) ? actions.getCatalog().features : [];
+      const updateFeatureByKey = (key2, mutate) => actions.updateCharacter((c) => {
+        c.features = Array.isArray(c.features) ? c.features : [];
+        let feature = c.features.find((row) => row.id === key2 || row.template_id === key2);
+        if (!feature) {
+          const template = featureCatalog.find((row) => row.id === key2);
+          if (!template) return;
+          const resolvedTemplate = resolveCharacterFeatures(c, featureCatalog, null, { includeDisabled: true }).find((row) => row.template_id === key2);
+          feature = normalizeCharacterFeature({ ...resolvedTemplate || template, id: crypto.randomUUID(), template_id: template.id, auto_grant: false });
+          c.features.push(feature);
+        }
+        mutate(feature);
+      });
       const syncCreateDraft = () => {
         draft.name = root2.querySelector("#newName")?.value || draft.name;
         draft.rulesetId = root2.querySelector("#newRuleset")?.value || draft.rulesetId;
@@ -9466,19 +10160,19 @@
         closeAppearanceCustomizer({ revert: false });
       });
       root2.querySelectorAll("[data-appearance-color]").forEach((el) => el.addEventListener("input", (e) => {
-        const key = e.target.getAttribute("data-appearance-color");
-        uiState.appearanceDraft[key] = e.target.value;
+        const key2 = e.target.getAttribute("data-appearance-color");
+        uiState.appearanceDraft[key2] = e.target.value;
         applyAppearance(uiState.appearanceDraft);
       }));
       root2.querySelectorAll("[data-appearance-range]").forEach((el) => el.addEventListener("input", (e) => {
-        const key = e.target.getAttribute("data-appearance-range");
-        uiState.appearanceDraft[key] = e.target.value;
+        const key2 = e.target.getAttribute("data-appearance-range");
+        uiState.appearanceDraft[key2] = e.target.value;
         applyAppearance(uiState.appearanceDraft);
       }));
       root2.querySelectorAll("[data-help-jump]").forEach((el) => {
         el.addEventListener("click", (e) => {
-          const id = e.currentTarget.getAttribute("data-help-jump");
-          uiState.helpSectionId = helpController?.openHelp(id) || uiState.helpSectionId;
+          const id2 = e.currentTarget.getAttribute("data-help-jump");
+          uiState.helpSectionId = helpController?.openHelp(id2) || uiState.helpSectionId;
           render();
           requestAnimationFrame(() => scrollHelpContentToSection(uiState.helpSectionId, "smooth"));
         });
@@ -9760,24 +10454,74 @@
           });
         });
         root2.querySelectorAll("[data-open-attack]").forEach((el) => el.addEventListener("click", (e) => {
-          const id = e.currentTarget.getAttribute("data-open-attack");
-          if (id) openAttackDrawer(id);
+          const id2 = e.currentTarget.getAttribute("data-open-attack");
+          if (id2) openAttackDrawer(id2);
+        }));
+        root2.querySelectorAll("[data-open-companion-attack]").forEach((el) => el.addEventListener("click", (e) => {
+          const id2 = e.currentTarget.getAttribute("data-open-companion-attack");
+          if (id2) openAttackDrawer(id2, "companion", uiState.selectedPlayCompanionId);
+        }));
+        root2.querySelector("#playCompanionSelect")?.addEventListener("change", (e) => {
+          uiState.selectedPlayCompanionId = e.target.value;
+          render();
+        });
+        root2.querySelector("#playCompanionDeactivate")?.addEventListener("click", () => {
+          const selectedId = uiState.selectedPlayCompanionId;
+          uiState.selectedPlayCompanionId = "";
+          uiState.selectedCompanionId = selectedId;
+          actions.updateCharacter((character2) => {
+            const row = (character2.companions || []).find((companion) => companion.id === selectedId);
+            if (row) {
+              row.status = "inactive";
+              row.modified_utc = (/* @__PURE__ */ new Date()).toISOString();
+            }
+          });
+        });
+        root2.querySelectorAll("[data-play-companion-hp]").forEach((el) => el.addEventListener("click", (e) => {
+          const delta = asInt(e.currentTarget.getAttribute("data-play-companion-hp"), 0);
+          updateSelectedCompanion((row) => {
+            row.hp.current = Math.max(0, Math.min(row.hp.max || 0, (row.hp.current || 0) + delta));
+          }, { play: true });
+        }));
+        root2.querySelector("#playCompanionHpSet")?.addEventListener("click", () => {
+          const value = Math.max(0, asInt(root2.querySelector("#playCompanionHp")?.value, 0));
+          updateSelectedCompanion((row) => {
+            row.hp.current = Math.min(row.hp.max || 0, value);
+          }, { play: true });
+        });
+        root2.querySelector("#playCompanionRounds")?.addEventListener("change", (e) => {
+          updateSelectedCompanion((row) => {
+            row.rounds_remaining = e.target.value === "" ? null : Math.max(0, asInt(e.target.value, 0));
+          }, { play: true });
+        });
+        root2.querySelectorAll("[data-play-companion-effect]").forEach((el) => el.addEventListener("change", (e) => {
+          const index = asInt(e.target.getAttribute("data-play-companion-effect"), -1);
+          updateSelectedCompanion((row) => {
+            if (row.effects?.[index] && !row.effects[index].pending) row.effects[index].active = Boolean(e.target.checked);
+          }, { play: true });
         }));
         root2.querySelector("#attackRollModeSelect")?.addEventListener("change", (e) => {
           uiState.attackDrawer.rollMode = e.target.value || "auto";
           render();
         });
+        root2.querySelector("#attackAmmunitionSelect")?.addEventListener("change", (e) => {
+          uiState.attackDrawer.ammunitionId = e.target.value || "";
+          actions.updateCharacter((c) => {
+            const attack = (c.attacks || []).find((row) => row.id === uiState.attackDrawer.attackId);
+            if (attack) attack.selected_ammunition_id = uiState.attackDrawer.ammunitionId;
+          });
+        });
         root2.querySelectorAll("[data-attack-mod]").forEach((el) => el.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-attack-mod");
-          if (!id) return;
-          uiState.attackDrawer.selected = { ...uiState.attackDrawer.selected || {}, [id]: Boolean(e.target.checked) };
+          const id2 = e.target.getAttribute("data-attack-mod");
+          if (!id2) return;
+          uiState.attackDrawer.selected = { ...uiState.attackDrawer.selected || {}, [id2]: Boolean(e.target.checked) };
           render();
         }));
         root2.querySelectorAll("[data-attack-mod-pill]").forEach((el) => el.addEventListener("click", (e) => {
-          const id = e.currentTarget.getAttribute("data-attack-mod-pill");
-          if (!id) return;
-          const current = Boolean(uiState.attackDrawer.selected?.[id]);
-          uiState.attackDrawer.selected = { ...uiState.attackDrawer.selected || {}, [id]: !current };
+          const id2 = e.currentTarget.getAttribute("data-attack-mod-pill");
+          if (!id2) return;
+          const current = Boolean(uiState.attackDrawer.selected?.[id2]);
+          uiState.attackDrawer.selected = { ...uiState.attackDrawer.selected || {}, [id2]: !current };
           render();
         }));
         root2.querySelector("#attackUseVersatile")?.addEventListener("change", (e) => {
@@ -9815,34 +10559,34 @@
         });
         root2.querySelectorAll("[data-roll-save]").forEach((el) => {
           el.addEventListener("click", (e) => {
-            const id = e.currentTarget.getAttribute("data-roll-save") || "";
-            const mod = asInt(deriveStats(getState().character || {}).savingThrows?.[id]?.total, 0);
-            performModifierRoll("save", id, `${id.toUpperCase()} Save`, mod);
+            const id2 = e.currentTarget.getAttribute("data-roll-save") || "";
+            const mod = asInt(deriveStats(getState().character || {}).savingThrows?.[id2]?.total, 0);
+            performModifierRoll("save", id2, `${id2.toUpperCase()} Save`, mod);
           });
         });
         root2.querySelectorAll("[data-roll-skill]").forEach((el) => {
           el.addEventListener("click", (e) => {
-            const id = e.currentTarget.getAttribute("data-roll-skill") || "";
-            const mod = asInt(deriveStats(getState().character || {}).skills?.[id]?.total, 0);
-            performModifierRoll("skill", id, titleizeId(id), mod);
+            const id2 = e.currentTarget.getAttribute("data-roll-skill") || "";
+            const mod = asInt(deriveStats(getState().character || {}).skills?.[id2]?.total, 0);
+            performModifierRoll("skill", id2, titleizeId(id2), mod);
           });
         });
         root2.querySelectorAll("[data-feature-use]").forEach((el) => {
           el.addEventListener("click", (e) => {
-            const id = e.currentTarget.getAttribute("data-feature-use") || "";
-            adjustFeatureUse(id, -1);
+            const id2 = e.currentTarget.getAttribute("data-feature-use") || "";
+            adjustFeatureUse(id2, -1);
           });
         });
         root2.querySelectorAll("[data-feature-refund]").forEach((el) => {
           el.addEventListener("click", (e) => {
-            const id = e.currentTarget.getAttribute("data-feature-refund") || "";
-            adjustFeatureUse(id, 1);
+            const id2 = e.currentTarget.getAttribute("data-feature-refund") || "";
+            adjustFeatureUse(id2, 1);
           });
         });
         root2.querySelectorAll("[data-feature-tap]").forEach((el) => {
           el.addEventListener("click", (e) => {
-            const id = e.currentTarget.getAttribute("data-feature-tap") || "";
-            markFeatureUsed(id);
+            const id2 = e.currentTarget.getAttribute("data-feature-tap") || "";
+            markFeatureUsed(id2);
           });
         });
         root2.querySelector("#addConditionBtn")?.addEventListener("click", () => openConditionEditor(-1));
@@ -9900,7 +10644,7 @@
             const knownRows = Array.isArray(characterNow.spells_known) ? characterNow.spells_known : [];
             const preparedRows = Array.isArray(characterNow.spells_prepared) ? characterNow.spells_prepared : [];
             const sourceRows = [...knownRows, ...preparedRows];
-            let spellRef = sourceRows.find((s) => norm(s?.id || s?.spell_id || s?.name) === norm(spellKey) || norm(s?.name) === norm(spellName)) || null;
+            let spellRef = sourceRows.find((s) => norm2(s?.id || s?.spell_id || s?.name) === norm2(spellKey) || norm2(s?.name) === norm2(spellName)) || null;
             if (!spellRef) {
               spellRef = {
                 id: spellKey,
@@ -9964,10 +10708,10 @@
           c.log.push({ id: crypto.randomUUID(), utc: (/* @__PURE__ */ new Date()).toISOString(), tag: "note", message: "" });
         }));
         const saveSessionNotes = () => {
-          const text = root2.querySelector("#playSessionNotes")?.value || "";
+          const text3 = root2.querySelector("#playSessionNotes")?.value || "";
           actions.updateCharacter((c) => {
             c.play_state = c.play_state || {};
-            c.play_state.session_notes = clampToBudget(c, text, c.play_state.session_notes || "");
+            c.play_state.session_notes = clampToBudget(c, text3, c.play_state.session_notes || "");
           });
           recordPlayAction("Updated session notes");
         };
@@ -10131,6 +10875,159 @@
         }));
         return;
       }
+      root2.querySelector("#companionTemplateToggle")?.addEventListener("click", () => {
+        uiState.companionTemplateOpen = !uiState.companionTemplateOpen;
+        render();
+        if (uiState.companionTemplateOpen) root2.querySelector("#companionTemplateSearch")?.focus();
+      });
+      root2.querySelector("#companionTemplateSearch")?.addEventListener("input", (e) => {
+        const query = norm2(e.target.value);
+        const options = [...root2.querySelectorAll("[data-companion-template-id]")];
+        let visible = 0;
+        options.forEach((option) => {
+          const matches = !query || norm2(option.getAttribute("data-companion-template-search") || option.textContent).includes(query);
+          option.hidden = !matches;
+          if (matches) visible += 1;
+        });
+        const empty = root2.querySelector(".companion-template-empty");
+        if (empty) empty.hidden = visible > 0;
+      });
+      root2.querySelectorAll("[data-companion-template-id]").forEach((option) => option.addEventListener("click", (e) => {
+        uiState.companionTemplateId = e.currentTarget.getAttribute("data-companion-template-id") || "";
+        const template = (actions.getCatalog()?.companions || []).find((row) => row.id === uiState.companionTemplateId);
+        if (template?.scaling?.type === "spell_slot") {
+          uiState.companionTemplateLevel = Math.max(asInt(template.scaling.level_min, 2), asInt(uiState.companionTemplateLevel, 2));
+        }
+        uiState.companionTemplateOpen = false;
+        render();
+      }));
+      root2.querySelector("#companionTemplateLevel")?.addEventListener("input", (e) => {
+        uiState.companionTemplateLevel = Math.max(1, asInt(e.target.value, 2));
+      });
+      root2.querySelector("#companionNewDmOverride")?.addEventListener("change", (e) => {
+        uiState.newCompanionDmOverride = Boolean(e.target.checked);
+        render();
+      });
+      root2.querySelector("#companionAdd")?.addEventListener("click", () => {
+        const character2 = getState().character;
+        const template = (actions.getCatalog()?.companions || []).find((row) => row.id === uiState.companionTemplateId);
+        if (!template && !uiState.newCompanionDmOverride) return;
+        const derived = deriveStats(character2);
+        const next = template ? createCompanionFromTemplate(template, {
+          proficiencyBonus: derived.proficiency.value,
+          rangerLevel: classLevel(character2, "ranger") || derived.level,
+          characterLevel: derived.level,
+          spellAttackBonus: derived.spellcasting.spellAttackBonus,
+          spellLevel: uiState.companionTemplateLevel
+        }, { dm_override: uiState.newCompanionDmOverride }) : createCompanion({ dm_override: true });
+        uiState.selectedCompanionId = next.id;
+        actions.updateCharacter((draft2) => {
+          draft2.companions = Array.isArray(draft2.companions) ? draft2.companions : [];
+          draft2.companions.push(next);
+        });
+      });
+      root2.querySelector("#companionDmOverride")?.addEventListener("change", (e) => {
+        updateSelectedCompanion((row) => {
+          row.dm_override = Boolean(e.target.checked);
+        });
+      });
+      root2.querySelector("#companionShowArchived")?.addEventListener("change", (e) => {
+        uiState.showArchivedCompanions = Boolean(e.target.checked);
+        render();
+      });
+      root2.querySelectorAll("[data-companion-select]").forEach((el) => el.addEventListener("click", (e) => {
+        uiState.selectedCompanionId = e.currentTarget.getAttribute("data-companion-select") || "";
+        render();
+      }));
+      root2.querySelector("#companionArchive")?.addEventListener("click", () => {
+        actions.updateCharacter((character2) => {
+          character2.companions = archiveCompanion(character2.companions, uiState.selectedCompanionId);
+        });
+      });
+      root2.querySelector("#companionRestore")?.addEventListener("click", () => {
+        actions.updateCharacter((character2) => {
+          character2.companions = restoreCompanion(character2.companions, uiState.selectedCompanionId);
+        });
+      });
+      root2.querySelector("#companionReplace")?.addEventListener("click", () => {
+        if (!globalThis.confirm("Archive this companion and create a blank linked replacement?")) return;
+        const result = replaceCompanion(getState().character?.companions, uiState.selectedCompanionId);
+        if (!result.replacement) return;
+        uiState.selectedCompanionId = result.replacement.id;
+        actions.updateCharacter((character2) => {
+          character2.companions = result.companions;
+        });
+      });
+      root2.querySelector("#companionDelete")?.addEventListener("click", () => {
+        if (!globalThis.confirm("Permanently delete this companion record? This cannot be undone after saving.")) return;
+        const selectedId = uiState.selectedCompanionId;
+        uiState.selectedCompanionId = "";
+        actions.updateCharacter((character2) => {
+          character2.companions = (character2.companions || []).filter((row) => row.id !== selectedId);
+        });
+      });
+      root2.querySelectorAll("[data-companion-field]").forEach((el) => el.addEventListener("input", (e) => {
+        const path = e.target.getAttribute("data-companion-field");
+        updateSelectedCompanion((row) => setNestedValue(row, path, e.target.value));
+      }));
+      root2.querySelectorAll("[data-companion-number]").forEach((el) => el.addEventListener("input", (e) => {
+        const path = e.target.getAttribute("data-companion-number");
+        updateSelectedCompanion((row) => {
+          const signed = path.includes("initiative") || path.includes("proficiency");
+          const value = path.startsWith("abilities.") ? Math.max(1, asInt(e.target.value, 10)) : signed ? asInt(e.target.value, 0) : Math.max(0, asInt(e.target.value, 0));
+          setNestedValue(row, path, value);
+          if (path === "hp.max") row.hp.current = Math.min(row.hp.current || 0, value);
+          if (path === "hp.current") row.hp.current = Math.min(row.hp.max || 0, value);
+        });
+      }));
+      root2.querySelectorAll("[data-companion-nullable-number]").forEach((el) => el.addEventListener("input", (e) => {
+        const path = e.target.getAttribute("data-companion-nullable-number");
+        updateSelectedCompanion((row) => setNestedValue(row, path, e.target.value === "" ? null : path === "rounds_remaining" ? Math.max(0, asInt(e.target.value, 0)) : asInt(e.target.value, 0)));
+      }));
+      root2.querySelectorAll("[data-companion-list-field]").forEach((el) => el.addEventListener("input", (e) => {
+        const path = e.target.getAttribute("data-companion-list-field");
+        updateSelectedCompanion((row) => setNestedValue(row, path, splitCsvLike(e.target.value)));
+      }));
+      root2.querySelectorAll("[data-companion-row-field], [data-companion-row-number], [data-companion-row-check], [data-companion-row-list]").forEach((el) => el.addEventListener("input", (e) => {
+        const spec = e.target.getAttribute("data-companion-row-field") || e.target.getAttribute("data-companion-row-number") || e.target.getAttribute("data-companion-row-check") || e.target.getAttribute("data-companion-row-list") || "";
+        const [collection, indexRaw, field] = spec.split(":");
+        const index = asInt(indexRaw, -1);
+        updateSelectedCompanion((row) => {
+          const target = row?.[collection]?.[index];
+          if (!target) return;
+          const isNumber = e.target.hasAttribute("data-companion-row-number");
+          const isCheck = e.target.hasAttribute("data-companion-row-check");
+          const isList = e.target.hasAttribute("data-companion-row-list");
+          target[field] = isNumber ? asInt(e.target.value, 0) : isCheck ? Boolean(e.target.checked) : isList ? splitCsvLike(e.target.value) : e.target.value;
+          if (collection === "effects" && field === "pending" && target.pending) target.active = false;
+          if (collection === "effects" && field === "source_id") target.source_type = target.source_id ? "item" : "custom_effect";
+        });
+      }));
+      root2.querySelectorAll("[data-companion-add-row]").forEach((el) => el.addEventListener("click", (e) => {
+        const collection = e.currentTarget.getAttribute("data-companion-add-row");
+        const defaults = {
+          skills: { id: crypto.randomUUID(), name: "", bonus: 0 },
+          attacks: { id: crypto.randomUUID(), name: "New Attack", kind: "natural_weapon", atk_bonus_mode: "manual", atk_bonus_override: 0, damage_mode: "manual", damage: "", damage_type: "", range: "", reach: 5, properties: [], tags: [], notes: "" },
+          actions: { id: crypto.randomUUID(), name: "", description: "" },
+          bonus_actions: { id: crypto.randomUUID(), name: "", description: "" },
+          reactions: { id: crypto.randomUUID(), name: "", description: "" },
+          traits: { id: crypto.randomUUID(), name: "", description: "" },
+          equipment: { id: crypto.randomUUID(), name: "", quantity: 1, equipped: true, notes: "" },
+          effects: { id: crypto.randomUUID(), label: "New Effect", source: "", source_type: "custom_effect", source_id: "", active: true, pending: false, scope: "all_attacks", application_mode: "manual", attack_roll_bonus: 0, attack_roll_dice: "", advantage_state: "none", damage_bonus: 0, damage_dice: "", damage_type_add: "", notes: "" }
+        };
+        if (!defaults[collection]) return;
+        updateSelectedCompanion((row) => {
+          row[collection] = Array.isArray(row[collection]) ? row[collection] : [];
+          row[collection].push(defaults[collection]);
+        });
+      }));
+      root2.querySelectorAll("[data-companion-del-row]").forEach((el) => el.addEventListener("click", (e) => {
+        const [collection, indexRaw] = (e.currentTarget.getAttribute("data-companion-del-row") || "").split(":");
+        const index = asInt(indexRaw, -1);
+        updateSelectedCompanion((row) => {
+          if (Array.isArray(row[collection]) && index >= 0) row[collection].splice(index, 1);
+        });
+      }));
       root2.querySelector("#charName")?.addEventListener("change", (e) => actions.updateCharacter((c) => {
         c.meta.name = e.target.value;
       }));
@@ -10147,9 +11044,9 @@
       }));
       root2.querySelectorAll("[data-ability]").forEach((el) => {
         el.addEventListener("change", (e) => {
-          const key = e.target.getAttribute("data-ability");
+          const key2 = e.target.getAttribute("data-ability");
           actions.updateCharacter((c) => {
-            c.abilities[key] = Math.max(1, Math.min(30, asInt(e.target.value, 10)));
+            c.abilities[key2] = Math.max(1, Math.min(30, asInt(e.target.value, 10)));
           });
         });
       });
@@ -10366,75 +11263,75 @@
         c.resources.pp = Math.max(0, asInt(e.target.value, 0));
       }));
       root2.querySelectorAll("[data-save-prof]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-save-prof");
+        const key2 = e.target.getAttribute("data-save-prof");
         actions.updateCharacter((c) => {
           c.saving_throws = c.saving_throws || {};
-          c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.saving_throws[key].proficient = Boolean(e.target.checked);
+          c.saving_throws[key2] = c.saving_throws[key2] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.saving_throws[key2].proficient = Boolean(e.target.checked);
         });
       }));
       root2.querySelectorAll("[data-save-bonus]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-save-bonus");
+        const key2 = e.target.getAttribute("data-save-bonus");
         actions.updateCharacter((c) => {
           c.saving_throws = c.saving_throws || {};
-          c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.saving_throws[key].bonus = asInt(e.target.value, 0);
+          c.saving_throws[key2] = c.saving_throws[key2] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.saving_throws[key2].bonus = asInt(e.target.value, 0);
         });
       }));
       root2.querySelectorAll("[data-save-mode]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-save-mode");
+        const key2 = e.target.getAttribute("data-save-mode");
         actions.updateCharacter((c) => {
           c.saving_throws = c.saving_throws || {};
-          c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.saving_throws[key].bonus_mode = e.target.checked ? "manual" : "auto";
+          c.saving_throws[key2] = c.saving_throws[key2] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.saving_throws[key2].bonus_mode = e.target.checked ? "manual" : "auto";
         });
       }));
       root2.querySelectorAll("[data-save-manual]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-save-manual");
+        const key2 = e.target.getAttribute("data-save-manual");
         actions.updateCharacter((c) => {
           c.saving_throws = c.saving_throws || {};
-          c.saving_throws[key] = c.saving_throws[key] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.saving_throws[key].manual_total = asInt(e.target.value, 0);
+          c.saving_throws[key2] = c.saving_throws[key2] || { proficient: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.saving_throws[key2].manual_total = asInt(e.target.value, 0);
         });
       }));
       root2.querySelectorAll("[data-skill-prof]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-skill-prof");
+        const key2 = e.target.getAttribute("data-skill-prof");
         actions.updateCharacter((c) => {
           c.skills = c.skills || {};
-          c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.skills[key].proficient = Boolean(e.target.checked);
+          c.skills[key2] = c.skills[key2] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.skills[key2].proficient = Boolean(e.target.checked);
         });
       }));
       root2.querySelectorAll("[data-skill-exp]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-skill-exp");
+        const key2 = e.target.getAttribute("data-skill-exp");
         actions.updateCharacter((c) => {
           c.skills = c.skills || {};
-          c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.skills[key].expertise = Boolean(e.target.checked);
+          c.skills[key2] = c.skills[key2] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.skills[key2].expertise = Boolean(e.target.checked);
         });
       }));
       root2.querySelectorAll("[data-skill-bonus]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-skill-bonus");
+        const key2 = e.target.getAttribute("data-skill-bonus");
         actions.updateCharacter((c) => {
           c.skills = c.skills || {};
-          c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.skills[key].bonus = asInt(e.target.value, 0);
+          c.skills[key2] = c.skills[key2] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.skills[key2].bonus = asInt(e.target.value, 0);
         });
       }));
       root2.querySelectorAll("[data-skill-mode]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-skill-mode");
+        const key2 = e.target.getAttribute("data-skill-mode");
         actions.updateCharacter((c) => {
           c.skills = c.skills || {};
-          c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.skills[key].bonus_mode = e.target.checked ? "manual" : "auto";
+          c.skills[key2] = c.skills[key2] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.skills[key2].bonus_mode = e.target.checked ? "manual" : "auto";
         });
       }));
       root2.querySelectorAll("[data-skill-manual]").forEach((el) => el.addEventListener("change", (e) => {
-        const key = e.target.getAttribute("data-skill-manual");
+        const key2 = e.target.getAttribute("data-skill-manual");
         actions.updateCharacter((c) => {
           c.skills = c.skills || {};
-          c.skills[key] = c.skills[key] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
-          c.skills[key].manual_total = asInt(e.target.value, 0);
+          c.skills[key2] = c.skills[key2] || { proficient: false, expertise: false, bonus: 0, bonus_mode: "auto", manual_total: 0 };
+          c.skills[key2].manual_total = asInt(e.target.value, 0);
         });
       }));
       root2.querySelector("#attackAddCustom")?.addEventListener("click", () => actions.updateCharacter((c) => {
@@ -10460,7 +11357,50 @@
           reach: 5,
           properties: [],
           notes: "",
-          tags: []
+          tags: [],
+          ammunition_type: "",
+          ammunition_links: [],
+          selected_ammunition_id: "",
+          unlimited_ammunition: false
+        });
+      }));
+      root2.querySelector("#featureAddTemplate")?.addEventListener("click", () => {
+        const templateId = root2.querySelector("#featureTemplateSelect")?.value || "";
+        const template = featureCatalog.find((row) => row.id === templateId);
+        if (!template) return;
+        actions.updateCharacter((c) => {
+          c.features = Array.isArray(c.features) ? c.features : [];
+          if (!c.features.some((row) => row.template_id === templateId)) c.features.push(createFeatureFromTemplate(template));
+        });
+      });
+      root2.querySelector("#featureAddCustom")?.addEventListener("click", () => actions.updateCharacter((c) => {
+        c.features = Array.isArray(c.features) ? c.features : [];
+        c.features.push(normalizeCharacterFeature({ name: "Custom Feature", source: "DM / Custom", enabled: true, dm_override: true, scope: "all_attacks", application_mode: "manual" }));
+      }));
+      root2.querySelectorAll("[data-feature-enabled]").forEach((el) => el.addEventListener("change", (e) => updateFeatureByKey(e.target.getAttribute("data-feature-enabled") || "", (feature) => {
+        feature.enabled = Boolean(e.target.checked);
+      })));
+      root2.querySelectorAll("[data-feature-override]").forEach((el) => el.addEventListener("change", (e) => updateFeatureByKey(e.target.getAttribute("data-feature-override") || "", (feature) => {
+        feature.dm_override = Boolean(e.target.checked);
+      })));
+      root2.querySelectorAll("[data-feature-field]").forEach((el) => el.addEventListener("change", (e) => {
+        const raw = e.target.getAttribute("data-feature-field") || "";
+        const splitAt = raw.lastIndexOf(":");
+        updateFeatureByKey(raw.slice(0, splitAt), (feature) => {
+          feature[raw.slice(splitAt + 1)] = e.target.value;
+        });
+      }));
+      root2.querySelectorAll("[data-feature-number]").forEach((el) => el.addEventListener("change", (e) => {
+        const raw = e.target.getAttribute("data-feature-number") || "";
+        const splitAt = raw.lastIndexOf(":");
+        updateFeatureByKey(raw.slice(0, splitAt), (feature) => {
+          feature[raw.slice(splitAt + 1)] = asInt(e.target.value, 0);
+        });
+      }));
+      root2.querySelectorAll("[data-feature-delete]").forEach((el) => el.addEventListener("click", (e) => {
+        const key2 = e.currentTarget.getAttribute("data-feature-delete") || "";
+        actions.updateCharacter((c) => {
+          c.features = (c.features || []).filter((row) => row.id !== key2 && row.template_id !== key2);
         });
       }));
       root2.querySelectorAll("[data-attack-name]").forEach((el) => el.addEventListener("input", (e) => {
@@ -10574,6 +11514,71 @@
           if (c.attacks?.[i]) c.attacks[i].notes = e.target.value;
         });
       }));
+      root2.querySelectorAll("[data-attack-ammo-type]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-attack-ammo-type"), -1);
+        actions.updateCharacter((c) => {
+          if (!c.attacks?.[i]) return;
+          c.attacks[i].ammunition_type = normalizeAmmunitionType(e.target.value);
+          const validIds = new Set(compatibleAmmunitionItems(c.attacks[i], c.inventory).map((item) => item.id));
+          c.attacks[i].ammunition_links = normalizeAmmunitionLinks(c.attacks[i].ammunition_links).filter((id2) => validIds.has(id2));
+          if (!c.attacks[i].ammunition_links.includes(c.attacks[i].selected_ammunition_id)) c.attacks[i].selected_ammunition_id = c.attacks[i].ammunition_links[0] || "";
+        });
+      }));
+      root2.querySelectorAll("[data-attack-ammo-qty]").forEach((el) => el.addEventListener("change", (e) => {
+        const itemId = e.target.getAttribute("data-attack-ammo-qty") || "";
+        actions.updateCharacter((c) => {
+          const item = (c.inventory || []).find((row) => row.id === itemId);
+          if (item) item.qty = Math.max(0, asInt(e.target.value, 0));
+        });
+      }));
+      root2.querySelectorAll("[data-attack-ammo-item-unlimited]").forEach((el) => el.addEventListener("change", (e) => {
+        const itemId = e.target.getAttribute("data-attack-ammo-item-unlimited") || "";
+        actions.updateCharacter((c) => {
+          const item = (c.inventory || []).find((row) => row.id === itemId);
+          if (item) item.unlimited_ammunition = Boolean(e.target.checked);
+        });
+      }));
+      root2.querySelectorAll("[data-attack-ammo-link]").forEach((el) => el.addEventListener("change", (e) => {
+        const [attackIndexRaw, linkIndexRaw] = (e.target.getAttribute("data-attack-ammo-link") || "").split(":");
+        const attackIndex = asInt(attackIndexRaw, -1);
+        const linkIndex = asInt(linkIndexRaw, -1);
+        actions.updateCharacter((c) => {
+          const attack = c.attacks?.[attackIndex];
+          if (!attack || linkIndex < 0) return;
+          const links = normalizeAmmunitionLinks(attack.ammunition_links);
+          if (e.target.value) links[linkIndex] = e.target.value;
+          else if (linkIndex < links.length) links.splice(linkIndex, 1);
+          attack.ammunition_links = normalizeAmmunitionLinks(links);
+          if (!attack.ammunition_links.includes(attack.selected_ammunition_id)) attack.selected_ammunition_id = attack.ammunition_links[0] || "";
+        });
+      }));
+      root2.querySelectorAll("[data-attack-new-ammo-add]").forEach((el) => el.addEventListener("click", (e) => {
+        const attackIndex = asInt(e.currentTarget.getAttribute("data-attack-new-ammo-add"), -1);
+        const nameInput = root2.querySelector(`[data-attack-new-ammo-name="${attackIndex}"]`);
+        const quantityInput = root2.querySelector(`[data-attack-new-ammo-qty="${attackIndex}"]`);
+        const typeInput = root2.querySelector(`[data-attack-new-ammo-type="${attackIndex}"]`);
+        const unlimitedInput = root2.querySelector(`[data-attack-new-ammo-unlimited="${attackIndex}"]`);
+        const name = (nameInput?.value || "").trim();
+        if (!name) {
+          nameInput?.setCustomValidity("Enter an ammunition name.");
+          nameInput?.reportValidity();
+          nameInput?.focus();
+          return;
+        }
+        nameInput.setCustomValidity("");
+        const id2 = crypto.randomUUID();
+        const quantity = Math.max(0, asInt(quantityInput?.value, 1));
+        const selectedType = normalizeAmmunitionType(typeInput?.value);
+        actions.updateCharacter((c) => {
+          const attack = c.attacks?.[attackIndex];
+          if (!attack) return;
+          const ammunitionType = selectedType || inferInventoryAmmunitionType({ name }) || inferWeaponAmmunitionType(attack) || "custom";
+          c.inventory = Array.isArray(c.inventory) ? c.inventory : [];
+          c.inventory.push({ id: id2, name, qty: quantity, notes: "", item_type: "ammunition", ammunition_type: ammunitionType, unlimited_ammunition: Boolean(unlimitedInput?.checked) });
+          attack.ammunition_links = normalizeAmmunitionLinks([...attack.ammunition_links || [], id2]);
+          attack.selected_ammunition_id = id2;
+        });
+      }));
       root2.querySelectorAll("[data-attack-del]").forEach((el) => el.addEventListener("click", (e) => {
         const i = asInt(e.currentTarget.getAttribute("data-attack-del"), -1);
         actions.updateCharacter((c) => {
@@ -10623,7 +11628,7 @@
       }));
       root2.querySelector("#invAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
         c.inventory = Array.isArray(c.inventory) ? c.inventory : [];
-        c.inventory.push({ id: crypto.randomUUID(), name: "", qty: 1, notes: "" });
+        c.inventory.push({ id: crypto.randomUUID(), name: "", qty: 1, notes: "", item_type: "item", ammunition_type: "" });
       }));
       root2.querySelectorAll("[data-inv-name]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-inv-name"), -1);
@@ -10637,6 +11642,37 @@
           if (c.inventory[i]) c.inventory[i].qty = Math.max(0, asInt(e.target.value, 1));
         });
       }));
+      root2.querySelectorAll("[data-inv-item-type]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-inv-item-type"), -1);
+        actions.updateCharacter((c) => {
+          const item = c.inventory?.[i];
+          if (!item) return;
+          item.item_type = e.target.value === "ammunition" ? "ammunition" : "item";
+          if (item.item_type === "item") {
+            item.ammunition_type = "";
+            item.unlimited_ammunition = false;
+            for (const attack of c.attacks || []) {
+              attack.ammunition_links = normalizeAmmunitionLinks(attack.ammunition_links).filter((id2) => id2 !== item.id);
+              if (attack.selected_ammunition_id === item.id) attack.selected_ammunition_id = attack.ammunition_links[0] || "";
+            }
+          }
+        });
+      }));
+      root2.querySelectorAll("[data-inv-ammo-type]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-inv-ammo-type"), -1);
+        actions.updateCharacter((c) => {
+          if (c.inventory[i]) {
+            c.inventory[i].ammunition_type = normalizeAmmunitionType(e.target.value);
+            c.inventory[i].item_type = "ammunition";
+          }
+        });
+      }));
+      root2.querySelectorAll("[data-inv-ammo-unlimited]").forEach((el) => el.addEventListener("change", (e) => {
+        const i = asInt(e.target.getAttribute("data-inv-ammo-unlimited"), -1);
+        actions.updateCharacter((c) => {
+          if (c.inventory[i]) c.inventory[i].unlimited_ammunition = Boolean(e.target.checked);
+        });
+      }));
       root2.querySelectorAll("[data-inv-notes]").forEach((el) => el.addEventListener("change", (e) => {
         const i = asInt(e.target.getAttribute("data-inv-notes"), -1);
         actions.updateCharacter((c) => {
@@ -10646,7 +11682,12 @@
       root2.querySelectorAll("[data-inv-del]").forEach((el) => el.addEventListener("click", (e) => {
         const i = asInt(e.currentTarget.getAttribute("data-inv-del"), -1);
         actions.updateCharacter((c) => {
+          const removedId = c.inventory?.[i]?.id;
           c.inventory.splice(i, 1);
+          for (const attack of c.attacks || []) {
+            attack.ammunition_links = normalizeAmmunitionLinks(attack.ammunition_links).filter((id2) => id2 !== removedId);
+            if (attack.selected_ammunition_id === removedId) attack.selected_ammunition_id = attack.ammunition_links[0] || "";
+          }
         });
       }));
       root2.querySelector("#trackerAdd")?.addEventListener("click", () => actions.updateCharacter((c) => {
@@ -10749,7 +11790,7 @@
         return;
       }
       if (uiState.palette.open) {
-        const list = visibleCommands();
+        const list2 = visibleCommands();
         if (e.key === "Escape") {
           uiState.palette.open = false;
           render();
@@ -10757,7 +11798,7 @@
         }
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          uiState.palette.selected = Math.min(list.length - 1, uiState.palette.selected + 1);
+          uiState.palette.selected = Math.min(list2.length - 1, uiState.palette.selected + 1);
           render();
           return;
         }
@@ -10769,7 +11810,7 @@
         }
         if (e.key === "Enter") {
           e.preventDefault();
-          const cmdRow = list[uiState.palette.selected];
+          const cmdRow = list2[uiState.palette.selected];
           if (cmdRow) runCommand(cmdRow.id);
           return;
         }
@@ -24322,6 +25363,4769 @@
     { id: "custom_attack", name: "Custom Attack", kind: "custom", damage_base: "", damage_type: "", range_short: 0, range_long: 0, reach: 5, properties: [], versatile_damage: "", notes: "Fully manual fallback row.", source: "Custom" }
   ];
 
+  // data/dnd5e_2014/companions.min.json
+  var companions_min_default = [
+    {
+      id: "mm-baboon",
+      name: "Baboon",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Baboon",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Baboon",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d6",
+        hp: {
+          max: 3,
+          current: 3,
+          temp: 0
+        },
+        abilities: {
+          str: 8,
+          dex: 14,
+          con: 11,
+          int: 4,
+          wis: 12,
+          cha: 6
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 0,
+          climb: 30,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "passive Perception 11",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 1,
+            damage_mode: "manual",
+            damage: "1d4-1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +1 to hit, reach 5 ft., one target. Hit: 1 (1d4 - 1) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Pack Tactics",
+            description: "The baboon has advantage on an attack roll against a creature if at least one of the baboon's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d6"
+      }
+    },
+    {
+      id: "mm-badger",
+      name: "Badger",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Badger",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Badger",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 3,
+          current: 3,
+          temp: 0
+        },
+        abilities: {
+          str: 4,
+          dex: 11,
+          con: 12,
+          int: 2,
+          wis: 12,
+          cha: 5
+        },
+        movement: {
+          walk: 20,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 5,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 30 ft., passive Perception 11",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 2,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +2 to hit, reach 5 ft., one target. Hit: 1 piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Smell",
+            description: "The badger has advantage on Wisdom (Perception) checks that rely on smell."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-bat",
+      name: "Bat",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Bat",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Bat",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 15,
+          con: 8,
+          int: 2,
+          wis: 12,
+          cha: 4
+        },
+        movement: {
+          walk: 5,
+          fly: 30,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Blindsight 60 ft., passive Perception 11",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 0,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +0 to hit, reach 5 ft., one creature. Hit: 1 piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Echolocation",
+            description: "The bat can't use its blindsight while deafened."
+          },
+          {
+            id: "trait-2",
+            name: "Keen Hearing",
+            description: "The bat has advantage on Wisdom (Perception) checks that rely on hearing."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "tce-primal-land",
+      name: "Beast of the Land",
+      source: "Tasha's Cauldron of Everything",
+      source_ref: "Tasha's Cauldron of Everything: Primal Companion",
+      template_kind: "primal_companion",
+      variant: "land",
+      tags: [
+        "beast_master",
+        "primal_companion"
+      ],
+      scaling: {
+        type: "ranger",
+        level_min: 3,
+        ac_base: 13,
+        hp_base: 5,
+        hp_per_level: 5,
+        damage_die: "1d8",
+        damage_flat: 2,
+        damage_adds_proficiency: true,
+        attack_uses_spell_modifier: true
+      },
+      stat_block: {
+        name: "Beast of the Land",
+        role: "beast_companion",
+        source: "Tasha's Cauldron of Everything",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 15,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        hp: {
+          max: 20,
+          current: 20,
+          temp: 0
+        },
+        abilities: {
+          str: 14,
+          dex: 14,
+          con: 15,
+          int: 8,
+          wis: 14,
+          cha: 11
+        },
+        movement: {
+          walk: 40,
+          climb: 40,
+          fly: 0,
+          swim: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 12",
+        languages: "Understands the languages you speak",
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Maul",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d8+4",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack using the ranger's spell attack modifier; damage adds PB."
+          }
+        ],
+        traits: [
+          {
+            name: "Charge",
+            description: "After moving at least 20 feet straight toward a target, a Maul hit deals an extra 1d6 slashing damage; the target may be knocked prone using the ranger's spell save DC."
+          },
+          {
+            name: "Primal Bond",
+            description: "Add the ranger's proficiency bonus to any ability check or saving throw the beast makes."
+          }
+        ],
+        notes: "AC, HP, attack bonus, and damage scale from ranger level, proficiency bonus, and spell attack modifier when added."
+      }
+    },
+    {
+      id: "tce-primal-sea",
+      name: "Beast of the Sea",
+      source: "Tasha's Cauldron of Everything",
+      source_ref: "Tasha's Cauldron of Everything: Primal Companion",
+      template_kind: "primal_companion",
+      variant: "sea",
+      tags: [
+        "beast_master",
+        "primal_companion"
+      ],
+      scaling: {
+        type: "ranger",
+        level_min: 3,
+        ac_base: 13,
+        hp_base: 5,
+        hp_per_level: 5,
+        damage_die: "1d6",
+        damage_flat: 2,
+        damage_adds_proficiency: true,
+        attack_uses_spell_modifier: true
+      },
+      stat_block: {
+        name: "Beast of the Sea",
+        role: "beast_companion",
+        source: "Tasha's Cauldron of Everything",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 15,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        hp: {
+          max: 20,
+          current: 20,
+          temp: 0
+        },
+        abilities: {
+          str: 14,
+          dex: 14,
+          con: 15,
+          int: 8,
+          wis: 14,
+          cha: 11
+        },
+        movement: {
+          walk: 5,
+          climb: 0,
+          fly: 0,
+          swim: 60,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 12",
+        languages: "Understands the languages you speak",
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Binding Strike",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d6+4",
+            damage_type: "Piercing or Bludgeoning",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack using the ranger's spell attack modifier; damage adds PB and the target is grappled using the ranger's spell save DC."
+          }
+        ],
+        traits: [
+          {
+            name: "Amphibious",
+            description: "The beast can breathe both air and water."
+          },
+          {
+            name: "Primal Bond",
+            description: "Add the ranger's proficiency bonus to any ability check or saving throw the beast makes."
+          }
+        ],
+        notes: "AC, HP, attack bonus, and damage scale from ranger level, proficiency bonus, and spell attack modifier when added."
+      }
+    },
+    {
+      id: "tce-primal-sky",
+      name: "Beast of the Sky",
+      source: "Tasha's Cauldron of Everything",
+      source_ref: "Tasha's Cauldron of Everything: Primal Companion",
+      template_kind: "primal_companion",
+      variant: "sky",
+      tags: [
+        "beast_master",
+        "primal_companion"
+      ],
+      scaling: {
+        type: "ranger",
+        level_min: 3,
+        ac_base: 13,
+        hp_base: 4,
+        hp_per_level: 4,
+        damage_die: "1d4",
+        damage_flat: 3,
+        damage_adds_proficiency: true,
+        attack_uses_spell_modifier: true
+      },
+      stat_block: {
+        name: "Beast of the Sky",
+        role: "beast_companion",
+        source: "Tasha's Cauldron of Everything",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 15,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        hp: {
+          max: 16,
+          current: 16,
+          temp: 0
+        },
+        abilities: {
+          str: 6,
+          dex: 16,
+          con: 13,
+          int: 8,
+          wis: 14,
+          cha: 11
+        },
+        movement: {
+          walk: 10,
+          climb: 0,
+          fly: 60,
+          swim: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 12",
+        languages: "Understands the languages you speak",
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Shred",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d4+5",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack using the ranger's spell attack modifier; damage adds PB."
+          }
+        ],
+        traits: [
+          {
+            name: "Flyby",
+            description: "The beast doesn't provoke opportunity attacks when it flies out of an enemy's reach."
+          },
+          {
+            name: "Primal Bond",
+            description: "Add the ranger's proficiency bonus to any ability check or saving throw the beast makes."
+          }
+        ],
+        notes: "AC, HP, attack bonus, and damage scale from ranger level, proficiency bonus, and spell attack modifier when added."
+      }
+    },
+    {
+      id: "tce-summon-beast-air",
+      name: "Bestial Spirit \u2014 Air",
+      source: "Tasha's Cauldron of Everything",
+      source_ref: "Tasha's Cauldron of Everything: Summon Beast",
+      template_kind: "summon_beast",
+      variant: "air",
+      tags: [
+        "summon",
+        "summon_beast"
+      ],
+      scaling: {
+        type: "spell_slot",
+        level_min: 2,
+        ac_base: 11,
+        hp_base: 20,
+        hp_per_level_above_min: 5,
+        damage_die: "1d8",
+        damage_flat: 4,
+        damage_adds_spell_level: true,
+        attack_uses_spell_modifier: true
+      },
+      stat_block: {
+        name: "Bestial Spirit \u2014 Air",
+        role: "summon",
+        source: "Tasha's Cauldron of Everything",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "temporary",
+        status: "active",
+        duration: "Concentration, up to 1 hour",
+        rounds_remaining: 600,
+        ac: 13,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        hp: {
+          max: 20,
+          current: 20,
+          temp: 0
+        },
+        abilities: {
+          str: 18,
+          dex: 11,
+          con: 16,
+          int: 4,
+          wis: 14,
+          cha: 5
+        },
+        movement: {
+          walk: 30,
+          climb: 0,
+          fly: 60,
+          swim: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 12",
+        languages: "Understands the languages you speak",
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Maul",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d8+6",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack using your spell attack modifier; damage adds the spell's level."
+          }
+        ],
+        actions: [
+          {
+            id: "action-1",
+            name: "Multiattack",
+            description: "Makes a number of attacks equal to half the spell's level, rounded down."
+          }
+        ],
+        traits: [
+          {
+            name: "Flyby",
+            description: "The beast doesn't provoke opportunity attacks when it flies out of an enemy's reach."
+          }
+        ],
+        notes: "AC, HP, attack count, and damage scale from the spell slot level when added."
+      }
+    },
+    {
+      id: "tce-summon-beast-land",
+      name: "Bestial Spirit \u2014 Land",
+      source: "Tasha's Cauldron of Everything",
+      source_ref: "Tasha's Cauldron of Everything: Summon Beast",
+      template_kind: "summon_beast",
+      variant: "land",
+      tags: [
+        "summon",
+        "summon_beast"
+      ],
+      scaling: {
+        type: "spell_slot",
+        level_min: 2,
+        ac_base: 11,
+        hp_base: 30,
+        hp_per_level_above_min: 5,
+        damage_die: "1d8",
+        damage_flat: 4,
+        damage_adds_spell_level: true,
+        attack_uses_spell_modifier: true
+      },
+      stat_block: {
+        name: "Bestial Spirit \u2014 Land",
+        role: "summon",
+        source: "Tasha's Cauldron of Everything",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "temporary",
+        status: "active",
+        duration: "Concentration, up to 1 hour",
+        rounds_remaining: 600,
+        ac: 13,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        hp: {
+          max: 30,
+          current: 30,
+          temp: 0
+        },
+        abilities: {
+          str: 18,
+          dex: 11,
+          con: 16,
+          int: 4,
+          wis: 14,
+          cha: 5
+        },
+        movement: {
+          walk: 30,
+          climb: 30,
+          fly: 0,
+          swim: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 12",
+        languages: "Understands the languages you speak",
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Maul",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d8+6",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack using your spell attack modifier; damage adds the spell's level."
+          }
+        ],
+        actions: [
+          {
+            id: "action-1",
+            name: "Multiattack",
+            description: "Makes a number of attacks equal to half the spell's level, rounded down."
+          }
+        ],
+        traits: [
+          {
+            name: "Pack Tactics",
+            description: "The beast has advantage on an attack roll if an ally is within 5 feet of the target and isn't incapacitated."
+          }
+        ],
+        notes: "AC, HP, attack count, and damage scale from the spell slot level when added."
+      }
+    },
+    {
+      id: "tce-summon-beast-water",
+      name: "Bestial Spirit \u2014 Water",
+      source: "Tasha's Cauldron of Everything",
+      source_ref: "Tasha's Cauldron of Everything: Summon Beast",
+      template_kind: "summon_beast",
+      variant: "water",
+      tags: [
+        "summon",
+        "summon_beast"
+      ],
+      scaling: {
+        type: "spell_slot",
+        level_min: 2,
+        ac_base: 11,
+        hp_base: 30,
+        hp_per_level_above_min: 5,
+        damage_die: "1d8",
+        damage_flat: 4,
+        damage_adds_spell_level: true,
+        attack_uses_spell_modifier: true
+      },
+      stat_block: {
+        name: "Bestial Spirit \u2014 Water",
+        role: "summon",
+        source: "Tasha's Cauldron of Everything",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "temporary",
+        status: "active",
+        duration: "Concentration, up to 1 hour",
+        rounds_remaining: 600,
+        ac: 13,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        hp: {
+          max: 30,
+          current: 30,
+          temp: 0
+        },
+        abilities: {
+          str: 18,
+          dex: 11,
+          con: 16,
+          int: 4,
+          wis: 14,
+          cha: 5
+        },
+        movement: {
+          walk: 30,
+          climb: 0,
+          fly: 0,
+          swim: 30,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 12",
+        languages: "Understands the languages you speak",
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Maul",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d8+6",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack using your spell attack modifier; damage adds the spell's level."
+          }
+        ],
+        actions: [
+          {
+            id: "action-1",
+            name: "Multiattack",
+            description: "Makes a number of attacks equal to half the spell's level, rounded down."
+          }
+        ],
+        traits: [
+          {
+            name: "Pack Tactics",
+            description: "The beast has advantage on an attack roll if an ally is within 5 feet of the target and isn't incapacitated."
+          },
+          {
+            name: "Water Breathing",
+            description: "The beast can breathe only underwater."
+          }
+        ],
+        notes: "AC, HP, attack count, and damage scale from the spell slot level when added."
+      }
+    },
+    {
+      id: "mm-blood-hawk",
+      name: "Blood Hawk",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Blood Hawk",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Blood Hawk",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "2d6",
+        hp: {
+          max: 7,
+          current: 7,
+          temp: 0
+        },
+        abilities: {
+          str: 6,
+          dex: 14,
+          con: 10,
+          int: 3,
+          wis: 14,
+          cha: 5
+        },
+        movement: {
+          walk: 10,
+          fly: 60,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 4
+          }
+        ],
+        senses: "passive Perception 14",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Beak",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d4+2",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 4 (1d4 + 2) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Sight",
+            description: "The hawk has advantage on Wisdom (Perception) checks that rely on sight."
+          },
+          {
+            id: "trait-2",
+            name: "Pack Tactics",
+            description: "The hawk has advantage on an attack roll against a creature if at least one of the hawk's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 2d6"
+      }
+    },
+    {
+      id: "mm-boar",
+      name: "Boar",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Boar",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Boar",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "2d8",
+        hp: {
+          max: 11,
+          current: 11,
+          temp: 0
+        },
+        abilities: {
+          str: 13,
+          dex: 11,
+          con: 12,
+          int: 2,
+          wis: 9,
+          cha: 5
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "passive Perception 9",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Tusk",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1d6+1",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 4 (1d6 + 1) slashing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Charge",
+            description: "If the boar moves at least 20 ft. straight toward a target and then hits it with a tusk attack on the same turn, the target takes an extra 3 (1d6) slashing damage. If the target is a creature, it must succeed on a DC 11 Strength saving throw or be knocked prone."
+          },
+          {
+            id: "trait-2",
+            name: "Relentless",
+            description: "If the boar takes 7 damage or less that would reduce it to 0 hit points, it is reduced to 1 hit point instead."
+          }
+        ],
+        notes: "Challenge 0.25 \xB7 Hit Dice 2d8"
+      }
+    },
+    {
+      id: "mm-cat",
+      name: "Cat",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Cat",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Cat",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 2,
+          current: 2,
+          temp: 0
+        },
+        abilities: {
+          str: 3,
+          dex: 15,
+          con: 10,
+          int: 3,
+          wis: 12,
+          cha: 7
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 30,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 4
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Claws",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 0,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +0 to hit, reach 5 ft., one target. Hit: 1 slashing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Smell",
+            description: "The cat has advantage on Wisdom (Perception) checks that rely on smell."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-crab",
+      name: "Crab",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Crab",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Crab",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 2,
+          current: 2,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 11,
+          con: 10,
+          int: 1,
+          wis: 8,
+          cha: 2
+        },
+        movement: {
+          walk: 20,
+          fly: 0,
+          swim: 20,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Stealth",
+            bonus: 2
+          }
+        ],
+        senses: "Blindsight 30 ft., passive Perception 9",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Claw",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 0,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Bludgeoning",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +0 to hit, reach 5 ft., one target. Hit: 1 bludgeoning damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Amphibious",
+            description: "The crab can breathe air and water."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-deer",
+      name: "Deer",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Deer",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Deer",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d8",
+        hp: {
+          max: 4,
+          current: 4,
+          temp: 0
+        },
+        abilities: {
+          str: 11,
+          dex: 16,
+          con: 11,
+          int: 2,
+          wis: 14,
+          cha: 5
+        },
+        movement: {
+          walk: 50,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "passive Perception 12",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 2,
+            damage_mode: "manual",
+            damage: "1d4",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +2 to hit, reach 5 ft., one target. Hit: 2 (1d4) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0 \xB7 Hit Dice 1d8"
+      }
+    },
+    {
+      id: "mm-eagle",
+      name: "Eagle",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Eagle",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Eagle",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d6",
+        hp: {
+          max: 3,
+          current: 3,
+          temp: 0
+        },
+        abilities: {
+          str: 6,
+          dex: 15,
+          con: 10,
+          int: 2,
+          wis: 14,
+          cha: 7
+        },
+        movement: {
+          walk: 10,
+          fly: 60,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 4
+          }
+        ],
+        senses: "passive Perception 14",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Talons",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d4+2",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 4 (1d4 + 2) slashing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Sight",
+            description: "The eagle has advantage on Wisdom (Perception) checks that rely on sight."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d6"
+      }
+    },
+    {
+      id: "mm-flying-snake",
+      name: "Flying Snake",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Flying Snake",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Flying Snake",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 14,
+        initiative_bonus: 4,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "2d4",
+        hp: {
+          max: 5,
+          current: 5,
+          temp: 0
+        },
+        abilities: {
+          str: 4,
+          dex: 18,
+          con: 11,
+          int: 2,
+          wis: 12,
+          cha: 5
+        },
+        movement: {
+          walk: 30,
+          fly: 60,
+          swim: 30,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Blindsight 10 ft., passive Perception 11",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 6,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +6 to hit, reach 5 ft., one target. Hit: 1 piercing damage plus 7 (3d4) poison damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Flyby",
+            description: "The snake doesn't provoke opportunity attacks when it flies out of an enemy's reach."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 2d4"
+      }
+    },
+    {
+      id: "mm-frog",
+      name: "Frog",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Frog",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Frog",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 1,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 1,
+          dex: 13,
+          con: 8,
+          int: 1,
+          wis: 8,
+          cha: 3
+        },
+        movement: {
+          walk: 20,
+          fly: 0,
+          swim: 20,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 1
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 3
+          }
+        ],
+        senses: "Darkvision 30 ft., passive Perception 11",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Amphibious",
+            description: "The frog can breathe air and water"
+          },
+          {
+            id: "trait-2",
+            name: "Standing Leap",
+            description: "The frog's long jump is up to 10 ft. and its high jump is up to 5 ft., with or without a running start."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-giant-badger",
+      name: "Giant Badger",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Badger",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Giant Badger",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "2d8",
+        hp: {
+          max: 13,
+          current: 13,
+          temp: 0
+        },
+        abilities: {
+          str: 13,
+          dex: 10,
+          con: 15,
+          int: 2,
+          wis: 12,
+          cha: 5
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 10,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 30 ft., passive Perception 11",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1d6+1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 4 (1d6 + 1) piercing damage."
+          },
+          {
+            id: "attack-2",
+            name: "Claws",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "2d4+1",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 6 (2d4 + 1) slashing damage."
+          }
+        ],
+        actions: [
+          {
+            id: "action-1",
+            name: "Multiattack",
+            description: "The badger makes two attacks: one with its bite and one with its claws."
+          }
+        ],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Smell",
+            description: "The badger has advantage on Wisdom (Perception) checks that rely on smell."
+          }
+        ],
+        notes: "Challenge 0.25 \xB7 Hit Dice 2d8"
+      }
+    },
+    {
+      id: "mm-giant-centipede",
+      name: "Giant Centipede",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Centipede",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Giant Centipede",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "1d6",
+        hp: {
+          max: 4,
+          current: 4,
+          temp: 0
+        },
+        abilities: {
+          str: 5,
+          dex: 14,
+          con: 12,
+          int: 1,
+          wis: 7,
+          cha: 3
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 0,
+          climb: 30,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Blindsight 30 ft., passive Perception 8",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d4+2",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one creature. Hit: 4 (1d4 + 2) piercing damage, and the target must succeed on a DC 11 Constitution saving throw or take 10 (3d6) poison damage. If the poison damage reduces the target to 0 hit points, the target is stable but poisoned for 1 hour, even after regaining hit points, and is paralyzed while poisoned in this way."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0.25 \xB7 Hit Dice 1d6"
+      }
+    },
+    {
+      id: "mm-giant-crab",
+      name: "Giant Crab",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Crab",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Giant Crab",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 15,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "3d8",
+        hp: {
+          max: 13,
+          current: 13,
+          temp: 0
+        },
+        abilities: {
+          str: 13,
+          dex: 15,
+          con: 11,
+          int: 1,
+          wis: 9,
+          cha: 3
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 30,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Stealth",
+            bonus: 4
+          }
+        ],
+        senses: "Blindsight 30 ft., passive Perception 9",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Claw",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1d6+1",
+            damage_type: "Bludgeoning",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 4 (1d6 + 1) bludgeoning damage, and the target is grappled (escape DC 11). The crab has two claws, each of which can grapple only one target."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Amphibious",
+            description: "The crab can breathe air and water."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 3d8"
+      }
+    },
+    {
+      id: "mm-giant-fire-beetle",
+      name: "Giant Fire Beetle",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Fire Beetle",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Giant Fire Beetle",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d6",
+        hp: {
+          max: 4,
+          current: 4,
+          temp: 0
+        },
+        abilities: {
+          str: 8,
+          dex: 10,
+          con: 12,
+          int: 1,
+          wis: 7,
+          cha: 3
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Blindsight 30 ft., passive Perception 8",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 1,
+            damage_mode: "manual",
+            damage: "1d6-1",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +1 to hit, reach 5 ft., one target. Hit: 2 (1d6 - 1) slashing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Illumination",
+            description: "The beetle sheds bright light in a 10-foot radius and dim light for an additional 10 ft.."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d6"
+      }
+    },
+    {
+      id: "mm-giant-frog",
+      name: "Giant Frog",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Frog",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Giant Frog",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 1,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "4d8",
+        hp: {
+          max: 18,
+          current: 18,
+          temp: 0
+        },
+        abilities: {
+          str: 12,
+          dex: 13,
+          con: 11,
+          int: 2,
+          wis: 10,
+          cha: 3
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 30,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 2
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 3
+          }
+        ],
+        senses: "Darkvision 30 ft., passive Perception 12",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1d6+1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 4 (1d6 + 1) piercing damage, and the target is grappled (escape DC 11). Until this grapple ends, the target is restrained, and the frog can't bite another target."
+          }
+        ],
+        actions: [
+          {
+            id: "action-1",
+            name: "Swallow",
+            description: "The frog makes one bite attack against a Small or smaller target it is grappling. If the attack hits, the target is swallowed, and the grapple ends. The swallowed target is blinded and restrained, it has total cover against attacks and other effects outside the frog, and it takes 5 (2d4) acid damage at the start of each of the frog's turns. The frog can have only one target swallowed at a time. If the frog dies, a swallowed creature is no longer restrained by it and can escape from the corpse using 5 ft. of movement, exiting prone."
+          }
+        ],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Amphibious",
+            description: "The frog can breathe air and water"
+          },
+          {
+            id: "trait-2",
+            name: "Standing Leap",
+            description: "The frog's long jump is up to 20 ft. and its high jump is up to 10 ft., with or without a running start."
+          }
+        ],
+        notes: "Challenge 0.25 \xB7 Hit Dice 4d8"
+      }
+    },
+    {
+      id: "mm-giant-poisonous-snake",
+      name: "Giant Poisonous Snake",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Poisonous Snake",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Giant Poisonous Snake",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 14,
+        initiative_bonus: 4,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "2d8",
+        hp: {
+          max: 11,
+          current: 11,
+          temp: 0
+        },
+        abilities: {
+          str: 10,
+          dex: 18,
+          con: 13,
+          int: 2,
+          wis: 10,
+          cha: 3
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 30,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 2
+          }
+        ],
+        senses: "Blindsight 10 ft., passive Perception 12",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 6,
+            damage_mode: "manual",
+            damage: "1d4+4",
+            damage_type: "Piercing",
+            range: "Reach 10 ft.",
+            reach: 10,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +6 to hit, reach 10 ft., one target. Hit: 6 (1d4 + 4) piercing damage, and the target must make a DC 11 Constitution saving throw, taking 10 (3d6) poison damage on a failed save, or half as much damage on a successful one."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0.25 \xB7 Hit Dice 2d8"
+      }
+    },
+    {
+      id: "mm-giant-rat",
+      name: "Giant Rat",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Rat",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Giant Rat",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "2d6",
+        hp: {
+          max: 7,
+          current: 7,
+          temp: 0
+        },
+        abilities: {
+          str: 7,
+          dex: 15,
+          con: 11,
+          int: 2,
+          wis: 10,
+          cha: 4
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d4+2",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 4 (1d4 + 2) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Smell",
+            description: "The rat has advantage on Wisdom (Perception) checks that rely on smell."
+          },
+          {
+            id: "trait-2",
+            name: "Pack Tactics",
+            description: "The rat has advantage on an attack roll against a creature if at least one of the rat's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 2d6"
+      }
+    },
+    {
+      id: "mm-giant-rat-diseased",
+      name: "Giant Rat (Diseased)",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Rat (Diseased)",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Giant Rat (Diseased)",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "2d6",
+        hp: {
+          max: 7,
+          current: 7,
+          temp: 0
+        },
+        abilities: {
+          str: 7,
+          dex: 15,
+          con: 11,
+          int: 2,
+          wis: 10,
+          cha: 4
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d4+2",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 3 (1d4 + 2) piercing damage. If the target is a creature, it must succeed on a DC 10 Constitution saving throw or contract a disease. Until the disease is cured, the target can't regain hit points except by magical means, and the target's hit point maximum decreases by 3 (1d6) every 24 hours. If the target's hit point maximum drops to 0 as a result of this disease, the target dies."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Smell",
+            description: "The rat has advantage on Wisdom (Perception) checks that rely on smell."
+          },
+          {
+            id: "trait-2",
+            name: "Pack Tactics",
+            description: "The rat has advantage on an attack roll against a creature if at least one of the rat's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 2d6"
+      }
+    },
+    {
+      id: "mm-giant-weasel",
+      name: "Giant Weasel",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Weasel",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Giant Weasel",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "2d8",
+        hp: {
+          max: 9,
+          current: 9,
+          temp: 0
+        },
+        abilities: {
+          str: 11,
+          dex: 16,
+          con: 10,
+          int: 4,
+          wis: 12,
+          cha: 5
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 5
+          }
+        ],
+        senses: "Darkvision 60 ft., passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 5,
+            damage_mode: "manual",
+            damage: "1d4+3",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 5 (1d4 + 3) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Hearing and Smell",
+            description: "The weasel has advantage on Wisdom (Perception) checks that rely on hearing or smell."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 2d8"
+      }
+    },
+    {
+      id: "mm-giant-wolf-spider",
+      name: "Giant Wolf Spider",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Giant Wolf Spider",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Giant Wolf Spider",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "2d8",
+        hp: {
+          max: 11,
+          current: 11,
+          temp: 0
+        },
+        abilities: {
+          str: 12,
+          dex: 16,
+          con: 13,
+          int: 3,
+          wis: 12,
+          cha: 4
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 40,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 7
+          }
+        ],
+        senses: "Blindsight 10 ft., Darkvision 60 ft., passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1d6+1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one creature. Hit: 4 (1d6 + 1) piercing damage, and the target must make a DC 11 Constitution saving throw, taking 7 (2d6) poison damage on a failed save, or half as much damage on a successful one. If the poison damage reduces the target to 0 hit points, the target is stable but poisoned for 1 hour, even after regaining hit points, and is paralyzed while poisoned in this way."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Spider Climb",
+            description: "The spider can climb difficult surfaces, including upside down on ceilings, without needing to make an ability check."
+          },
+          {
+            id: "trait-2",
+            name: "Web Sense",
+            description: "While in contact with a web, the spider knows the exact location of any other creature in contact with the same web."
+          },
+          {
+            id: "trait-3",
+            name: "Web Walker",
+            description: "The spider ignores movement restrictions caused by webbing."
+          }
+        ],
+        notes: "Challenge 0.25 \xB7 Hit Dice 2d8"
+      }
+    },
+    {
+      id: "mm-goat",
+      name: "Goat",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Goat",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Goat",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d8",
+        hp: {
+          max: 4,
+          current: 4,
+          temp: 0
+        },
+        abilities: {
+          str: 12,
+          dex: 10,
+          con: 11,
+          int: 2,
+          wis: 10,
+          cha: 5
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Ram",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1d4+1",
+            damage_type: "Bludgeoning",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 3 (1d4 + 1) bludgeoning damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Charge",
+            description: "If the goat moves at least 20 ft. straight toward a target and then hits it with a ram attack on the same turn, the target takes an extra 2 (1d4) bludgeoning damage. If the target is a creature, it must succeed on a DC 10 Strength saving throw or be knocked prone."
+          },
+          {
+            id: "trait-2",
+            name: "Sure-Footed",
+            description: "The goat has advantage on Strength and Dexterity saving throws made against effects that would knock it prone."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d8"
+      }
+    },
+    {
+      id: "mm-hawk",
+      name: "Hawk",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Hawk",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Hawk",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 5,
+          dex: 16,
+          con: 8,
+          int: 2,
+          wis: 14,
+          cha: 6
+        },
+        movement: {
+          walk: 10,
+          fly: 60,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 4
+          }
+        ],
+        senses: "passive Perception 14",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Talons",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 5,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 1 slashing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Sight",
+            description: "The hawk has advantage on Wisdom (Perception) checks that rely on sight."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-hyena",
+      name: "Hyena",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Hyena",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Hyena",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 1,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d8",
+        hp: {
+          max: 5,
+          current: 5,
+          temp: 0
+        },
+        abilities: {
+          str: 11,
+          dex: 13,
+          con: 12,
+          int: 2,
+          wis: 12,
+          cha: 5
+        },
+        movement: {
+          walk: 50,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 2,
+            damage_mode: "manual",
+            damage: "1d6",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +2 to hit, reach 5 ft., one target. Hit: 3 (1d6) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Pack Tactics",
+            description: "The hyena has advantage on an attack roll against a creature if at least one of the hyena's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d8"
+      }
+    },
+    {
+      id: "mm-jackal",
+      name: "Jackal",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Jackal",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Jackal",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d6",
+        hp: {
+          max: 3,
+          current: 3,
+          temp: 0
+        },
+        abilities: {
+          str: 8,
+          dex: 15,
+          con: 11,
+          int: 3,
+          wis: 12,
+          cha: 6
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 1,
+            damage_mode: "manual",
+            damage: "1d4-1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +1 to hit, reach 5 ft., one target. Hit: 1 (1d4 - 1) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Hearing and Smell",
+            description: "The jackal has advantage on Wisdom (Perception) checks that rely on hearing or smell."
+          },
+          {
+            id: "trait-2",
+            name: "Pack Tactics",
+            description: "The jackal has advantage on an attack roll against a creature if at least one of the jackal's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d6"
+      }
+    },
+    {
+      id: "mm-lizard",
+      name: "Lizard",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Lizard",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Lizard",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 2,
+          current: 2,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 11,
+          con: 10,
+          int: 1,
+          wis: 8,
+          cha: 3
+        },
+        movement: {
+          walk: 20,
+          fly: 0,
+          swim: 0,
+          climb: 20,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 30 ft., passive Perception 9",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 0,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +0 to hit, reach 5 ft., one target. Hit: 1 piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-mastiff",
+      name: "Mastiff",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Mastiff",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Mastiff",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "1d8",
+        hp: {
+          max: 5,
+          current: 5,
+          temp: 0
+        },
+        abilities: {
+          str: 13,
+          dex: 14,
+          con: 12,
+          int: 3,
+          wis: 12,
+          cha: 7
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1d6+1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 4 (1d6 + 1) piercing damage. If the target is a creature, it must succeed on a DC 11 Strength saving throw or be knocked prone."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Hearing and Smell",
+            description: "The mastiff has advantage on Wisdom (Perception) checks that rely on hearing or smell."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 1d8"
+      }
+    },
+    {
+      id: "mm-mule",
+      name: "Mule",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Mule",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Mule",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "2d8",
+        hp: {
+          max: 11,
+          current: 11,
+          temp: 0
+        },
+        abilities: {
+          str: 14,
+          dex: 10,
+          con: 13,
+          int: 2,
+          wis: 10,
+          cha: 5
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Hooves",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 2,
+            damage_mode: "manual",
+            damage: "1d4+2",
+            damage_type: "Bludgeoning",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +2 to hit, reach 5 ft., one target. Hit: 4 (1d4 + 2) bludgeoning damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Beast of Burden",
+            description: "The mule is considered to be a Large animal for the purpose of determining its carrying capacity."
+          },
+          {
+            id: "trait-2",
+            name: "Sure-Footed",
+            description: "The mule has advantage on Strength and Dexterity saving throws made against effects that would knock it prone."
+          }
+        ],
+        notes: "Challenge 0.125 \xB7 Hit Dice 2d8"
+      }
+    },
+    {
+      id: "mm-octopus",
+      name: "Octopus",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Octopus",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Octopus",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Small",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d6",
+        hp: {
+          max: 3,
+          current: 3,
+          temp: 0
+        },
+        abilities: {
+          str: 4,
+          dex: 15,
+          con: 11,
+          int: 3,
+          wis: 10,
+          cha: 4
+        },
+        movement: {
+          walk: 5,
+          fly: 0,
+          swim: 30,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 2
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 4
+          }
+        ],
+        senses: "Darkvision 30 ft., passive Perception 12",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Tentacles",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Bludgeoning",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 1 bludgeoning damage, and the target is grappled (escape DC 10). Until this grapple ends, the octopus can't use its tentacles on another target."
+          },
+          {
+            id: "attack-2",
+            name: "Ink Cloud",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 0,
+            damage_mode: "manual",
+            damage: "",
+            damage_type: "",
+            range: "",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "A 5-foot-radius cloud of ink extends all around the octopus if it is underwater. The area is heavily obscured for 1 minute, although a significant current can disperse the ink. After releasing the ink, the octopus can use the Dash action as a bonus action."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Hold Breath",
+            description: "While out of water, the octopus can hold its breath for 30 minutes."
+          },
+          {
+            id: "trait-2",
+            name: "Underwater Camouflage",
+            description: "The octopus has advantage on Dexterity (Stealth) checks made while underwater."
+          },
+          {
+            id: "trait-3",
+            name: "Water Breathing",
+            description: "The octopus can breathe only underwater."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d6"
+      }
+    },
+    {
+      id: "mm-owl",
+      name: "Owl",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Owl",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Owl",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 1,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 3,
+          dex: 13,
+          con: 8,
+          int: 2,
+          wis: 12,
+          cha: 7
+        },
+        movement: {
+          walk: 5,
+          fly: 60,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 3
+          }
+        ],
+        senses: "Darkvision 120 ft., passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Talons",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 3,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 1 slashing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Flyby",
+            description: "The owl doesn't provoke opportunity attacks when it flies out of an enemy's reach."
+          },
+          {
+            id: "trait-2",
+            name: "Keen Hearing and Sight",
+            description: "The owl has advantage on Wisdom (Perception) checks that rely on hearing or sight."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-panther",
+      name: "Panther",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Panther",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Panther",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "3d8",
+        hp: {
+          max: 13,
+          current: 13,
+          temp: 0
+        },
+        abilities: {
+          str: 14,
+          dex: 15,
+          con: 10,
+          int: 3,
+          wis: 14,
+          cha: 7
+        },
+        movement: {
+          walk: 50,
+          fly: 0,
+          swim: 0,
+          climb: 40,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 4
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 6
+          }
+        ],
+        senses: "passive Perception 14",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d6+2",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 5 (1d6 + 2) piercing damage."
+          },
+          {
+            id: "attack-2",
+            name: "Claw",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1d4+2",
+            damage_type: "Slashing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 4 (1d4 + 2) slashing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Smell",
+            description: "The panther has advantage on Wisdom (Perception) checks that rely on smell."
+          },
+          {
+            id: "trait-2",
+            name: "Pounce",
+            description: "If the panther moves at least 20 ft. straight toward a creature and then hits it with a claw attack on the same turn, that target must succeed on a DC 12 Strength saving throw or be knocked prone. If the target is prone, the panther can make one bite attack against it as a bonus action."
+          }
+        ],
+        notes: "Challenge 0.25 \xB7 Hit Dice 3d8"
+      }
+    },
+    {
+      id: "mm-poisonous-snake",
+      name: "Poisonous Snake",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Poisonous Snake",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Poisonous Snake",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "1d4",
+        hp: {
+          max: 2,
+          current: 2,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 16,
+          con: 11,
+          int: 1,
+          wis: 10,
+          cha: 3
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 30,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Blindsight 10 ft., passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 5,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 1 piercing damage, and the target must make a DC 10 Constitution saving throw, taking 5 (2d4) poison damage on a failed save, or half as much damage on a successful one."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0.125 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-pony",
+      name: "Pony",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Pony",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Pony",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "2d8",
+        hp: {
+          max: 11,
+          current: 11,
+          temp: 0
+        },
+        abilities: {
+          str: 15,
+          dex: 10,
+          con: 13,
+          int: 2,
+          wis: 11,
+          cha: 7
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Hooves",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "2d4+2",
+            damage_type: "Bludgeoning",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 7 (2d4 + 2) bludgeoning damage."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0.125 \xB7 Hit Dice 2d8"
+      }
+    },
+    {
+      id: "mm-quipper",
+      name: "Quipper",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Quipper",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Quipper",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 16,
+          con: 9,
+          int: 1,
+          wis: 7,
+          cha: 2
+        },
+        movement: {
+          walk: 0,
+          fly: 0,
+          swim: 40,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 8",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 5,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 1 piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Blood Frenzy",
+            description: "The quipper has advantage on melee attack rolls against any creature that doesn't have all its hit points."
+          },
+          {
+            id: "trait-2",
+            name: "Water Breathing",
+            description: "The quipper can breathe only underwater."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-rat",
+      name: "Rat",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Rat",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Rat",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 11,
+          con: 9,
+          int: 2,
+          wis: 10,
+          cha: 4
+        },
+        movement: {
+          walk: 20,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 30 ft., passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 0,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +0 to hit, reach 5 ft., one target. Hit: 1 piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Smell",
+            description: "The rat has advantage on Wisdom (Perception) checks that rely on smell."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-raven",
+      name: "Raven",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Raven",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Raven",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 14,
+          con: 8,
+          int: 2,
+          wis: 12,
+          cha: 6
+        },
+        movement: {
+          walk: 10,
+          fly: 50,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Beak",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 1 piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Mimicry",
+            description: "The raven can mimic simple sounds it has heard, such as a person whispering, a baby crying, or an animal chittering. A creature that hears the sounds can tell they are imitations with a successful DC 10 Wisdom (Insight) check."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-scorpion",
+      name: "Scorpion",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Scorpion",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Scorpion",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 11,
+          con: 8,
+          int: 1,
+          wis: 8,
+          cha: 2
+        },
+        movement: {
+          walk: 10,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Blindsight 10 ft., passive Perception 9",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Sting",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 2,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +2 to hit, reach 5 ft., one creature. Hit: 1 piercing damage, and the target must make a DC 9 Constitution saving throw, taking 4 (1d8) poison damage on a failed save, or half as much damage on a successful one."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-sea-horse",
+      name: "Sea Horse",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Sea Horse",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Sea Horse",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 11,
+        initiative_bonus: 1,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 1,
+          dex: 12,
+          con: 8,
+          int: 1,
+          wis: 10,
+          cha: 2
+        },
+        movement: {
+          walk: 0,
+          fly: 0,
+          swim: 20,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "passive Perception 10",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Water Breathing",
+            description: "The sea horse can breathe only underwater."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-spider",
+      name: "Spider",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Spider",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Spider",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 12,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 2,
+          dex: 14,
+          con: 8,
+          int: 1,
+          wis: 10,
+          cha: 2
+        },
+        movement: {
+          walk: 20,
+          fly: 0,
+          swim: 0,
+          climb: 20,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Stealth",
+            bonus: 4
+          }
+        ],
+        senses: "Darkvision 30 ft., passive Perception 12",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one creature. Hit: 1 piercing damage, and the target must succeed on a DC 9 Constitution saving throw or take 2 (1d4) poison damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Spider Climb",
+            description: "The spider can climb difficult surfaces, including upside down on ceilings, without needing to make an ability check."
+          },
+          {
+            id: "trait-2",
+            name: "Web Sense",
+            description: "While in contact with a web, the spider knows the exact location of any other creature in contact with the same web."
+          },
+          {
+            id: "trait-3",
+            name: "Web Walker",
+            description: "The spider ignores movement restrictions caused by webbing."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-stirge",
+      name: "Stirge",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Stirge",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.125",
+      stat_block: {
+        name: "Stirge",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 14,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0.125",
+        hit_dice: "1d4",
+        hp: {
+          max: 2,
+          current: 2,
+          temp: 0
+        },
+        abilities: {
+          str: 4,
+          dex: 16,
+          con: 11,
+          int: 2,
+          wis: 8,
+          cha: 6
+        },
+        movement: {
+          walk: 10,
+          fly: 40,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [],
+        senses: "Darkvision 60 ft., passive Perception 9",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Blood Drain",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 5,
+            damage_mode: "manual",
+            damage: "1d4+3",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +5 to hit, reach 5 ft., one creature. Hit: 5 (1d4 + 3) piercing damage, and the stirge attaches to the target. While attached, the stirge doesn't attack. Instead, at the start of each of the stirge's turns, the target loses 5 (1d4 + 3) hit points due to blood loss.\nThe stirge can detach itself by spending 5 feet of its movement. It does so after it drains 10 hit points of blood from the target or the target dies. A creature, including the target, can use its action to detach the stirge."
+          }
+        ],
+        actions: [],
+        traits: [],
+        notes: "Challenge 0.125 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-vulture",
+      name: "Vulture",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Vulture",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Vulture",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 10,
+        initiative_bonus: 0,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d8",
+        hp: {
+          max: 5,
+          current: 5,
+          temp: 0
+        },
+        abilities: {
+          str: 7,
+          dex: 10,
+          con: 13,
+          int: 2,
+          wis: 12,
+          cha: 4
+        },
+        movement: {
+          walk: 10,
+          fly: 50,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Beak",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 2,
+            damage_mode: "manual",
+            damage: "1d4",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +2 to hit, reach 5 ft., one target. Hit: 2 (1d4) piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Sight and Smell",
+            description: "The vulture has advantage on Wisdom (Perception) checks that rely on sight or smell."
+          },
+          {
+            id: "trait-2",
+            name: "Pack Tactics",
+            description: "The vulture has advantage on an attack roll against a creature if at least one of the vulture's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d8"
+      }
+    },
+    {
+      id: "mm-weasel",
+      name: "Weasel",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Weasel",
+      template_kind: "creature",
+      tags: [
+        "familiar",
+        "beast_master"
+      ],
+      challenge_rating: "0",
+      stat_block: {
+        name: "Weasel",
+        role: "familiar",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Tiny",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 3,
+        proficiency_bonus: 2,
+        challenge_rating: "0",
+        hit_dice: "1d4",
+        hp: {
+          max: 1,
+          current: 1,
+          temp: 0
+        },
+        abilities: {
+          str: 3,
+          dex: 16,
+          con: 8,
+          int: 2,
+          wis: 12,
+          cha: 3
+        },
+        movement: {
+          walk: 30,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 5
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 5,
+            damage_mode: "manual",
+            damage: "1",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +5 to hit, reach 5 ft., one creature. Hit: 1 piercing damage."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Hearing and Smell",
+            description: "The weasel has advantage on Wisdom (Perception) checks that rely on hearing or smell."
+          }
+        ],
+        notes: "Challenge 0 \xB7 Hit Dice 1d4"
+      }
+    },
+    {
+      id: "mm-wolf",
+      name: "Wolf",
+      source: "Monster Manual",
+      source_ref: "Monster Manual: Wolf",
+      template_kind: "creature",
+      tags: [
+        "beast_master"
+      ],
+      challenge_rating: "0.25",
+      stat_block: {
+        name: "Wolf",
+        role: "beast_companion",
+        source: "Monster Manual",
+        creature_type: "beast",
+        size: "Medium",
+        alignment: "unaligned",
+        lifecycle: "persistent",
+        status: "active",
+        ac: 13,
+        initiative_bonus: 2,
+        proficiency_bonus: 2,
+        challenge_rating: "0.25",
+        hit_dice: "2d8",
+        hp: {
+          max: 11,
+          current: 11,
+          temp: 0
+        },
+        abilities: {
+          str: 12,
+          dex: 15,
+          con: 12,
+          int: 3,
+          wis: 12,
+          cha: 6
+        },
+        movement: {
+          walk: 40,
+          fly: 0,
+          swim: 0,
+          climb: 0,
+          burrow: 0,
+          notes: ""
+        },
+        saves: {
+          str: null,
+          dex: null,
+          con: null,
+          int: null,
+          wis: null,
+          cha: null
+        },
+        skills: [
+          {
+            id: "skill-1",
+            name: "Perception",
+            bonus: 3
+          },
+          {
+            id: "skill-2",
+            name: "Stealth",
+            bonus: 4
+          }
+        ],
+        senses: "passive Perception 13",
+        languages: "",
+        defenses: {
+          vulnerabilities: [],
+          resistances: [],
+          immunities: [],
+          condition_immunities: []
+        },
+        attacks: [
+          {
+            id: "attack-1",
+            name: "Bite",
+            kind: "natural_weapon",
+            atk_bonus_mode: "manual",
+            atk_bonus_override: 4,
+            damage_mode: "manual",
+            damage: "2d4+2",
+            damage_type: "Piercing",
+            range: "Reach 5 ft.",
+            reach: 5,
+            properties: [],
+            tags: [],
+            notes: "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 7 (2d4 + 2) piercing damage. If the target is a creature, it must succeed on a DC 11 Strength saving throw or be knocked prone."
+          }
+        ],
+        actions: [],
+        traits: [
+          {
+            id: "trait-1",
+            name: "Keen Hearing and Smell",
+            description: "The wolf has advantage on Wisdom (Perception) checks that rely on hearing or smell."
+          },
+          {
+            id: "trait-2",
+            name: "Pack Tactics",
+            description: "The wolf has advantage on an attack roll against a creature if at least one of the wolf's allies is within 5 ft. of the creature and the ally isn't incapacitated."
+          }
+        ],
+        notes: "Challenge 0.25 \xB7 Hit Dice 2d8"
+      }
+    }
+  ];
+
+  // data/dnd5e_2014/features.min.json
+  var features_min_default = [
+    { id: "sneak_attack", name: "Sneak Attack", source: "PHB", class_id: "rogue", min_level: 1, auto_grant: true, scope: "weapon_attacks", application_mode: "manual", requirements: { any: [{ kind: "ranged_weapon" }, { property: "finesse" }] }, scaling: [{ min_level: 1, damage_dice: "1d6" }, { min_level: 3, damage_dice: "2d6" }, { min_level: 5, damage_dice: "3d6" }, { min_level: 7, damage_dice: "4d6" }, { min_level: 9, damage_dice: "5d6" }, { min_level: 11, damage_dice: "6d6" }, { min_level: 13, damage_dice: "7d6" }, { min_level: 15, damage_dice: "8d6" }, { min_level: 17, damage_dice: "9d6" }, { min_level: 19, damage_dice: "10d6" }], usage: { frequency: "once_per_turn" }, notes: "Optional extra damage on an eligible hit; table conditions are confirmed by the player or DM." },
+    { id: "rage_damage", name: "Rage Damage", source: "PHB", class_id: "barbarian", min_level: 1, auto_grant: true, scope: "melee_weapon", application_mode: "manual", requirements: { ability: "str" }, scaling: [{ min_level: 1, damage_bonus: 2 }, { min_level: 9, damage_bonus: 3 }, { min_level: 16, damage_bonus: 4 }], notes: "Enable while raging and making a Strength-based melee weapon attack." },
+    { id: "reckless_attack", name: "Reckless Attack", source: "PHB", class_id: "barbarian", min_level: 2, auto_grant: true, scope: "melee_weapon", application_mode: "manual", requirements: { ability: "str" }, advantage_state: "advantage", notes: "Enable when choosing to attack recklessly with Strength." },
+    { id: "divine_smite", name: "Divine Smite", source: "PHB", class_id: "paladin", min_level: 2, auto_grant: true, scope: "melee_weapon", application_mode: "manual", resource: { type: "spell_slot" }, notes: "On a melee weapon hit, choose a spell slot to add radiant damage." },
+    { id: "improved_divine_smite", name: "Improved Divine Smite", source: "PHB", class_id: "paladin", min_level: 11, auto_grant: true, scope: "melee_weapon", application_mode: "auto", damage_dice: "1d8", damage_type_add: "radiant", notes: "Adds radiant damage to melee weapon hits." },
+    { id: "archery_style", name: "Archery Fighting Style", source: "PHB", auto_grant: false, scope: "ranged_weapon", application_mode: "auto", attack_roll_bonus: 2, notes: "Available to PHB fighters and rangers who choose this style." },
+    { id: "dueling_style", name: "Dueling Fighting Style", source: "PHB", auto_grant: false, scope: "melee_weapon", application_mode: "auto", damage_bonus: 2, notes: "Available to PHB fighters, paladins, and rangers who choose this style; use with a qualifying one-handed melee weapon." },
+    { id: "colossus_slayer", name: "Colossus Slayer", source: "PHB", class_id: "ranger", min_level: 3, auto_grant: false, scope: "weapon_attacks", application_mode: "manual", damage_dice: "1d8", usage: { frequency: "once_per_turn" }, notes: "Enable when the target is already below its hit point maximum." },
+    { id: "combat_superiority", name: "Combat Superiority Maneuver", source: "PHB", class_id: "fighter", min_level: 3, auto_grant: false, scope: "weapon_attacks", application_mode: "manual", scaling: [{ min_level: 3, damage_dice: "1d8" }, { min_level: 10, damage_dice: "1d10" }, { min_level: 18, damage_dice: "1d12" }], resource: { type: "tracker", label: "Superiority Dice", cost: 1 }, notes: "Generic maneuver die; edit the name and notes for the learned maneuver." },
+    { id: "sharpshooter", name: "Sharpshooter Power Attack", source: "PHB", auto_grant: false, auto_attack_tag: "sharpshooter", scope: "ranged_weapon", application_mode: "manual", attack_roll_bonus: -5, damage_bonus: 10, notes: "Optional power attack from the Sharpshooter feat." },
+    { id: "great_weapon_master", name: "Great Weapon Master Power Attack", source: "PHB", auto_grant: false, auto_attack_tag: "great_weapon_master", scope: "melee_weapon", application_mode: "manual", attack_roll_bonus: -5, damage_bonus: 10, notes: "Optional power attack from the Great Weapon Master feat." }
+  ];
+
   // js/v2/catalog-standalone.js
   function asList(v) {
     return Array.isArray(v) ? v : [];
@@ -24333,7 +30137,9 @@
       subclasses: asList(subclasses_min_default),
       species: asList(species_min_default),
       spells: asList(spells_min_default),
-      attacks: asList(attacks_min_default)
+      attacks: asList(attacks_min_default),
+      companions: asList(companions_min_default),
+      features: asList(features_min_default)
     },
     dnd5e_2024: {
       rulesetId: "dnd5e_2024",
@@ -24341,7 +30147,9 @@
       subclasses: asList(subclasses_min_default),
       species: asList(species_min_default),
       spells: asList(spells_min_default),
-      attacks: asList(attacks_min_default)
+      attacks: asList(attacks_min_default),
+      companions: asList(companions_min_default),
+      features: asList(features_min_default)
     }
   };
 
@@ -24363,6 +30171,8 @@
     species: [],
     spells: [],
     attacks: [],
+    companions: [],
+    features: [],
     error: ""
   };
   var runtimeStatus = {
@@ -24437,8 +30247,8 @@
     }, AUTOSAVE_MS);
   }
   async function ensureCatalog(rulesetId = "dnd5e_2014") {
-    const id = (rulesetId || "").toString().trim() || "dnd5e_2014";
-    const selected = STANDALONE_CATALOG[id] || STANDALONE_CATALOG.dnd5e_2014;
+    const id2 = (rulesetId || "").toString().trim() || "dnd5e_2014";
+    const selected = STANDALONE_CATALOG[id2] || STANDALONE_CATALOG.dnd5e_2014;
     catalog = {
       rulesetId: selected.rulesetId,
       classes: selected.classes,
@@ -24446,6 +30256,8 @@
       species: selected.species,
       spells: selected.spells,
       attacks: selected.attacks || [],
+      companions: selected.companions || [],
+      features: selected.features || [],
       error: ""
     };
     ui.render();

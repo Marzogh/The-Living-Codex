@@ -121,6 +121,8 @@ export function createDefaultCharacterV2({
     },
     skills: {},
     attacks: [],
+    features: [],
+    companions: [],
     play_state: {
       active_effects: [],
       recent_actions: [],

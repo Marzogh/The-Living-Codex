@@ -143,6 +143,8 @@ export const RulesDB = {
     let subclasses = [];
     let species = [];
     let attacks = [];
+    let companions = [];
+    let features = [];
     let meta = null;
 
     try { spells = await fetchJson(new URL("spells.min.json", baseUrl).href); } catch { /* optional */ }
@@ -168,6 +170,10 @@ export const RulesDB = {
       }
     }
     try { attacks = await fetchJson(new URL("attacks.min.json", baseUrl).href); } catch { /* optional */ }
+    try { companions = await fetchJson(new URL("companions.min.json", baseUrl).href); }
+    catch (error) { console.warn("RulesDB: companion catalogue unavailable", error); }
+    try { features = await fetchJson(new URL("features.min.json", baseUrl).href); }
+    catch (error) { console.warn("RulesDB: feature catalogue unavailable", error); }
     try { meta = await fetchJson(new URL("meta.json", baseUrl).href); } catch { /* optional */ }
 
     const spellsIndex = buildIndex(spells);
@@ -176,6 +182,8 @@ export const RulesDB = {
     const speciesIndex = buildIndex(species);
     const subclassesIndex = buildIndex(subclasses);
     const attacksIndex = buildIndex(attacks);
+    const companionsIndex = buildIndex(companions);
+    const featuresIndex = buildIndex(features);
 
     return {
       rulesetId: rs,
@@ -187,14 +195,18 @@ export const RulesDB = {
         classes: classesIndex.list.length,
         subclasses: subclassesIndex.list.length,
         species: speciesIndex.list.length,
-        attacks: attacksIndex.list.length
+        attacks: attacksIndex.list.length,
+        companions: companionsIndex.list.length,
+        features: featuresIndex.list.length
       },
       spells: makeSpellApi(spellsIndex),
       items: makeGenericApi(itemsIndex),
       classes: makeGenericApi(classesIndex),
       subclasses: makeGenericApi(subclassesIndex),
       species: makeGenericApi(speciesIndex),
-      attacks: makeGenericApi(attacksIndex)
+      attacks: makeGenericApi(attacksIndex),
+      companions: makeGenericApi(companionsIndex),
+      features: makeGenericApi(featuresIndex)
     };
   }
 };

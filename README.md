@@ -21,74 +21,13 @@ That root entry is the canonical v2 experience. If you open the app directly via
 
 v2 gives you a fast Play Mode and a full Edit Mode, with local save/import/export flows, subclass and spell lookup, multiclass-aware visuals, and species/class identity elements (including default portraits and class badges). It runs fully local-first, with no backend and no cloud dependency.
 
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/create-character-empty.png">
-        <img src="docs/screenshots/create-character-empty.png" alt="Create Character Empty State" width="100%" />
-      </a>
-      <p><strong>Create Character</strong><br/>Empty-state onboarding with species/class preview guidance.</p>
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/create-character-flow.png">
-        <img src="docs/screenshots/create-character-flow.png" alt="Create Character Flow" width="100%" />
-      </a>
-      <p><strong>Create Character (Populated)</strong><br/>Live portrait and class badge preview before creation.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/edit-mode-core.png">
-        <img src="docs/screenshots/edit-mode-core.png" alt="Edit Mode Core" width="100%" />
-      </a>
-      <p><strong>Edit Mode: Core</strong><br/>Identity, ability scores, species, and class foundations.</p>
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/edit-mode-spellcraft.png">
-        <img src="docs/screenshots/edit-mode-spellcraft.png" alt="Edit Mode Spellcraft" width="100%" />
-      </a>
-      <p><strong>Edit Mode: Spellcraft</strong><br/>Prepared/known spell management and spellcasting setup.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/edit-mode-combat-mechanics.png">
-        <img src="docs/screenshots/edit-mode-combat-mechanics.png" alt="Edit Mode Combat and Mechanics" width="100%" />
-      </a>
-      <p><strong>Edit Mode: Combat &amp; Mechanics</strong><br/>Saves, skills, attacks, and derived combat values.</p>
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/edit-mode-gear-inventory.png">
-        <img src="docs/screenshots/edit-mode-gear-inventory.png" alt="Edit Mode Gear and Inventory" width="100%" />
-      </a>
-      <p><strong>Edit Mode: Gear</strong><br/>Inventory, quantities, notes, and tracker/log entry points.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/edit-mode-chronicle.png">
-        <img src="docs/screenshots/edit-mode-chronicle.png" alt="Edit Mode Chronicle" width="100%" />
-      </a>
-      <p><strong>Edit Mode: Chronicle</strong><br/>Portrait, background, story details, and coin tracking.</p>
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/screenshots/play-mode-tactical-board.png">
-        <img src="docs/screenshots/play-mode-tactical-board.png" alt="Play Mode Tactical Board" width="100%" />
-      </a>
-      <p><strong>Play Mode: Tactical Board</strong><br/>At-table HUD with quick actions, logs, and turn workflow.</p>
-    </td>
-  </tr>
-</table>
-
 ## Typical Flow
 
 Create or import a character, refine identity and mechanics in Edit Mode, then switch to Play Mode for turn-by-turn decisions, tracking, and logging. When you want a backup or to move devices, export a ZIP character pack.
 
 ## Project Layout
 
-The main implementation lives in `js/v2/` with styling in `css/v2.css`, while 2014 rules data is in `data/dnd5e_2014/`. If you need implementation and pack-format details, `docs/v2-spec.md` is the source of truth. Legacy code remains available in `archive/v1/` for reference only.
+The main implementation lives in `js/v2/` with styling in `css/v2.css`, while 2014 rules data is in `data/dnd5e_2014/`. Legacy code remains available in `archive/v1/` for reference only.
 
 ## Troubleshooting
 

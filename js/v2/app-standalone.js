@@ -26,6 +26,8 @@ let catalog = {
   species: [],
   spells: [],
   attacks: [],
+  companions: [],
+  features: [],
   error: ""
 };
 
@@ -119,6 +121,8 @@ async function ensureCatalog(rulesetId = "dnd5e_2014") {
     species: selected.species,
     spells: selected.spells,
     attacks: selected.attacks || [],
+    companions: selected.companions || [],
+    features: selected.features || [],
     error: ""
   };
   ui.render();

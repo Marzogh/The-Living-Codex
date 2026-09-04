@@ -1,3 +1,7 @@
+import { normalizeCompanions } from "../core/companions.js";
+import { inferInventoryAmmunitionType, normalizeAmmunitionLinks, normalizeAmmunitionType } from "../core/ammunition.js";
+import { normalizeCharacterFeatures } from "../core/features.js";
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -531,6 +535,23 @@ function normalizeSheetExtensions(character, report) {
   ensureObject(character, "spellcasting", report, "spellcasting");
   ensureObject(character, "play_state", report, "play_state");
   ensureArray(character, "attacks", report, "attacks");
+  ensureArray(character, "inventory", report, "inventory");
+  character.companions = normalizeCompanions(character.companions);
+  character.features = normalizeCharacterFeatures(character.features);
+  character.inventory = character.inventory.map((row, idx) => {
+    const r = isObj(row) ? row : {};
+    const inferredAmmunitionType = inferInventoryAmmunitionType(r);
+    return {
+      ...r,
+      id: asString(r.id || crypto.randomUUID()),
+      name: asString(r.name || `Item ${idx + 1}`),
+      qty: Math.max(0, toInt(r.qty, 1)),
+      notes: asString(r.notes || ""),
+      item_type: r.item_type === "ammunition" || (r.item_type !== "item" && inferredAmmunitionType) ? "ammunition" : "item",
+      ammunition_type: normalizeAmmunitionType(r.ammunition_type),
+      unlimited_ammunition: toBool(r.unlimited_ammunition)
+    };
+  });
 
   const c = character.combat;
   c.speed = Math.max(0, toInt(c.speed, 30));
@@ -634,6 +655,7 @@ function normalizeSheetExtensions(character, report) {
     };
   });
 
+  const inventoryIds = new Set(character.inventory.map((item) => item.id));
   character.attacks = character.attacks.map((row, idx) => {
     const r = isObj(row) ? row : {};
     const legacyAtkBonus = r.atk_bonus ?? r.attack_bonus ?? 0;
@@ -651,6 +673,8 @@ function normalizeSheetExtensions(character, report) {
     const tags = Array.isArray(r.tags)
       ? r.tags.map((x) => asString(x).trim()).filter(Boolean)
       : asString(r.tags || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const ammunitionLinks = normalizeAmmunitionLinks(r.ammunition_links).filter((id) => inventoryIds.has(id));
+    const selectedAmmunitionId = asString(r.selected_ammunition_id || "");
     return {
       id: asString(r.id || crypto.randomUUID()),
       catalog_id: asString(r.catalog_id || r.weapon_id || ""),
@@ -672,7 +696,11 @@ function normalizeSheetExtensions(character, report) {
       reach,
       properties,
       notes: asString(r.notes || ""),
-      tags
+      tags,
+      ammunition_type: normalizeAmmunitionType(r.ammunition_type),
+      ammunition_links: ammunitionLinks,
+      selected_ammunition_id: ammunitionLinks.includes(selectedAmmunitionId) ? selectedAmmunitionId : (ammunitionLinks[0] || ""),
+      unlimited_ammunition: toBool(r.unlimited_ammunition)
     };
   });
 }

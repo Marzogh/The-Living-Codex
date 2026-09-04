@@ -319,7 +319,112 @@
     "inventory": {
       "type": "array",
       "items": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "qty": { "type": "integer", "minimum": 0 },
+          "notes": { "type": "string" },
+          "item_type": { "enum": ["item", "ammunition"] },
+          "ammunition_type": { "enum": ["", "arrow", "bolt", "bullet", "cannonball", "sling_bullet", "blowgun_needle", "custom"] },
+          "unlimited_ammunition": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "attacks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ammunition_type": { "enum": ["", "arrow", "bolt", "bullet", "cannonball", "sling_bullet", "blowgun_needle", "custom"] },
+          "ammunition_links": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "selected_ammunition_id": { "type": "string" },
+          "unlimited_ammunition": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "enabled", "scope", "application_mode"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "template_id": { "type": "string" },
+          "name": { "type": "string" },
+          "source": { "type": "string" },
+          "class_id": { "type": "string" },
+          "min_level": { "type": "integer", "minimum": 0 },
+          "enabled": { "type": "boolean" },
+          "dm_override": { "type": "boolean" },
+          "scope": { "type": "string" },
+          "application_mode": { "enum": ["auto", "suggested", "manual"] },
+          "attack_roll_bonus": { "type": "integer" },
+          "attack_roll_dice": { "type": "string" },
+          "advantage_state": { "enum": ["advantage", "disadvantage", "none"] },
+          "damage_bonus": { "type": "integer" },
+          "damage_dice": { "type": "string" },
+          "damage_type_add": { "type": "string" },
+          "damage_type_replace": { "type": "string" },
+          "crit_extra_dice": { "type": "string" },
+          "requirements": { "type": "object" },
+          "scaling": { "type": "array" },
+          "usage": { "type": "object" },
+          "resource": { "type": ["object", "null"] },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "companions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "lifecycle", "status", "hp", "abilities", "attacks", "effects"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string" },
+          "template_id": { "type": "string" },
+          "template_source": { "type": "string" },
+          "template_kind": { "type": "string" },
+          "template_level": { "type": ["integer", "null"], "minimum": 0 },
+          "dm_override": { "type": "boolean" },
+          "role": { "type": "string" },
+          "source": { "type": "string" },
+          "creature_type": { "type": "string" },
+          "size": { "type": "string" },
+          "alignment": { "type": "string" },
+          "lifecycle": { "enum": ["persistent", "temporary"] },
+          "status": { "enum": ["active", "inactive", "archived"] },
+          "duration": { "type": "string" },
+          "rounds_remaining": { "type": ["integer", "null"], "minimum": 0 },
+          "replaces_id": { "type": "string" },
+          "replacement": { "type": "object" },
+          "ac": { "type": "integer", "minimum": 0 },
+          "initiative_bonus": { "type": "integer" },
+          "proficiency_bonus": { "type": "integer" },
+          "challenge_rating": { "type": "string" },
+          "hit_dice": { "type": "string" },
+          "hp": { "type": "object" },
+          "abilities": { "type": "object" },
+          "movement": { "type": "object" },
+          "saves": { "type": "object" },
+          "skills": { "type": "array" },
+          "senses": { "type": "string" },
+          "languages": { "type": "string" },
+          "defenses": { "type": "object" },
+          "attacks": { "type": "array" },
+          "actions": { "type": "array" },
+          "bonus_actions": { "type": "array" },
+          "reactions": { "type": "array" },
+          "traits": { "type": "array" },
+          "equipment": { "type": "array" },
+          "effects": { "type": "array" },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": true
       }
     },
     "spells_known": {
